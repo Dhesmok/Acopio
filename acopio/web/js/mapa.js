@@ -86,8 +86,8 @@ export function encuadrar() {
 }
 
 export const centroVista = () => ({ x: vista.x + vista.w / 2, y: vista.y + vista.h / 2 });
-export const limpiarSeleccion = () => { seleccion = null; forzarPintado(); };
-export const seleccionar = (tipo, id) => { seleccion = { tipo, id }; forzarPintado(); };
+export const limpiarSeleccion = () => { seleccion = null; pintarYa(); };
+export const seleccionar = (tipo, id) => { seleccion = { tipo, id }; pintarYa(); };
 export const haySeleccion = () => seleccion;
 
 // Modo edición: un toque basta para seleccionar, sin mantener presionado
@@ -95,16 +95,24 @@ let modoEdicion = false;
 export function editar(activo) {
   modoEdicion = activo;
   if (!activo) seleccion = null;
-  forzarPintado();
+  pintarYa();
 }
 export const enEdicion = () => modoEdicion;
 
-function forzarPintado() {
-  const d = datos;
-  const m = modo, p = punteros.size;
-  modo = 'ninguno'; punteros.clear();
-  pintar(d);
-  modo = m;
+// Repinta AHORA, aunque haya un gesto en curso.
+//
+// `pintar` aplaza los repintados que llegan de fuera durante un gesto,
+// porque rehacer el SVG destruiría el nodo que se está arrastrando. Pero
+// los repintados que pide el propio mapa —mientras se estira, se gira o
+// se mueve un vértice— son justamente lo que hay que ver: aplazarlos
+// dejaba a la persona ajustando a ciegas hasta soltar el dedo.
+//
+// Lo que llegó de fuera NO se descarta: sigue esperando su turno al final
+// del gesto.
+let repintadoPropio = false;
+function pintarYa() {
+  repintadoPropio = true;
+  try { pintar(datos); } finally { repintadoPropio = false; }
 }
 
 // --------------------------------------------------------------- dibujo
@@ -113,12 +121,14 @@ function forzarPintado() {
 // Se mira SOLO el modo, no los punteros: un puntero que quedó apuntado
 // por un gesto interrumpido dejaba el mapa congelado para siempre.
 // Y si el lienzo ya no está en la página, nada puede impedir el dibujo.
-const interactuando = () => modo !== 'ninguno' && !!svg && svg.isConnected;
+const interactuando = () => !repintadoPropio && modo !== 'ninguno' && !!svg && svg.isConnected;
 
 export function pintar(d) {
   if (interactuando()) { repintadoPendiente = d; return; }
   datos = d;
-  repintadoPendiente = null;
+  // solo un repintado de verdad cancela lo que estaba en espera; uno
+  // propio del gesto no puede tragarse los datos nuevos que llegaron
+  if (!repintadoPropio) repintadoPendiente = null;
   if (!svg.getAttribute('viewBox')) encuadrar();
   const c = datos.config;
   const fuera = (l) => l.estado === 'despachado' || l.estado === 'plataforma';
@@ -385,7 +395,7 @@ function abajo(ev) {
       const q = ps[(i + 1) % ps.length];
       ps.splice(i + 1, 0, { x: (ps[i].x + q.x) / 2, y: (ps[i].y + q.y) / 2 });
       o.puntos = ps;
-      pintar(datos);
+      pintarYa();
       cb.alGuardarGeom?.(seleccion.tipo, o);
       return;
     }
@@ -405,7 +415,7 @@ function abajo(ev) {
     // En modo edición la selección es inmediata: se ven las manijas al tocar
     if (modoEdicion && (seleccion?.id !== obj.id)) {
       seleccion = { tipo, id: obj.id };
-      pintar(datos);
+      pintarYa();
       arrastre.nodo = svg.querySelector(`[data-id="${obj.id}"]`);
       cb.alSeleccionar?.(tipo, obj);
     }
@@ -413,7 +423,7 @@ function abajo(ev) {
       if (!movio) {
         seleccion = { tipo, id: obj.id };
         modo = 'ninguno';
-        pintar(datos);
+        pintarYa();
         cb.alSeleccionar?.(tipo, obj);
         navigator.vibrate?.(30);
       }
@@ -423,7 +433,7 @@ function abajo(ev) {
 
   if (modoEdicion && seleccion) {
     seleccion = null;
-    pintar(datos);
+    pintarYa();
     cb.alTocarVacio?.();
   }
   modo = 'paneando';
@@ -487,7 +497,7 @@ function movimiento(ev) {
       o.rx = Math.min(Math.max(Math.abs(l.x), 14), 900);
       o.ry = Math.min(Math.max(Math.abs(l.y), 12), 900);
     }
-    pintar(datos);
+    pintarYa();
   }
 }
 
@@ -516,11 +526,11 @@ function arriba(ev) {
     if (!movio) {
       if (modoEdicion) {
         seleccion = { tipo, id: obj.id };
-        pintar(datos);
+        pintarYa();
         cb.alSeleccionar?.(tipo, obj);
       } else {
         seleccion = null;
-        pintar(datos);
+        pintarYa();
         cb.alTocar?.(tipo, obj.id);
       }
     } else {
@@ -532,7 +542,7 @@ function arriba(ev) {
     // tocar un vértice sin moverlo lo elimina, si quedan al menos tres
     if (!movio && arrastre.handle === 'vertice') {
       const o = arrastre.obj, ps = listaPuntos(o).slice();
-      if (ps.length > 3) { ps.splice(arrastre.i, 1); o.puntos = ps; pintar(datos); }
+      if (ps.length > 3) { ps.splice(arrastre.i, 1); o.puntos = ps; pintarYa(); }
     }
     cb.alGuardarGeom?.(seleccion.tipo, arrastre.obj);
   }

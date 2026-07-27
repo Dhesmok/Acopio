@@ -269,13 +269,20 @@ function pantallaPrincipal() {
         <button class="chip-sync" id="chip"><span class="punto"></span><span id="chip-txt">—</span></button>
         <button class="icono" id="menu" aria-label="Cuenta">⋮</button>
       </header>
-      <div id="franja" hidden class="franja"><div></div></div>
       <nav class="pestanas">
         <button data-t="mapa" aria-selected="true">Mapa</button>
         <button data-t="lotes" aria-selected="false">Lotes</button>
       </nav>
     </div>
     <main id="main"></main>
+    <!-- Los avisos FLOTAN sobre el contenido en vez de empujarlo. Antes
+         vivían dentro de la cabecera y del mapa, así que cada uno que
+         aparecía daba un salto a toda la pantalla y reescalaba el plano. -->
+    <div id="flotantes">
+      <div id="barra-recorrido"></div>
+      <div id="barra-forma"></div>
+      <div id="franja" hidden class="franja"><div></div></div>
+    </div>
     <div id="modal"></div>`;
 
   $('#chip').onclick = sincronizar;
@@ -297,7 +304,9 @@ function pintar() {
   // lista sí se centra, porque un renglón de texto muy largo se lee mal.
   const m = $('#main');
   if (m) m.className = S.pestana === 'mapa' ? 'a-sangre' : '';
-  if (S.pestana !== 'mapa') return pintarLista();
+  // las barras del mapa flotan sobre TODA la pantalla, así que hay que
+  // recogerlas al salir de la pestaña o se quedarían sobre la lista
+  if (S.pestana !== 'mapa') { limpiarBarrasMapa(); return pintarLista(); }
   // Solo se monta la primera vez: repintar no puede perder el zoom ni el encuadre
   if (!document.querySelector('#lienzo-caja')) montarMapa();
   else refrescarMapa();
@@ -341,16 +350,24 @@ function pintarSync() {
 }
 
 // ------------------------------------------------------------------ mapa
+const limpiarBarrasMapa = () => {
+  for (const id of ['#barra-forma', '#barra-recorrido']) {
+    const n = $(id); if (n) n.innerHTML = '';
+  }
+};
+
 function montarMapa() {
   // Rearmar la barra no puede costar el encuadre en el que se estaba
   const vistaPrevia = document.querySelector('#lienzo') ? Mapa.obtenerVista() : null;
 
+  limpiarBarrasMapa();
+  const rec = $('#barra-recorrido');
+  if (rec && S.recorrido) rec.innerHTML = `<div class="barra-modo">
+    <span>Recorrido del lote en pantalla</span>
+    <button class="pastilla" id="quitar-recorrido">Quitar</button></div>`;
+
   $('#main').innerHTML = `
     <div class="pantalla-mapa">
-      ${S.recorrido ? `<div class="barra-modo">
-        <span>Recorrido del lote en pantalla</span>
-        <button class="pastilla" id="quitar-recorrido">Quitar</button></div>` : ''}
-      <div id="barra-forma"></div>
       <div class="mapa-caja">
         <div id="lienzo-caja"></div>
         <div class="mapa-controles">

@@ -84,7 +84,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
    top:0 y se tapaban entre sí; además la página completa se desplazaba
    por debajo del mapa, que ya se arrastra con el dedo. Con esta
    estructura ninguna de las dos cosas puede volver a pasar. */
-#app { height: 100dvh; display: flex; flex-direction: column; }
+#app { height: 100dvh; display: flex; flex-direction: column; position: relative; }
+
+/* --- capa flotante de avisos --------------------------------------
+   Un aviso NO puede mover la pantalla. Cuando la franja vivía dentro de
+   la cabecera y la barra de modo dentro del mapa, cada una que aparecía
+   robaba altura: la lista saltaba hacia abajo y el plano se reescalaba
+   solo, justo mientras alguien estaba trabajando encima. Aquí flotan:
+   ocupan cero espacio en el armazón. */
+#flotantes {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0 12px calc(10px + env(safe-area-inset-bottom));
+  pointer-events: none;   /* el mapa se sigue arrastrando por debajo */
+}
+#flotantes > * { pointer-events: auto; }
+#barra-forma:empty, #barra-recorrido:empty { display: none; }
 
 .cabecera-fija { flex: none; position: relative; z-index: 25; box-shadow: var(--sombra-media); }
 
@@ -121,10 +136,13 @@ header .crece { flex: 1; }
 .chip-sync:active { transform: scale(.94); }
 @keyframes latir { 50% { opacity: .3; transform: scale(.8); } }
 
-/* Franja de advertencia: hay cambios sin subir */
-.franja { animation: bajar var(--t-medio) var(--curva); cursor: pointer; }
-@keyframes bajar { from { opacity: 0; transform: translateY(-6px); } }
+/* Franja de advertencia: hay cambios sin subir. Vive en #flotantes, así
+   que es una tarjeta que entra desde abajo, no una banda que empuja. */
 .franja {
+  cursor: pointer;
+  border-radius: var(--r); overflow: hidden;
+  box-shadow: var(--sombra-alta);
+  animation: entrar var(--t-medio) var(--curva);
   background: repeating-linear-gradient(
     -45deg, #d99a06, #d99a06 12px, #14171a 12px, #14171a 24px
   );
@@ -132,13 +150,19 @@ header .crece { flex: 1; }
 }
 .franja > div {
   background: #fff5dc; color: #4a3400;
-  font-size: 13px; font-weight: 600; padding: 7px 12px; text-align: center;
+  border-radius: calc(var(--r) - 2px);
+  font-size: 13px; font-weight: 600; padding: 8px 12px; text-align: center;
 }
 .franja[data-tono="error"] {
   background: repeating-linear-gradient(-45deg,
     #b8352a, #b8352a 12px, #14171a 12px, #14171a 24px);
 }
 .franja[data-tono="error"] > div { background: #fbeae8; color: #6b1a12; }
+
+/* En pantalla ancha no tiene por qué ocupar todo el borde inferior */
+@media (min-width: 720px) {
+  #flotantes { left: auto; width: min(560px, 100%); }
+}
 
 /* ------------------------------------------------------------ pestañas */
 nav.pestanas {
@@ -168,6 +192,10 @@ main {
 /* El mapa va de borde a borde: el plano es el contenido, no una tarjeta
    dentro de una hoja. La lista sí conserva sus márgenes. */
 main.a-sangre { padding: 0; overflow: hidden; }
+/* Hueco fijo al final de la lista para que los avisos flotantes nunca
+   tapen la última tarjeta. Reservado siempre, para que aparecer o
+   desaparecer no mueva nada. */
+main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 
 /* El mapa llena la altura disponible: nunca empuja la página */
 .pantalla-mapa { display: flex; flex-direction: column; height: 100%; gap: 0; }
@@ -562,7 +590,7 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .barra-modo {
   background: var(--tinta); color: #fff;
-  border-radius: var(--r); margin: 10px 12px;
+  border-radius: var(--r); margin: 0;
   padding: 11px 11px 11px 15px; font-size: 13.5px; line-height: 1.35;
   display: flex; align-items: center; gap: 12px;
   box-shadow: var(--sombra-media);
