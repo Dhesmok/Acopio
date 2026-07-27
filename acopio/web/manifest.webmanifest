@@ -1,0 +1,17 @@
+{
+  "name": "Acopio · mapa de lotes",
+  "short_name": "Acopio",
+  "description": "Control de lotes y pilas en el patio de acopio, funciona sin señal.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e4e7e2",
+  "theme_color": "#14171a",
+  "lang": "es-CO",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
