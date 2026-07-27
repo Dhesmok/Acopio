@@ -80,6 +80,11 @@ document.addEventListener('acopio:version-nueva', () => {
   pintarSync();
 });
 
+// Red de seguridad final: cualquier fallo que se escape de `accion` y de
+// `gesto`. Sin esto terminaba en la consola del navegador, que nadie mira
+// desde un celular en el patio.
+addEventListener('unhandledrejection', (e) => { e.preventDefault(); fallaDeFondo(e.reason); });
+
 async function arrancar() {
   await Store.iniciar();
   const { data } = await sb.auth.getSession();
@@ -186,8 +191,31 @@ function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
   };
 }
 
-const decirError = (e) =>
-  avisar(`No se pudo guardar: ${e?.message || e}. El cambio quedó en el celular; se reintenta solo.`);
+const textoFallo = (e) =>
+  `No se pudo guardar: ${e?.message || e}. El cambio quedó en el celular; se reintenta solo.`;
+
+// Para lo que la persona pidió explícitamente con un botón: se muestra
+// siempre, aunque tape la hoja abierta, porque está esperando respuesta.
+const decirError = (e) => { console.error(e); avisar(textoFallo(e)); };
+
+// Para lo que pasa de fondo —un gesto del mapa, la red de seguridad—:
+// ni tapa lo que la persona está haciendo, ni repite el mismo aviso cada
+// veinte segundos si algo quedó fallando en bucle.
+let ultimoFallo = 0;
+function fallaDeFondo(e) {
+  console.error(e);
+  if (document.querySelector('.hoja') || Date.now() - ultimoFallo < 15_000) return;
+  ultimoFallo = Date.now();
+  avisar(textoFallo(e));
+}
+
+// Arrastrar un lote, soltarlo sobre una pila o ajustar una forma no pasa
+// por ningún botón, así que `accion` no los cubre y mapa.js no espera a
+// que terminen: si fallaban, el error se perdía y en pantalla no pasaba
+// nada. Que es exactamente como empezó todo esto.
+const gesto = (fn) => (...args) => Promise.resolve()
+  .then(() => fn(...args))
+  .catch(fallaDeFondo);
 
 // --------------------------------------------------------------- ingreso
 function pantallaIngreso() {
@@ -350,21 +378,21 @@ function montarMapa() {
 
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
-    alTocar: (tipo, id) => {
-      if (tipo === 'lote') fichaLote(id);
-      else if (tipo === 'pila') fichaPila(id);
-      else if (esAdmin()) fichaFigura(id);
-    },
+    alTocar: gesto((tipo, id) => {
+      if (tipo === 'lote') return fichaLote(id);
+      if (tipo === 'pila') return fichaPila(id);
+      if (esAdmin()) return fichaFigura(id);
+    }),
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
     alTocarVacio: () => { if (S.edicion) barraEdicion(); },
-    alGuardarGeom: async (tipo, obj, origen) => {
+    alGuardarGeom: gesto(async (tipo, obj, origen) => {
       const tabla = tipo === 'lote' ? 'lotes' : tipo === 'pila' ? 'pilas' : 'mapa_figuras';
       await Store.guardarFigura(tabla, { ...obj });
       if (tipo === 'lote' && origen) await anotarRecorrido(obj, origen);
       await recargar();
       sincronizar();
-    },
-    alSoltarSobre: manejarSoltar
+    }),
+    alSoltarSobre: gesto(manejarSoltar)
   });
   refrescarMapa();
   Mapa.fijarVista(vistaPrevia);
@@ -666,10 +694,14 @@ function avisar(texto) {
 }
 
 function abrirHoja(html) {
-  $('#modal').innerHTML = `<div class="velo"><div class="hoja">${html}</div></div>`;
+  // En la pantalla de ingreso todavía no existe el contenedor, y un aviso
+  // no puede tumbar la app por no tener dónde ponerse.
+  let m = $('#modal');
+  if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
+  m.innerHTML = `<div class="velo"><div class="hoja">${html}</div></div>`;
   $('.velo').onclick = (e) => { if (e.target === $('.velo')) cerrarHoja(); };
 }
-const cerrarHoja = () => { $('#modal').innerHTML = ''; };
+const cerrarHoja = () => { const m = $('#modal'); if (m) m.innerHTML = ''; };
 
 async function panelRechazados() {
   // Primero la causa, después lo que solo la está esperando. Al revés, la
@@ -717,11 +749,39 @@ function menuCuenta() {
       <button id="salir" class="btn-peligro">Cerrar sesión</button>
     </div>`);
   $('#cerrar').onclick = cerrarHoja;
-  $('#salir').onclick = async () => {
-    if (S.pendientes > 0 && !confirm(`Hay ${S.pendientes} cambios sin subir. Si cierras sesión ahora se pierden. ¿Continuar?`)) return;
+  // Cerrar sesión borra TODO lo del celular, incluida la cola: es lo
+  // correcto, porque lo que sigue pendiente es de esta persona y el
+  // siguiente que entre no puede subirlo con su nombre. Pero antes de
+  // borrar hay que intentar subirlo, que casi siempre es lo que falta.
+  $('#salir').onclick = accion(async () => {
+    if (S.pendientes > 0 || S.rechazados > 0) {
+      await sincronizar();
+      if (S.pendientes > 0 || S.rechazados > 0) return confirmarSalida();
+    }
     await Store.salir();
     location.reload();
-  };
+  }, { ocupado: 'Subiendo lo pendiente…' });
+}
+
+// Un `confirm()` del navegador se acepta sin leerlo. Si de verdad se va a
+// perder el trabajo del día, que cueste un toque deliberado.
+function confirmarSalida() {
+  const n = S.pendientes + S.rechazados;
+  abrirHoja(`
+    <h2>Todavía hay ${n} cambio${n === 1 ? '' : 's'} sin subir</h2>
+    <div class="sub">No se pudieron subir al servidor y solo existen en este celular.
+      Si cierras sesión ahora se pierden y no hay forma de recuperarlos.</div>
+    <p class="pista">Lo normal es que falte señal: espera a tener internet y vuelve a intentarlo.
+      Si el servidor los está rechazando, míralos primero en la franja roja.</p>
+    <div class="acciones" style="margin-top:16px">
+      <button id="quedarse" class="btn-lleno btn-ancho">Quedarme y esperar señal</button>
+      <button id="salir-igual" class="btn-peligro">Salir y perderlos</button>
+    </div>`);
+  $('#quedarse').onclick = cerrarHoja;
+  $('#salir-igual').onclick = accion(async () => {
+    await Store.salir();
+    location.reload();
+  }, { ocupado: 'Cerrando…' });
 }
 
 async function fichaLote(id) {
