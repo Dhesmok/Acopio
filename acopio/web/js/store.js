@@ -118,11 +118,25 @@ export async function historialPila(pilaId) {
     .sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
 }
 
+// Todo lote tiene exactamente un evento de 'recepcion', y los eventos no
+// se borran nunca. Así que la prueba de que tenemos su historia completa
+// es tener ese evento: si falta, la descarga inicial se quedó corta y hay
+// que ir a buscar la de ese lote. Antes simplemente faltaba, sin decirlo.
 export async function historial(loteId) {
-  return (await idb.todos('eventos'))
-    .filter((e) => e.lote_id === loteId)
-    .sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
+  let evs = (await idb.todos('eventos')).filter((e) => e.lote_id === loteId);
+  if (!evs.some((e) => e.tipo === 'recepcion') && navigator.onLine) {
+    const { data } = await sb.from('eventos').select('*').eq('lote_id', loteId);
+    if (data?.length) {
+      await idb.varios('eventos', data);          // queda en el celular
+      const ya = new Set(evs.map((e) => e.id));
+      evs = evs.concat(data.filter((e) => !ya.has(e.id)));
+    }
+  }
+  return evs.sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
 }
+
+// ¿Alcanzamos a traer la historia entera de este lote?
+export const historialCompleto = (evs) => evs.some((e) => e.tipo === 'recepcion');
 
 // ------------------------------------------------------------ escrituras
 // modo: 'insertar' (idempotente) | 'guardar' (upsert) | 'borrar'
@@ -409,12 +423,48 @@ async function perfilVivo() {
   return !!data;
 }
 
+// Cuántos eventos se traen en una pasada completa. El historial entero
+// puede ser enorme; lo que falte se busca por lote cuando alguien abre su
+// ficha (ver `historial`), así que topar aquí no esconde nada.
+const TOPE_EVENTOS = 3000;
+
+// Cada cuánto se hace una pasada COMPLETA. Hace dos cosas que la
+// incremental no puede: notar lo que se BORRÓ en el servidor, y recoger
+// lo que se haya escapado por la rendija de abajo.
+const RECONCILIAR_CADA = 10 * 60_000;
+let ultimoCompleto = 0;              // en cero: la primera del arranque va completa
+let marcados = [];                   // filas pintadas como rechazadas la vuelta pasada
+
+// La marca de agua sale de las filas RECIBIDAS, no del reloj del celular:
+// un teléfono con la hora corrida se quedaría sin bajar nada, o bajándolo
+// todo siempre.
+const marcaMayor = (filas, campo, actual) =>
+  (filas || []).reduce((m, f) => (f[campo] && f[campo] > m ? f[campo] : m), actual || '');
+
+// La rendija: una transacción que empezó antes de nuestra consulta pero
+// se confirma después lleva una hora anterior a la que alcanzamos a ver,
+// así que un corte exacto se la salta. Se aceptó a propósito, porque la
+// alternativa —pedir con unos segundos de margen— vuelve a bajar en cada
+// vuelta las filas que caen justo sobre la marca, para siempre. La
+// pasada completa de cada diez minutos las recoge.
+
 async function bajar() {
+  const completo = Date.now() - ultimoCompleto > RECONCILIAR_CADA;
+  const mLotes   = completo ? null : await meta('marca_lotes');
+  const mPilas   = completo ? null : await meta('marca_pilas');
+  const mEventos = completo ? null : await meta('marca_eventos');
+
+  const qLotes = sb.from('lotes').select('*');
+  const qPilas = sb.from('pilas').select('*');
+  const qEventos = sb.from('eventos').select('*');
+  if (mLotes)   qLotes.gt('actualizado_en', mLotes);
+  if (mPilas)   qPilas.gt('actualizado_en', mPilas);
+  if (mEventos) qEventos.gt('registrado_en', mEventos);
+  else qEventos.order('ocurrido_en', { ascending: false }).limit(TOPE_EVENTOS);
+
   const r = await Promise.all([
     sb.from('proveedores').select('*').eq('activo', true),
-    sb.from('pilas').select('*'),
-    sb.from('lotes').select('*'),
-    sb.from('eventos').select('*').order('ocurrido_en', { ascending: false }).limit(2000),
+    qPilas, qLotes, qEventos,
     sb.from('mapa_figuras').select('*'),
     sb.from('mapa_config').select('*').eq('id', 'unico').maybeSingle(),
     sb.from('perfiles').select('id, nombre, rol')
@@ -422,23 +472,46 @@ async function bajar() {
   for (const x of r) if (x.error) throw new Error(x.error.message);
   const [prov, pil, lot, eve, fig, cfg, per] = r;
 
+  // Catálogos: son pocos y cambian poco, se reemplazan enteros.
   await idb.vaciar('proveedores'); await idb.varios('proveedores', prov.data);
-  await idb.vaciar('pilas');       await idb.varios('pilas', pil.data);
-  await idb.vaciar('lotes');       await idb.varios('lotes', lot.data);
-  await idb.vaciar('eventos');     await idb.varios('eventos', eve.data);
   await idb.vaciar('figuras');     await idb.varios('figuras', fig.data);
-  await idb.vaciar('perfiles'); await idb.varios('perfiles', per.data);
+  await idb.vaciar('perfiles');    await idb.varios('perfiles', per.data);
   if (cfg.data) { await idb.vaciar('config'); await idb.guardar('config', cfg.data); }
+
+  // Operación: en la pasada completa se reemplaza (así desaparece lo que
+  // se haya borrado en el servidor); en las incrementales se escribe
+  // encima de lo que ya está.
+  if (completo) {
+    await idb.vaciar('lotes'); await idb.vaciar('pilas'); await idb.vaciar('eventos');
+    ultimoCompleto = Date.now();
+  }
+  await idb.varios('pilas', pil.data);
+  await idb.varios('lotes', lot.data);
+  await idb.varios('eventos', eve.data);
+
+  // Si la columna todavía no existe (falta correr migracion.sql) la marca
+  // queda vacía y todo sigue bajándose completo: más lento, nunca roto.
+  await meta('marca_lotes',   marcaMayor(lot.data, 'actualizado_en', mLotes));
+  await meta('marca_pilas',   marcaMayor(pil.data, 'actualizado_en', mPilas));
+  await meta('marca_eventos', marcaMayor(eve.data, 'registrado_en', mEventos));
 
   // Un rechazo del servidor NO puede hacer desaparecer nada de la pantalla:
   // lo rechazado se vuelve a pintar, marcado, hasta que se resuelva.
+  // Y como ya no se borra todo en cada vuelta, hay que quitar a mano la
+  // marca de lo que se resolvió, o queda pegada para siempre.
   const destinoDe = (t) =>
     t === 'mapa_figuras' ? 'figuras' : t === 'mapa_config' ? 'config' : t;
+  for (const { t, id } of marcados) {
+    const f = await idb.uno(t, id);
+    if (f?._rechazado) await idb.guardar(t, { ...f, _rechazado: false });
+  }
+  marcados = [];
   for (const op of await idb.todos('fallidos')) {
     if (op.modo === 'borrar') continue;
     const destino = destinoDe(op.tabla);
     if (!TIENDAS.includes(destino)) continue;
     await idb.guardar(destino, { ...op.fila, _rechazado: true });
+    marcados.push({ t: destino, id: op.fila.id });
     if (op.tabla === 'eventos') await aplicarLocal(op.fila);
   }
 
