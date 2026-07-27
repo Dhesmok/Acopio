@@ -18,11 +18,18 @@ let db = null;
 // ------------------------------------------------------------ IndexedDB
 function abrir() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(DB, 3);
+    const req = indexedDB.open(DB, 4);
     req.onupgradeneeded = () => {
       const d = req.result;
       for (const t of TIENDAS)
         if (!d.objectStoreNames.contains(t)) d.createObjectStore(t, { keyPath: 'id' });
+      // Desde que la sincronización es incremental, los eventos ya no se
+      // borran y se rebajan enteros en cada vuelta: se acumulan. Buscar el
+      // historial de un lote recorriéndolos TODOS deja de ser gratis, y
+      // con los años sería lentísimo. Con índice va directo.
+      const ev = req.transaction.objectStore('eventos');
+      if (!ev.indexNames.contains('lote_id')) ev.createIndex('lote_id', 'lote_id');
+      if (!ev.indexNames.contains('pila_id')) ev.createIndex('pila_id', 'pila_id');
     };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
@@ -36,6 +43,8 @@ const st = (t, m = 'readonly') => db.transaction(t, m).objectStore(t);
 const idb = {
   todos: (t) => pedir(st(t).getAll()),
   uno: (t, id) => pedir(st(t).get(id)),
+  // por índice: sin recorrer la tienda entera
+  por: (t, indice, valor) => pedir(st(t).index(indice).getAll(valor)),
   guardar: (t, o) => pedir(st(t, 'readwrite').put(o)),
   borrar: (t, id) => pedir(st(t, 'readwrite').delete(id)),
   async varios(t, os) { const s = st(t, 'readwrite'); await Promise.all(os.map((o) => pedir(s.put(o)))); },
@@ -113,8 +122,8 @@ export async function config() {
 }
 
 export async function historialPila(pilaId) {
-  return (await idb.todos('eventos'))
-    .filter((e) => e.pila_id === pilaId && (e.tipo === 'ingreso_pila' || e.tipo === 'salida_pila'))
+  return (await idb.por('eventos', 'pila_id', pilaId))
+    .filter((e) => e.tipo === 'ingreso_pila' || e.tipo === 'salida_pila')
     .sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
 }
 
@@ -123,7 +132,7 @@ export async function historialPila(pilaId) {
 // es tener ese evento: si falta, la descarga inicial se quedó corta y hay
 // que ir a buscar la de ese lote. Antes simplemente faltaba, sin decirlo.
 export async function historial(loteId) {
-  let evs = (await idb.todos('eventos')).filter((e) => e.lote_id === loteId);
+  let evs = await idb.por('eventos', 'lote_id', loteId);
   if (!evs.some((e) => e.tipo === 'recepcion') && navigator.onLine) {
     const { data } = await sb.from('eventos').select('*').eq('lote_id', loteId);
     if (data?.length) {
@@ -413,13 +422,21 @@ function mensajeError(e) {
 // ¿El servidor nos reconoce? Todo perfil nace inactivo, y mientras lo
 // esté las políticas devuelven CERO filas sin error: la app parecía estar
 // al día, borraba de la pantalla lo que sí estaba guardado y rechazaba en
-// silencio todo lo que la persona escribía. Se comprueba antes de bajar.
+// silencio todo lo que la persona escribía. Se comprueba antes de subir.
+//
+// Una vez confirmado no se vuelve a preguntar en un rato: era una
+// consulta cada veinte segundos para algo que no cambia casi nunca.
+// Mientras NO esté confirmado sí se pregunta en cada vuelta, para que
+// quien acaba de ser habilitado lo note enseguida y no en diez minutos.
+let perfilConfirmado = 0;
 async function perfilVivo() {
+  if (Date.now() - perfilConfirmado < RECONCILIAR_CADA) return true;
   const { data: s } = await sb.auth.getSession();
   const uid = s?.session?.user?.id;
   if (!uid) return false;
   const { data, error } = await sb.from('perfiles').select('id').eq('id', uid).maybeSingle();
   if (error) throw new Error(error.message);
+  if (data) perfilConfirmado = Date.now();
   return !!data;
 }
 
@@ -471,6 +488,12 @@ async function bajar() {
   ]);
   for (const x of r) if (x.error) throw new Error(x.error.message);
   const [prov, pil, lot, eve, fig, cfg, per] = r;
+
+  // Segundo cerrojo, y este no cuesta ni una consulta de más: si no
+  // podemos leer NI UN perfil —ni el nuestro—, el nuestro dejó de estar
+  // activo mientras trabajábamos. Vaciar aquí borraría de la pantalla lo
+  // que sí está guardado, así que mejor parar y volver a preguntar.
+  if (!per.data?.length) { perfilConfirmado = 0; throw new Error('perfil_inactivo'); }
 
   // Catálogos: son pocos y cambian poco, se reemplazan enteros.
   await idb.vaciar('proveedores'); await idb.varios('proveedores', prov.data);

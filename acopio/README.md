@@ -10,8 +10,11 @@ sql/duplicados.sql    limpiar lotes repetidos y eventos huérfanos
 sql/fechas.sql        corregir lotes fechados un día adelante (UTC)
 sql/reset.sql         borra todo, solo para empezar de cero a propósito
 web/                  la app: se sube tal cual a un hosting estático
+pruebas/              `node pruebas/correr.mjs`, sin instalar nada
 DEPLOY.md             cómo publicarla
 ```
+
+Solo se publica `web/`. `sql/` y `pruebas/` se quedan en el repositorio.
 
 ## 1. Base de datos (10 minutos)
 
@@ -91,6 +94,7 @@ Con el rol `admin`, el menú de opciones del mapa incluye **Fondo del mapa**: ta
 - **Idempotencia.** Cada evento nace con un identificador generado en el celular, así que reintentar la subida veinte veces no duplica nada.
 - **Cola local.** Los cambios se encolan en IndexedDB y suben en orden. Si el servidor rechaza uno, se aparta para que no bloquee la fila, **pero sigue mostrándose en pantalla marcado como rechazado**: nada desaparece por un error del servidor. Desde la franja roja se puede reintentar una vez corregida la causa.
 - **Solo se baja lo que cambió.** Cada tabla recuerda hasta dónde llegó y pide únicamente lo posterior; la marca la pone el servidor, no el celular, porque un teléfono con la hora corrida no puede decidir qué se sincroniza. Antes se bajaba todo cada veinte segundos y se borraba y reescribía la base local entera. Una vez cada diez minutos sí se hace una pasada completa: es la única que nota lo que se borró en el servidor.
+- **Hay pruebas, y hay que hacerlas fallar primero.** `node pruebas/correr.mjs`, sin instalar nada. Cubren la cola de sincronización, el choque de nombres de pila, las fechas, el escapado del mapa y la bajada incremental. Una prueba que nunca vio el error que dice cubrir no prueba nada: en `pruebas/LEEME.md` está cómo comprobarlo.
 - **El historial no se queda corto en silencio.** La descarga inicial trae los eventos recientes, no todos. Todo lote tiene exactamente un evento de recepción y los eventos no se borran nunca, así que tener el de recepción demuestra tener la historia entera: si falta, la ficha va a buscar la de ese lote y la guarda. Sin señal, lo dice en pantalla en vez de mostrar un historial incompleto como si fuera completo.
 - **La cola respeta las dependencias.** Un evento no se manda antes que su lote. Si el lote todavía no confirmó, el evento espera; si el servidor lo rechazó, el evento se marca como bloqueado en vez de gastar sus intentos contra un padre que no existe. Sin esto, un lote rechazado dejaba una fila de errores `eventos_lote_id_fkey` que no señalaban al culpable. Al reintentar se conserva el orden original, así que el lote sube primero.
 - **Ningún botón que escribe se queda mudo.** Mientras trabaja se bloquea y lo dice; si falla, muestra el motivo. Un botón que no daba señal de vida invitaba a tocarlo diez veces, y cada toque era un lote más.
