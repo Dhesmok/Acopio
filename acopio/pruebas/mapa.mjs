@@ -7,11 +7,24 @@ import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 globalThis.addEventListener = () => {};
 
 const lienzo = {
-  attrs: {}, innerHTML: '', isConnected: true,
+  attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
   getAttribute: (k) => lienzo.attrs[k],
   setAttribute: (k, v) => { lienzo.attrs[k] = v; },
-  addEventListener() {}, querySelector: () => null, querySelectorAll: () => []
+  addEventListener(tipo, fn) { (lienzo.oyentes[tipo] ||= []).push(fn); },
+  querySelector: () => null, querySelectorAll: () => [],
+  setPointerCapture() {},
+  getBoundingClientRect: () => ({ width: 1000, height: 700 }),
+  // el plano y la pantalla coinciden uno a uno: así las cuentas de la
+  // prueba se leen sin tener que deshacer una transformación
+  createSVGPoint: () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } }),
+  getScreenCTM: () => ({ inverse: () => null })
 };
+const disparar = (tipo, ev) => lienzo.oyentes[tipo]?.forEach((fn) => fn(ev));
+const evento = (x, y, manija) => ({
+  pointerId: 1, clientX: x, clientY: y,
+  target: { closest: () => (manija ? { dataset: { handle: manija } } : null) }
+});
+
 const Mapa = await import('../web/js/mapa.js');
 Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {});
 
@@ -51,5 +64,30 @@ Mapa.pintar({
             forma: 'elipse', x: 0, y: 0, rx: 46, ry: 34, rot: 0 }]
 });
 ok(lienzo.innerHTML.includes('PG12&lt;5'), 'un código tipo "PG12<5" se dibuja sin romper nada');
+
+// ---------------------------------------------------------------------
+titulo('Ajustar una forma se ve MIENTRAS se ajusta, no al soltar.');
+
+const lote = { id: 'l1', codigo: 'PG1', estado: 'por_muestrear', pila_id: null,
+               forma: 'elipse', x: 200, y: 200, rx: 46, ry: 34, rot: 0 };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [lote] });
+Mapa.editar(true);
+Mapa.seleccionar('lote', lote.id);
+ok(lienzo.innerHTML.includes('data-handle="tamano"'), 'al seleccionar aparecen las manijas');
+
+// dedo abajo sobre la manija de tamaño, y arrastrar hasta 120 × 90
+disparar('pointerdown', evento(lote.x + lote.rx, lote.y + lote.ry, 'tamano'));
+disparar('pointermove', evento(lote.x + 120, lote.y + 90));
+
+ok(lote.rx === 120 && lote.ry === 90, `la figura se recalculó (${lote.rx} × ${lote.ry})`);
+ok(lienzo.innerHTML.includes('rx="120"') && lienzo.innerHTML.includes('ry="90"'),
+   'y el plano YA muestra el tamaño nuevo, con el dedo todavía abajo');
+
+// lo que llegó de fuera durante el gesto no se pierde por repintar
+const otro = { ...lote, id: 'l9', codigo: 'PG9', x: 500, y: 500 };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [lote, otro] });
+ok(!lienzo.innerHTML.includes('PG9'), 'un repintado de fuera espera a que termine el gesto');
+disparar('pointerup', evento(lote.x + 120, lote.y + 90));
+ok(lienzo.innerHTML.includes('PG9'), 'y entra en cuanto se suelta el dedo');
 
 cerrar();
