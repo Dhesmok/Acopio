@@ -16,8 +16,27 @@
   <div id="app"></div>
   <script type="module" src="js/app.js"></script>
   <script>
+    // La app se guarda en el celular para abrir sin señal. Eso significa
+    // que una versión nueva NO entra sola: el service worker la deja lista
+    // en la caché, pero la pantalla que está abierta sigue corriendo la
+    // vieja hasta que se recargue. Aquí se detecta y se le avisa a la app,
+    // que ofrece el recargue en vez de hacerlo sola: alguien puede estar
+    // a mitad de registrar un lote.
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+      window.addEventListener('load', async () => {
+        // si no había ninguna corriendo, este es el primer arranque y el
+        // cambio de control no es una actualización
+        const habia = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (habia) document.dispatchEvent(new Event('acopio:version-nueva'));
+        });
+        const reg = await navigator.serviceWorker.register('sw.js');
+        // El celular se queda con la app abierta todo el turno, y el
+        // navegador solo busca versiones nuevas al navegar. Sin esto, un
+        // arreglo publicado a media mañana no llegaba hasta el día
+        // siguiente.
+        setInterval(() => reg.update(), 30 * 60 * 1000);
+      });
     }
   </script>
 </body>

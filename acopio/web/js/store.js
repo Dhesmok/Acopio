@@ -52,6 +52,15 @@ export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     }));
 const ahora = () => new Date().toISOString();
 
+// La fecha del patio es la del reloj de quien registra, no la de UTC.
+// `toISOString()` va cinco horas adelante en Colombia: un lote recibido
+// a las 7 de la noche quedaba con la fecha del día siguiente, y después
+// no aparecía donde nadie lo buscaba.
+const hoyLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 async function meta(k, v) {
   if (v === undefined) { const m = await idb.uno('meta', k); return m ? m.valor : null; }
   await idb.guardar('meta', { id: k, valor: v });
@@ -81,6 +90,17 @@ export async function reintentarFallidos() {
   }
 }
 export const pendientes = () => idb.todos('cola');
+
+// Avisos de una sola vez: cosas que la app resolvió sola pero que la
+// persona tiene que saber (una pila que hubo que renombrar al subir).
+export const avisos = async () => (await meta('avisos')) || [];
+export const olvidarAvisos = () => meta('avisos', []);
+async function anotarAviso(texto) {
+  const v = (await meta('avisos')) || [];
+  v.push({ texto, en: ahora() });
+  await meta('avisos', v.slice(-10));
+}
+
 export const lote = (id) => idb.uno('lotes', id);
 export const pila = (id) => idb.uno('pilas', id);
 
@@ -153,7 +173,7 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   const t = ahora();
   const fila = {
     id: uuid(), codigo: cod, proveedor_id,
-    placa: (placa || '').trim().toUpperCase(), fecha_recepcion: t.slice(0, 10),
+    placa: (placa || '').trim().toUpperCase(), fecha_recepcion: hoyLocal(),
     material: material || 'granel', forma: forma || 'elipse',
     puntos: null, x, y, rx: 46, ry: 34, rot: 0,
     estado: 'por_muestrear', estado_desde: t, fecha_recogida: null,
@@ -304,12 +324,48 @@ async function subir() {
     }
     if (!error) { await idb.borrar('cola', op.id); esperan.delete(op.id); continue; }
     if (esRed(error)) throw new Error('sin_conexion');
+    // Choque de nombres entre pilas: se renombra y sigue esperando turno
+    if (op.tabla === 'pilas' && error.code === '23505' && await renombrarPorChoque(op)) continue;
     op.intentos = (op.intentos || 0) + 1;
     if (op.intentos >= 3) {
       await aFallidos(op, mensajeError(error), error.message);
       rotos.add(op.id); esperan.delete(op.id);
     } else await idb.guardar('cola', op);
   }
+}
+
+// El consecutivo de una pila lo elige cada celular por su cuenta, así que
+// dos personas sin señal escogen el mismo y el servidor rechaza el
+// segundo: `pilas.codigo` es único. Pero el nombre es una ETIQUETA, no la
+// identidad —esa es el id—, y perder la pila (con los lotes que alguien
+// ya le metió) por un nombre repetido no tiene sentido. Se le da el
+// siguiente libre y se avisa.
+async function renombrarPorChoque(op) {
+  const { data, error } = await sb.from('pilas').select('codigo');
+  if (error || !data) return false;
+  const usados = new Set([
+    ...data.map((p) => String(p.codigo)),
+    ...(await idb.todos('pilas')).map((p) => String(p.codigo))
+  ]);
+  let n = 1;
+  while (usados.has(String(n))) n++;
+  const antes = op.fila.codigo, nuevo = String(n);
+  if (antes === nuevo) return false;        // no era el nombre: que falle normal
+
+  op.fila = { ...op.fila, codigo: nuevo };
+  op.intentos = 0;
+  await idb.guardar('cola', op);
+
+  // la pila en pantalla y, si quedó pendiente, el cambio de nombre que ya
+  // estaba en la cola: los tres tienen que decir lo mismo
+  const local = await idb.uno('pilas', op.fila.id);
+  if (local) await idb.guardar('pilas', { ...local, codigo: nuevo });
+  const fig = await idb.uno('cola', `fig:pilas:${op.fila.id}`);
+  if (fig) await idb.guardar('cola', { ...fig, fila: { ...fig.fila, codigo: nuevo } });
+
+  await anotarAviso(`La pila ${antes} ya existía en el servidor, creada desde otro celular. `
+    + `Esta quedó como pila ${nuevo}. Los lotes que le metiste siguen dentro.`);
+  return true;
 }
 
 const nombreDe = (clave) => ({

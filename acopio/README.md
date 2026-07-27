@@ -7,6 +7,7 @@ sql/schema.sql        base de datos (Supabase / Postgres)
 sql/migracion.sql     actualiza una base en uso sin borrar datos
 sql/diagnostico.sql   qué falta y quién no está habilitado; no cambia nada
 sql/duplicados.sql    limpiar lotes repetidos y eventos huérfanos
+sql/fechas.sql        corregir lotes fechados un día adelante (UTC)
 sql/reset.sql         borra todo, solo para empezar de cero a propósito
 web/                  la app: se sube tal cual a un hosting estático
 DEPLOY.md             cómo publicarla
@@ -91,6 +92,9 @@ Con el rol `admin`, el menú de opciones del mapa incluye **Fondo del mapa**: ta
 - **Cola local.** Los cambios se encolan en IndexedDB y suben en orden. Si el servidor rechaza uno, se aparta para que no bloquee la fila, **pero sigue mostrándose en pantalla marcado como rechazado**: nada desaparece por un error del servidor. Desde la franja roja se puede reintentar una vez corregida la causa.
 - **La cola respeta las dependencias.** Un evento no se manda antes que su lote. Si el lote todavía no confirmó, el evento espera; si el servidor lo rechazó, el evento se marca como bloqueado en vez de gastar sus intentos contra un padre que no existe. Sin esto, un lote rechazado dejaba una fila de errores `eventos_lote_id_fkey` que no señalaban al culpable. Al reintentar se conserva el orden original, así que el lote sube primero.
 - **Ningún botón que escribe se queda mudo.** Mientras trabaja se bloquea y lo dice; si falla, muestra el motivo. Un botón que no daba señal de vida invitaba a tocarlo diez veces, y cada toque era un lote más.
+- **El nombre de una pila no es su identidad.** La identidad es el `id`, generado en el celular. El consecutivo lo elige cada teléfono por su cuenta, así que dos personas sin señal escogen el mismo número: al subir, la segunda se renombra al siguiente libre y se avisa. Los lotes que ya tenía dentro no se mueven, porque apuntan al `id`, no al número.
+- **Las fechas del patio son locales; los instantes, UTC.** `fecha_recepcion` es el día del reloj de quien registra: calcularla desde UTC fechaba al día siguiente todo lo recibido después de las 7 de la noche. `creado_en` y `ocurrido_en` sí van en UTC, que es lo correcto para un instante.
+- **Una versión nueva no entra sola.** La app vive en la caché del celular para abrir sin señal, así que un cambio publicado queda listo pero no se aplica hasta recargar. La app lo detecta y lo ofrece en la franja de arriba, en vez de recargarse sola mientras alguien registra un lote.
 
 ## Cuando algo no sube
 

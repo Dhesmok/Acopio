@@ -26,6 +26,7 @@ const TIPOS_PILA = {
 const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicion: false,
             lotes: [], pilas: [], proveedores: [], figuras: [], gente: [], config: {},
             pendientes: 0, idsPendientes: new Set(), rechazados: 0, sync: null,
+            actualizacion: false,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: { campo: 'ninguno', valor: null },
             recorrido: null };
@@ -51,7 +52,14 @@ const hoyISO = (mas = 0) => {
   const d = new Date(); d.setDate(d.getDate() + mas);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-const dias = (t) => Math.floor((Date.now() - new Date(t).getTime()) / 86_400_000);
+// Días de CALENDARIO, no bloques de 24 horas. Un lote recibido anoche a
+// las 10 lleva un día en el patio, no cero: contar por milisegundos lo
+// dejaba en "hoy" hasta la noche siguiente.
+const fechaLocal = (t) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))) / 86_400_000);
 const vencido = (l) => !!l.fecha_recogida && l.fecha_recogida < hoyISO();
 function textoRecogida(l) {
   if (!l.fecha_recogida) return null;
@@ -63,6 +71,15 @@ function textoRecogida(l) {
 }
 
 // -------------------------------------------------------------- arranque
+// El service worker ya dejó la versión nueva lista en la caché, pero esta
+// pantalla sigue corriendo la vieja: solo un recargue la cambia. No se
+// recarga sola a propósito —alguien puede estar registrando un lote—, se
+// ofrece en la franja de arriba.
+document.addEventListener('acopio:version-nueva', () => {
+  S.actualizacion = true;
+  pintarSync();
+});
+
 async function arrancar() {
   await Store.iniciar();
   const { data } = await sb.auth.getSession();
@@ -130,6 +147,21 @@ async function recargar() {
 async function sincronizar() {
   S.sync = await Store.sincronizar();
   await recargar();
+  await mostrarAvisos();
+}
+
+// Cosas que la app resolvió sola pero que hay que saber: una pila que
+// hubo que renombrar porque otro celular ya había usado ese número. Se
+// muestran una vez y se limpian; si hay una hoja abierta se esperan, para
+// no tapar lo que la persona está haciendo.
+async function mostrarAvisos() {
+  const v = await Store.avisos();
+  if (!v.length || document.querySelector('.hoja')) return;
+  await Store.olvidarAvisos();
+  abrirHoja(`<h2>Aviso</h2>
+    ${v.map((a) => `<p class="sub">${esc(a.texto)}</p>`).join('')}
+    <button class="btn btn-lleno btn-ancho" id="ok" style="width:100%;margin-top:16px">Entendido</button>`);
+  $('#ok').onclick = cerrarHoja;
 }
 
 // Un botón que escribe tiene que verse ocupado mientras trabaja y, si
@@ -257,7 +289,7 @@ function pintarSync() {
   chip.dataset.estado = estado;
   $('#chip-txt').textContent = texto;
   const f = $('#franja');
-  f.hidden = S.pendientes === 0 && S.rechazados === 0 && !sinPermiso();
+  f.hidden = S.pendientes === 0 && S.rechazados === 0 && !sinPermiso() && !S.actualizacion;
   f.dataset.tono = (S.rechazados || sinPermiso()) ? 'error' : 'aviso';
   if (sinPermiso()) {
     f.firstElementChild.textContent =
@@ -265,6 +297,10 @@ function pintarSync() {
     f.onclick = () => avisar(
       'El administrador tiene que activar tu perfil en la base de datos (perfiles → activo). '
       + 'Mientras tanto puedes seguir trabajando: todo queda guardado en el celular y sube solo cuando te habiliten.');
+  } else if (S.actualizacion) {
+    // recargar no pierde nada: lo pendiente vive en el celular, no en la pantalla
+    f.firstElementChild.textContent = 'Hay una versión nueva de la app · toca para actualizar';
+    f.onclick = () => location.reload();
   } else if (S.rechazados) {
     f.firstElementChild.textContent =
       `${S.rechazados} cambio${S.rechazados === 1 ? '' : 's'} que el servidor no aceptó · toca para ver`;

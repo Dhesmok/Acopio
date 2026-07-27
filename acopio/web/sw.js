@@ -13,12 +13,18 @@ const SHELL = [
   './js/config.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/icon-512-maskable.png'
 ];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(VERSION)
+      // `cache: 'reload'` obliga a ir a la red saltándose la caché HTTP del
+      // navegador. Sin esto, subir la versión aquí no garantizaba nada: se
+      // podían guardar bajo el nombre nuevo exactamente los archivos viejos.
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -60,7 +66,7 @@ self.addEventListener('fetch', (e) => {
           caches.open(VERSION).then((c) => c.put(e.request, copia));
         }
         return res;
-      }).catch(() => hit);
+      }).catch(() => hit || Response.error());
       return hit || red;
     })
   );

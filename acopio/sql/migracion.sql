@@ -41,6 +41,13 @@ alter table lotes add column if not exists rot            numeric not null defau
 update lotes set placa = 'SIN REGISTRO' where placa is null;
 alter table lotes alter column placa set not null;
 
+-- El servidor corre en UTC, así que `current_date` cambia de día a las
+-- 7 de la noche hora de Colombia: un lote recibido de noche quedaba
+-- fechado al día siguiente. La app manda la fecha explícita; esto arregla
+-- el valor por defecto para cualquier inserción hecha a mano.
+alter table lotes alter column fecha_recepcion
+  set default (now() at time zone 'America/Bogota')::date;
+
 alter table lotes drop column if exists peso_ton;
 alter table lotes drop column if exists tiquete_ref;
 
