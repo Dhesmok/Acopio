@@ -12,6 +12,14 @@ let repintadoPendiente = null;   // lo que llegó mientras se interactuaba
 const punteros = new Map();
 let pinchInicial = null, tempLargo = null, movio = false;
 
+// El plano se dibuja metiendo texto en innerHTML, así que todo lo que
+// venga de la base entra escapado. Un código de lote con "<" o "&" no
+// rompía solo esa figura: dejaba el mapa entero sin dibujar, y para
+// todos, no solo para quien escribió el código. Va aquí y no importado
+// del resto de la app a propósito: el mapa se dibuja solo.
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 export const COLORES_BASE = {
   por_muestrear: '#d99a06', muestreado: '#e8b48a', remuestreo: '#8a5cd6',
   facturado: '#2b5ca8', devolucion: '#b8352a', plataforma: '#0f6d78', despachado: '#5f6863',
@@ -123,8 +131,8 @@ export function pintar(d) {
         <path d="M50 0H0V50" fill="none" stroke="#14171a" stroke-width="1" opacity=".07"/>
       </pattern>
     </defs>
-    <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${c.color_fondo || '#e4e7e2'}"/>
-    ${c.imagen_url ? `<image href="${c.imagen_url}" x="${c.imagen_x}" y="${c.imagen_y}"
+    <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${esc(c.color_fondo || '#e4e7e2')}"/>
+    ${c.imagen_url ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
         width="${c.imagen_ancho}" height="${c.imagen_alto}"
         opacity="${c.imagen_opacidad ?? 1}" preserveAspectRatio="none"/>` : ''}
     ${c.imagen_url ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}
@@ -177,18 +185,18 @@ function cuerpo(o, attrs) {
 }
 
 function figuraFondo(f) {
-  return `<g data-tipo="figura" data-id="${f.id}" ${trazo(f)} class="g-fondo${apagado(f.id)}">
-    ${cuerpo(f, `fill="${f.color}" opacity=".85"`)}
-    ${f.etiqueta ? `<text y="5" text-anchor="middle" class="txt-fondo">${f.etiqueta}</text>` : ''}
+  return `<g data-tipo="figura" data-id="${esc(f.id)}" ${trazo(f)} class="g-fondo${apagado(f.id)}">
+    ${cuerpo(f, `fill="${esc(f.color)}" opacity=".85"`)}
+    ${f.etiqueta ? `<text y="5" text-anchor="middle" class="txt-fondo">${esc(f.etiqueta)}</text>` : ''}
   </g>`;
 }
 
 function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
-  return `<g data-tipo="pila" data-id="${p.id}" ${trazo(p)} class="g-pila${apagado(p.id)}">
-    ${cuerpo(p, `class="pila-forma" fill="${col}" fill-opacity=".14" stroke="${col}"`)}
-    <text y="-2" text-anchor="middle" class="txt-pila">Pila ${p.codigo}</text>
+  return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}">
+    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
+    <text y="-2" text-anchor="middle" class="txt-pila">Pila ${esc(p.codigo)}</text>
     <text y="19" text-anchor="middle" class="txt-pila-sub">${n} lote${n === 1 ? '' : 's'}</text>
   </g>`;
 }
@@ -196,12 +204,12 @@ function figuraPila(p, lotes) {
 function figuraLote(l) {
   const venc = !!l.fecha_recogida && l.fecha_recogida < hoyISO();
   const col = paleta()[l.estado] || '#5f6863';
-  const attrs = `fill="${col}" stroke="${venc ? '#7a1f16' : '#14171a'}"
+  const attrs = `fill="${esc(col)}" stroke="${venc ? '#7a1f16' : '#14171a'}"
      stroke-width="${venc ? 5 : 2}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
-  return `<g data-tipo="lote" data-id="${l.id}" ${trazo(l)} class="g-lote${apagado(l.id)}">
+  return `<g data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)} class="g-lote${apagado(l.id)}">
     ${cuerpo(l, attrs)}
     <text y="5" text-anchor="middle" class="txt-lote" fill="${claro(col) ? '#14171a' : '#ffffff'}"
-      >${l.codigo}</text>
+      >${esc(l.codigo)}</text>
   </g>`;
 }
 
