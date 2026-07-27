@@ -5,6 +5,8 @@ App web instalable (PWA) para controlar lotes y pilas en el patio, pensada para 
 ```
 sql/schema.sql        base de datos (Supabase / Postgres)
 sql/migracion.sql     actualiza una base en uso sin borrar datos
+sql/diagnostico.sql   qué falta y quién no está habilitado; no cambia nada
+sql/duplicados.sql    limpiar lotes repetidos y eventos huérfanos
 sql/reset.sql         borra todo, solo para empezar de cero a propósito
 web/                  la app: se sube tal cual a un hosting estático
 DEPLOY.md             cómo publicarla
@@ -87,6 +89,16 @@ Con el rol `admin`, el menú de opciones del mapa incluye **Fondo del mapa**: ta
 - **Los eventos son la única verdad.** Nadie edita ni borra: cambiar un estado, mover un lote a una pila o dejar una observación son eventos que se agregan al historial. El estado actual del lote lo calcula un trigger a partir del log. Por eso la trazabilidad es completa y una corrección nunca borra lo anterior.
 - **Idempotencia.** Cada evento nace con un identificador generado en el celular, así que reintentar la subida veinte veces no duplica nada.
 - **Cola local.** Los cambios se encolan en IndexedDB y suben en orden. Si el servidor rechaza uno, se aparta para que no bloquee la fila, **pero sigue mostrándose en pantalla marcado como rechazado**: nada desaparece por un error del servidor. Desde la franja roja se puede reintentar una vez corregida la causa.
+- **La cola respeta las dependencias.** Un evento no se manda antes que su lote. Si el lote todavía no confirmó, el evento espera; si el servidor lo rechazó, el evento se marca como bloqueado en vez de gastar sus intentos contra un padre que no existe. Sin esto, un lote rechazado dejaba una fila de errores `eventos_lote_id_fkey` que no señalaban al culpable. Al reintentar se conserva el orden original, así que el lote sube primero.
+- **Ningún botón que escribe se queda mudo.** Mientras trabaja se bloquea y lo dice; si falla, muestra el motivo. Un botón que no daba señal de vida invitaba a tocarlo diez veces, y cada toque era un lote más.
+
+## Cuando algo no sube
+
+1. Mirar la franja de arriba en la app. *"Sin acceso"* significa que el perfil no está habilitado en la base: mientras lo esté, el servidor no devuelve ni acepta nada, y lo hace sin dar error.
+2. Ejecutar `sql/diagnostico.sql` en el SQL Editor de Supabase. Los bloques 3 y 4 son los que importan: quién está activo y qué políticas faltan.
+3. Si falta alguna política, ejecutar `sql/migracion.sql`: las agrega sin tocar los datos.
+4. Con la causa corregida, en la app tocar la franja roja → **Reintentar**. Lo represado sube solo y en orden.
+5. Para lotes repetidos, `sql/duplicados.sql`.
 - **El color dejó de ser el dato.** En Excel el color *era* la información; aquí es la consecuencia visible del estado.
 - **Las devoluciones se marcan solas.** Al declarar una devolución la app exige la fecha de recogida. Mientras el proveedor no se lleve el material, el lote se pinta con franja de advertencia apenas pasa ese día y aparece el filtro "Sin recoger" con los días de retraso. Cuando el material sale, se cambia el estado a *Despachado* y el compromiso se cierra solo.
 - **El compromiso de recogida lo maneja el admin.** Cualquiera en campo puede declarar una devolución, y al hacerlo la app le pide la fecha, porque sin fecha no hay compromiso. Pero **cambiar** esa fecha después es solo del admin: el contratista la ve, no la edita. Así una fecha pactada con el proveedor no se corre desde el patio.

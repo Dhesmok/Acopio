@@ -25,7 +25,7 @@ const TIPOS_PILA = {
 
 const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicion: false,
             lotes: [], pilas: [], proveedores: [], figuras: [], gente: [], config: {},
-            pendientes: 0, idsPendientes: new Set(), rechazados: 0,
+            pendientes: 0, idsPendientes: new Set(), rechazados: 0, sync: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: { campo: 'ninguno', valor: null },
             recorrido: null };
@@ -71,9 +71,17 @@ async function arrancar() {
 }
 
 async function abrirSesion(usuario) {
-  S.perfil = { id: usuario.id, nombre: (usuario.email || '').split('@')[0], rol: 'contratista' };
-  const { data } = await sb.from('perfiles').select('*').eq('id', usuario.id).maybeSingle();
+  // El perfil manda: define qué puede hacer y qué acepta el servidor.
+  // Se pide al servidor; sin señal se usa el último conocido, guardado en
+  // el celular. Suponer "contratista" a ciegas hacía que un usuario sin
+  // habilitar —o de solo lectura— viera botones que el servidor iba a
+  // rechazar en silencio.
+  const cache = (await Store.perfiles()).find((p) => p.id === usuario.id);
+  S.perfil = cache || { id: usuario.id, nombre: (usuario.email || '').split('@')[0], rol: 'contratista' };
+  const { data, error } = await sb.from('perfiles').select('*').eq('id', usuario.id).maybeSingle();
   if (data) S.perfil = data;
+  // contestó, y no hay perfil que leer: el administrador no lo ha activado
+  else if (!error && navigator.onLine) S.sync = { ok: false, motivo: 'perfil_inactivo' };
   pantallaPrincipal();
   await recargar();
   Mapa.encuadrar();
@@ -120,9 +128,34 @@ async function recargar() {
 }
 
 async function sincronizar() {
-  await Store.sincronizar();
+  S.sync = await Store.sincronizar();
   await recargar();
 }
+
+// Un botón que escribe tiene que verse ocupado mientras trabaja y, si
+// falla, DECIRLO. Sin esto un toque no producía nada visible —ni giro, ni
+// aviso, ni cierre—, la persona volvía a tocar, y al destrabarse salían
+// diez lotes iguales de golpe.
+function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
+  return async function (ev) {
+    if (this.disabled) return;
+    const etiqueta = this.textContent;
+    this.disabled = true;
+    this.textContent = ocupado;
+    try {
+      await fn.call(this, ev);
+    } catch (e) {
+      (alFallar || decirError)(e);
+    } finally {
+      // si la hoja ya se cerró el nodo está suelto y esto no molesta
+      this.disabled = false;
+      this.textContent = etiqueta;
+    }
+  };
+}
+
+const decirError = (e) =>
+  avisar(`No se pudo guardar: ${e?.message || e}. El cambio quedó en el celular; se reintenta solo.`);
 
 // --------------------------------------------------------------- ingreso
 function pantallaIngreso() {
@@ -210,17 +243,29 @@ function pintar() {
   else refrescarMapa();
 }
 
+// El perfil nace inactivo y sin acceso a nada. Mientras lo esté, el
+// servidor no devuelve ni un registro NI acepta ninguno, y todo eso pasa
+// sin error visible: hay que decirlo, o la app parece rota sin motivo.
+const sinPermiso = () => S.sync?.motivo === 'perfil_inactivo';
+
 function pintarSync() {
   const chip = $('#chip'); if (!chip) return;
   let estado = 'ok', texto = 'Al día';
-  if (S.pendientes > 0) { estado = 'pendiente'; texto = `${S.pendientes} sin subir`; }
+  if (sinPermiso()) { estado = 'error'; texto = 'Sin acceso'; }
+  else if (S.pendientes > 0) { estado = 'pendiente'; texto = `${S.pendientes} sin subir`; }
   else if (!navigator.onLine) { estado = 'offline'; texto = 'Sin señal'; }
   chip.dataset.estado = estado;
   $('#chip-txt').textContent = texto;
   const f = $('#franja');
-  f.hidden = S.pendientes === 0 && S.rechazados === 0;
-  f.dataset.tono = S.rechazados ? 'error' : 'aviso';
-  if (S.rechazados) {
+  f.hidden = S.pendientes === 0 && S.rechazados === 0 && !sinPermiso();
+  f.dataset.tono = (S.rechazados || sinPermiso()) ? 'error' : 'aviso';
+  if (sinPermiso()) {
+    f.firstElementChild.textContent =
+      'Tu usuario todavía no está habilitado en el servidor · lo que registres se guarda aquí, pero no sube. Avisa al administrador.';
+    f.onclick = () => avisar(
+      'El administrador tiene que activar tu perfil en la base de datos (perfiles → activo). '
+      + 'Mientras tanto puedes seguir trabajando: todo queda guardado en el celular y sube solo cuando te habiliten.');
+  } else if (S.rechazados) {
     f.firstElementChild.textContent =
       `${S.rechazados} cambio${S.rechazados === 1 ? '' : 's'} que el servidor no aceptó · toca para ver`;
     f.onclick = panelRechazados;
@@ -591,29 +636,38 @@ function abrirHoja(html) {
 const cerrarHoja = () => { $('#modal').innerHTML = ''; };
 
 async function panelRechazados() {
-  const malos = await Store.fallidos();
+  // Primero la causa, después lo que solo la está esperando. Al revés, la
+  // lista arranca con diez errores prestados y esconde el único que
+  // alguien puede arreglar.
+  const malos = (await Store.fallidos())
+    .sort((a, b) => (a.creado_en || '').localeCompare(b.creado_en || ''));
+  const NOMBRE = { lotes: 'lote', pilas: 'pila', eventos: 'movimiento',
+                   mapa_figuras: 'figura del fondo', mapa_config: 'fondo del mapa' };
   abrirHoja(`
     <h2>Cambios no aceptados</h2>
     <div class="sub">El servidor rechazó estos cambios. Quedan guardados aquí para no perderlos.</div>
     <ul class="linea-tiempo">
       ${malos.map((m) => `<li>
-        <div class="cuando">${new Date(m.creado_en).toLocaleString('es-CO')} · ${m.tabla}</div>
-        <div class="nota">${esc(m.error)}</div></li>`).join('')}
+        <div class="cuando">${new Date(m.creado_en).toLocaleString('es-CO')} · ${NOMBRE[m.tabla] || m.tabla}</div>
+        <div class="que">${esc(m.error)}</div>
+        ${m.detalle && m.detalle !== m.error ? `<div class="nota">${esc(m.detalle)}</div>` : ''}</li>`).join('')}
     </ul>
     <p class="pista">Nada se perdió: siguen en pantalla marcados como “sin subir”.
-       Si el problema era la base de datos, corrígela y usa Reintentar.</p>
+       Corrige la causa (normalmente el primero de la lista) y usa Reintentar;
+       lo que solo estaba esperándolo sube detrás, en el mismo orden en que se registró.</p>
     <div class="acciones">
       <button id="reintentar" class="btn-lleno btn-ancho">Reintentar</button>
       <button id="cerrar">Cerrar</button>
       <button id="olvidar" class="btn-peligro">Descartar</button>
     </div>`);
   $('#cerrar').onclick = cerrarHoja;
-  $('#reintentar').onclick = async () => {
+  $('#reintentar').onclick = accion(async () => {
     await Store.reintentarFallidos(); cerrarHoja(); await sincronizar();
-  };
-  $('#olvidar').onclick = async () => {
+  }, { ocupado: 'Reintentando…' });
+  $('#olvidar').onclick = accion(async () => {
+    if (!confirm(`Se descartan ${malos.length} cambio${malos.length === 1 ? '' : 's'} que el servidor no aceptó. No se pueden recuperar. ¿Continuar?`)) return;
     await Store.olvidarFallidos(); cerrarHoja(); await recargar();
-  };
+  }, { ocupado: 'Descartando…' });
 }
 
 function menuCuenta() {
@@ -726,47 +780,48 @@ async function fichaLote(id) {
   if (lectura) return;
 
   document.querySelectorAll('.hoja .acciones button[data-estado]').forEach((b) => {
-    b.onclick = async () => {
+    b.onclick = accion(async () => {
       if (b.dataset.estado === 'devolucion') return pedirRecogida(l);
       await Store.registrarEvento({
         lote_id: id, tipo: 'cambio_estado', estado_nuevo: b.dataset.estado, usuario_id: S.perfil.id
       });
       cerrarHoja(); await recargar(); sincronizar();
-    };
+    }, { ocupado: 'Cambiando…' });
   });
 
   const prog = $('#programar');
-  if (prog) prog.onclick = async () => {
+  if (prog) prog.onclick = accion(async () => {
     const f = $('#f-recogida').value; if (!f) return;
     await Store.registrarEvento({
       lote_id: id, tipo: 'programar_recogida', fecha_recogida: f, usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  });
 
   const sacar = $('#sacar');
-  if (sacar) sacar.onclick = async () => { await sacarDePila(l, pila); cerrarHoja(); };
+  if (sacar) sacar.onclick = accion(async () => { await sacarDePila(l, pila); cerrarHoja(); },
+    { ocupado: 'Sacando…' });
 
   document.querySelectorAll('.hoja button[data-material]').forEach((b) => {
-    b.onclick = async () => {
+    b.onclick = accion(async () => {
       const material = b.dataset.material;
       const cambios = { material };
       // si estaba dibujado a mano se respeta; si no, toma la figura del material
       if (l.forma !== 'poligono') cambios.forma = FORMA_DE[material];
       await Store.actualizarLote(l.id, cambios);
       cerrarHoja(); await recargar(); sincronizar();
-    };
+    });
   });
 
   const pol = $('#poligono');
-  if (pol) pol.onclick = async () => {
+  if (pol) pol.onclick = accion(async () => {
     const cambios = l.forma === 'poligono'
       ? { forma: FORMA_DE[l.material || 'granel'] }
       : { forma: 'poligono', puntos: l.puntos?.length >= 3 ? l.puntos : Mapa.puntosPorDefecto(l.rx, l.ry) };
     await Store.actualizarLote(l.id, cambios);
     cerrarHoja(); await recargar(); sincronizar();
     abrirEdicion('lote', { ...l, ...cambios });
-  };
+  });
 
   const ef = $('#editar-forma');
   if (ef) ef.onclick = () => { cerrarHoja(); abrirEdicion('lote', l); };
@@ -788,7 +843,7 @@ async function fichaLote(id) {
   };
 
   const ag = $('#a-guardar');
-  if (ag) ag.onclick = async () => {
+  if (ag) ag.onclick = accion(async () => {
     const codigo = $('#a-cod').value.trim().toUpperCase();
     if (!codigo) return;
     await Store.actualizarLote(l.id, {
@@ -799,13 +854,13 @@ async function fichaLote(id) {
       nota: `Datos corregidos por ${S.perfil.nombre}`, usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  });
 
-  $('#guardar-nota').onclick = async () => {
+  $('#guardar-nota').onclick = accion(async () => {
     const n = $('#nota').value.trim(); if (!n) return;
     await Store.registrarEvento({ lote_id: id, tipo: 'observacion', nota: n, usuario_id: S.perfil.id });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  });
 }
 
 // Al salir de la pila el lote vuelve al mapa, junto a ella
@@ -845,14 +900,14 @@ function pedirRecogida(l) {
       <button id="r-guardar" class="btn-lleno">Marcar devolución</button>
     </div>`);
   $('#r-cancelar').onclick = () => fichaLote(l.id);
-  $('#r-guardar').onclick = async () => {
+  $('#r-guardar').onclick = accion(async () => {
     const f = $('#r-fecha').value; if (!f) return;
     await Store.registrarEvento({
       lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'devolucion',
       fecha_recogida: f, nota: $('#r-nota').value.trim() || null, usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  });
 }
 
 const quien = (id) => S.gente.find((g) => g.id === id)?.nombre || 'alguien';
@@ -942,28 +997,28 @@ async function fichaPila(id) {
   $('#cerrar').onclick = cerrarHoja;
   document.querySelectorAll('.hoja .lote').forEach((c) => { c.onclick = () => fichaLote(c.dataset.id); });
   document.querySelectorAll('.hoja [data-sacar]').forEach((b) => {
-    b.onclick = async (ev) => {
+    b.onclick = accion(async (ev) => {
       ev.stopPropagation();
       const l = await Store.lote(b.dataset.sacar);
       await sacarDePila(l, p);
       cerrarHoja();
-    };
+    }, { ocupado: '…' });
   });
   const pa = $('#pila-ajustar');
   if (pa) pa.onclick = () => { cerrarHoja(); abrirEdicion('pila', p); };
 
   const pp = $('#pila-poligono');
-  if (pp) pp.onclick = async () => {
+  if (pp) pp.onclick = accion(async () => {
     const cambios = p.forma === 'poligono'
       ? { forma: 'elipse' }
       : { forma: 'poligono', puntos: p.puntos?.length >= 3 ? p.puntos : Mapa.puntosPorDefecto(p.rx, p.ry) };
     await Store.renombrarPila(id, cambios);
     cerrarHoja(); await recargar(); sincronizar();
     abrirEdicion('pila', { ...p, ...cambios });
-  };
+  });
 
   const ap = $('#a-plataforma');
-  if (ap) ap.onclick = async () => {
+  if (ap) ap.onclick = accion(async () => {
     for (const l of dentro) {
       await Store.registrarEvento({
         lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'plataforma', usuario_id: S.perfil.id
@@ -971,23 +1026,23 @@ async function fichaPila(id) {
     }
     await Store.renombrarPila(id, { estado: 'consumida' });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Llevando…' });
 
   const arch = $('#archivar-pila');
-  if (arch) arch.onclick = async () => {
+  if (arch) arch.onclick = accion(async () => {
     for (const l of dentro) await sacarDePila(l, p, { revisar: false });
     await Store.renombrarPila(id, { estado: 'consumida' });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Quitando…' });
 
   const g = $('#guardar-pila');
-  if (g) g.onclick = async () => {
+  if (g) g.onclick = accion(async () => {
     await Store.renombrarPila(id, {
       codigo: $('#p-cod').value.trim().toUpperCase() || p.codigo,
       tipo: $('#p-tipo').value
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  });
 }
 
 // ----------------------------------------------------------- formularios
@@ -1043,23 +1098,27 @@ function formLote() {
   $('#fm-bigbag').onclick = () => elegirMaterial('bigbag');
 
   $('#f-cancelar').onclick = cerrarHoja;
-  $('#f-guardar').onclick = async () => {
-    const err = $('#f-error');
+  const falla = (t) => { const e = $('#f-error'); if (e) { e.hidden = false; e.textContent = t; } };
+  $('#f-guardar').onclick = accion(async () => {
+    $('#f-error').hidden = true;
     const num = $('#f-num').value.trim().toUpperCase();
     const placa = $('#f-placa').value.trim().toUpperCase();
+    const proveedor_id = $('#f-prov').value;
     const codigo = sigla() + num;
-    const falla = (t) => { err.hidden = false; err.textContent = t; };
     if (!num) return falla('Escribe el número del lote.');
     if (!placa) return falla('La placa de la volqueta es obligatoria.');
+    // sin proveedor el servidor rechaza el lote y todo lo que cuelgue de
+    // él; es preferible pararlo aquí que dejarlo trabado en la cola
+    if (!proveedor_id) return falla('No hay proveedores cargados todavía. Sincroniza antes de registrar el lote.');
     if (S.lotes.some((l) => l.codigo === codigo)) return falla(`El lote ${codigo} ya está registrado.`);
     await Store.crearLote({
-      codigo, proveedor_id: $('#f-prov').value, placa,
+      codigo, proveedor_id, placa,
       material, forma: FORMA_DE[material],
       x: c.x + (Math.random() - 0.5) * 90, y: c.y + (Math.random() - 0.5) * 70,
       usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Poniendo…', alFallar: (e) => falla(`No se pudo guardar el lote: ${e?.message || e}`) });
 }
 
 // ------------------------------------------------------- fondo (admin)
@@ -1126,7 +1185,7 @@ function panelFondo() {
 
   $('#cerrar').onclick = cerrarHoja;
 
-  const agregar = async (forma) => {
+  const agregar = (forma) => accion(async () => {
     const c2 = Mapa.centroVista();
     await Store.guardarFigura('mapa_figuras', {
       id: Store.uuid(), forma, etiqueta: null,
@@ -1134,24 +1193,22 @@ function panelFondo() {
       color: '#c7cdc5', orden: S.figuras.length
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
-  $('#add-rect').onclick = () => agregar('rectangulo');
-  $('#add-elipse').onclick = () => agregar('elipse');
+  }, { ocupado: 'Agregando…' });
+  $('#add-rect').onclick = agregar('rectangulo');
+  $('#add-elipse').onclick = agregar('elipse');
 
   const quitar = $('#quitar-img');
-  if (quitar) quitar.onclick = async () => {
+  if (quitar) quitar.onclick = accion(async () => {
     await Store.guardarConfig({ ...S.config, imagen_url: null });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Quitando…' });
 
-  $('#colores-base').onclick = async () => {
+  $('#colores-base').onclick = accion(async () => {
     await Store.guardarConfig({ ...S.config, colores: { ...Mapa.COLORES_BASE } });
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Restaurando…' });
 
-  $('#guardar-fondo').onclick = async () => {
-    const boton = $('#guardar-fondo');
-    boton.disabled = true; boton.textContent = 'Guardando…';
+  $('#guardar-fondo').onclick = accion(async () => {
     const colores = { ...paletaActual() };
     document.querySelectorAll('[data-color]').forEach((i) => { colores[i.dataset.color] = i.value; });
     const cfg = {
@@ -1171,13 +1228,15 @@ function panelFondo() {
         const p = $('#fondo-error');
         p.hidden = false;
         p.textContent = 'La imagen necesita señal para subir. Guarda el resto ahora y súbela cuando tengas internet.';
-        boton.disabled = false; boton.textContent = 'Guardar';
         return;
       }
     }
     await Store.guardarConfig(cfg);
     cerrarHoja(); await recargar(); Mapa.encuadrar(); sincronizar();
-  };
+  }, { alFallar: (e) => {
+    const p = $('#fondo-error');
+    if (p) { p.hidden = false; p.textContent = `No se pudo guardar: ${e?.message || e}`; } else decirError(e);
+  } });
 }
 
 function fichaFigura(id) {
@@ -1208,27 +1267,27 @@ function fichaFigura(id) {
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:8px">Cancelar</button>`);
   $('#cerrar').onclick = cerrarHoja;
 
-  const ajustar = (extra) => async () => {
+  const ajustar = (extra) => accion(async () => {
     if (extra) await Store.guardarFigura('mapa_figuras', { ...f, ...extra });
     cerrarHoja(); await recargar(); sincronizar();
     abrirEdicion('figura', { ...f, ...(extra || {}) });
-  };
+  });
   $('#g-ajustar').onclick = ajustar(null);
   $('#g-rect').onclick = ajustar({ forma: 'rectangulo' });
   $('#g-elipse').onclick = ajustar({ forma: 'elipse' });
   $('#g-poligono').onclick = ajustar(f.forma === 'poligono'
     ? { forma: 'rectangulo' }
     : { forma: 'poligono', puntos: f.puntos?.length >= 3 ? f.puntos : Mapa.puntosPorDefecto(f.rx, f.ry) });
-  $('#g-guardar').onclick = async () => {
+  $('#g-guardar').onclick = accion(async () => {
     await Store.guardarFigura('mapa_figuras', {
       ...f, etiqueta: $('#g-etq').value.trim() || null, color: $('#g-color').value
     });
     cerrarHoja(); await recargar(); sincronizar();
-  };
-  $('#g-borrar').onclick = async () => {
+  });
+  $('#g-borrar').onclick = accion(async () => {
     await Store.borrarFiguraFondo(id);
     cerrarHoja(); await recargar(); sincronizar();
-  };
+  }, { ocupado: 'Borrando…' });
 }
 
 arrancar();

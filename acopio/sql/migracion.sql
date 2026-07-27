@@ -156,6 +156,11 @@ create trigger trg_proteger_derivados
   before update on lotes for each row execute function fn_proteger_derivados();
 
 -- ---------------------------------------------------------- seguridad
+alter table perfiles     enable row level security;
+alter table proveedores  enable row level security;
+alter table pilas        enable row level security;
+alter table lotes        enable row level security;
+alter table eventos      enable row level security;
 alter table mapa_figuras enable row level security;
 alter table mapa_config  enable row level security;
 
@@ -182,6 +187,40 @@ begin
       end if;
     end if;
   end loop;
+
+  -- Escribir en el patio: contratista y admin. Estas tres FALTABAN en la
+  -- migración, así que una base que venía de una versión vieja se quedaba
+  -- sin ellas: el contratista veía el mapa (las de lectura sí estaban)
+  -- pero cada lote que registraba lo rechazaba el servidor en silencio, y
+  -- después sus eventos fallaban por llave foránea contra un lote que
+  -- nunca llegó.
+  if not exists (select 1 from pg_policies where tablename = 'lotes' and policyname = 'p_crear_lotes') then
+    create policy p_crear_lotes on lotes for insert to authenticated
+      with check (fn_mi_rol() in ('contratista', 'admin'));
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'pilas' and policyname = 'p_crear_pilas') then
+    create policy p_crear_pilas on pilas for insert to authenticated
+      with check (fn_mi_rol() in ('contratista', 'admin'));
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'eventos' and policyname = 'p_crear_eventos') then
+    create policy p_crear_eventos on eventos for insert to authenticated
+      with check (fn_mi_rol() in ('contratista', 'admin') and usuario_id = auth.uid());
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'lotes' and policyname = 'p_leer_lotes') then
+    create policy p_leer_lotes on lotes for select to authenticated using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'pilas' and policyname = 'p_leer_pilas') then
+    create policy p_leer_pilas on pilas for select to authenticated using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'eventos' and policyname = 'p_leer_eventos') then
+    create policy p_leer_eventos on eventos for select to authenticated using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'perfiles' and policyname = 'p_leer_perfiles') then
+    create policy p_leer_perfiles on perfiles for select to authenticated using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'proveedores' and policyname = 'p_leer_proveedores') then
+    create policy p_leer_proveedores on proveedores for select to authenticated using (fn_mi_rol() is not null);
+  end if;
 
   -- el fondo del mapa: solo admin
   if not exists (select 1 from pg_policies where tablename = 'mapa_figuras' and policyname = 'p_admin_figuras') then

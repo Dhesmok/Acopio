@@ -69,9 +69,14 @@ export const olvidarFallidos = () => idb.vaciar('fallidos');
 
 // Devuelve los rechazados a la cola. Se usa después de corregir la base:
 // los cambios vuelven a intentarse en vez de perderse.
+//
+// El `orden` original NO se toca. Reasignarlo aquí ponía los eventos antes
+// que su lote (la lista sale ordenada por clave y "eventos:" va antes que
+// "lotes:"), así que el reintento repetía el mismo error de llave foránea
+// aunque la base ya estuviera arreglada.
 export async function reintentarFallidos() {
   for (const op of await idb.todos('fallidos')) {
-    await idb.guardar('cola', { ...op, intentos: 0, orden: Date.now(), error: null });
+    await idb.guardar('cola', { ...op, intentos: 0, error: null, detalle: null, fallo_en: null });
     await idb.borrar('fallidos', op.id);
   }
 }
@@ -105,17 +110,49 @@ export async function historial(loteId) {
 const limpiar = (fila) =>
   Object.fromEntries(Object.entries(fila).filter(([k]) => !k.startsWith('_')));
 
+// El orden de la cola es el orden en que se mandan las cosas, y un hijo
+// nunca puede ir antes que su padre. Dos operaciones creadas dentro del
+// mismo milisegundo empataban y el desempate lo decidía el nombre de la
+// clave, no el tiempo: por eso esto avanza aunque el reloj no.
+let ultimoOrden = 0;
+const siguienteOrden = () => (ultimoOrden = Math.max(Date.now(), ultimoOrden + 1));
+
+// De qué otra operación de la cola depende esta. Un evento no existe sin
+// su lote; mover un lote no significa nada si el lote todavía no subió.
+function padres(clave, tabla, fila) {
+  const p = [];
+  if (tabla === 'eventos') {
+    if (fila.lote_id) p.push(`lotes:${fila.lote_id}`);
+    if (fila.pila_id) p.push(`pilas:${fila.pila_id}`);
+  } else if (tabla === 'lotes') {
+    p.push(`lotes:${fila.id}`);
+    if (fila.pila_id) p.push(`pilas:${fila.pila_id}`);
+  } else if (tabla === 'pilas') {
+    p.push(`pilas:${fila.id}`);
+  }
+  return p.filter((k) => k !== clave);   // nadie es padre de sí mismo
+}
+
 async function encolar(clave, tabla, modo, fila) {
+  const limpia = limpiar(fila);
   await idb.guardar('cola', {
-    id: clave, orden: Date.now(), tabla, modo,
-    fila: limpiar(fila), intentos: 0, creado_en: ahora()
+    id: clave, orden: siguienteOrden(), tabla, modo,
+    fila: limpia, depende: padres(clave, tabla, limpia),
+    intentos: 0, creado_en: ahora()
   });
 }
 
 export async function crearLote({ codigo, proveedor_id, placa, material, forma, x, y, usuario_id }) {
+  const cod = codigo.trim().toUpperCase();
+  // Tocar "Poner en el mapa" diez veces tiene que dejar UN lote. El código
+  // es único en el servidor: si ya está guardado aquí, se devuelve ese
+  // mismo en vez de crear un gemelo que el servidor va a rechazar.
+  const ya = (await idb.todos('lotes')).find((l) => l.codigo === cod);
+  if (ya) return ya;
+
   const t = ahora();
   const fila = {
-    id: uuid(), codigo: codigo.trim().toUpperCase(), proveedor_id,
+    id: uuid(), codigo: cod, proveedor_id,
     placa: (placa || '').trim().toUpperCase(), fecha_recepcion: t.slice(0, 10),
     material: material || 'granel', forma: forma || 'elipse',
     puntos: null, x, y, rx: 46, ry: 34, rot: 0,
@@ -214,9 +251,12 @@ async function aplicarLocal(e) {
 let ocupado = false;
 
 export async function sincronizar() {
-  if (ocupado || !navigator.onLine) return { ok: false };
+  if (ocupado || !navigator.onLine) return { ok: false, motivo: 'sin_conexion' };
   ocupado = true;
   try {
+    // Antes que nada: si el perfil no está activo, ni subir ni bajar tiene
+    // sentido. Intentarlo solo gasta los reintentos de la cola.
+    if (!(await perfilVivo())) throw new Error('perfil_inactivo');
     await subir();
     await bajar();
     await meta('ultima_sync', ahora());
@@ -226,9 +266,34 @@ export async function sincronizar() {
   } finally { ocupado = false; }
 }
 
+async function aFallidos(op, error, detalle) {
+  await idb.guardar('fallidos', { ...op, error, detalle: detalle || null, fallo_en: ahora() });
+  await idb.borrar('cola', op.id);
+}
+
 async function subir() {
   const cola = (await idb.todos('cola')).sort((a, b) => a.orden - b.orden);
+
+  // `rotos`   = lo que el servidor ya rechazó de plano.
+  // `esperan` = lo que sigue en la cola y todavía no confirmó.
+  // Un evento cuyo lote no llegó al servidor SOLO puede fallar: mandarlo
+  // gasta sus tres intentos y deja en pantalla un error de llave foránea
+  // que no le dice nada a quien está en el patio. Mejor no mandarlo.
+  const rotos = new Set((await idb.todos('fallidos')).map((o) => o.id));
+  const esperan = new Set(cola.map((o) => o.id));
+
   for (const op of cola) {
+    const dep = op.depende || [];
+    const roto = dep.find((k) => rotos.has(k));
+    if (roto) {
+      await aFallidos(op, `Espera a ${nombreDe(roto)}, que el servidor no aceptó. Se sube solo en cuanto eso quede resuelto.`);
+      rotos.add(op.id); esperan.delete(op.id);
+      continue;
+    }
+    // el padre sigue pendiente: este cambio espera al siguiente intento,
+    // sin gastar reintentos ni ensuciar la pantalla con un error prestado
+    if (dep.some((k) => esperan.has(k))) continue;
+
     let error = null;
     if (op.modo === 'borrar') {
       ({ error } = await sb.from(op.tabla).delete().eq('id', op.fila.id));
@@ -237,20 +302,56 @@ async function subir() {
         onConflict: 'id', ignoreDuplicates: op.modo === 'insertar'
       }));
     }
-    if (!error) { await idb.borrar('cola', op.id); continue; }
+    if (!error) { await idb.borrar('cola', op.id); esperan.delete(op.id); continue; }
     if (esRed(error)) throw new Error('sin_conexion');
     op.intentos = (op.intentos || 0) + 1;
     if (op.intentos >= 3) {
-      await idb.guardar('fallidos', { ...op, error: error.message, fallo_en: ahora() });
-      await idb.borrar('cola', op.id);
+      await aFallidos(op, mensajeError(error), error.message);
+      rotos.add(op.id); esperan.delete(op.id);
     } else await idb.guardar('cola', op);
   }
 }
 
+const nombreDe = (clave) => ({
+  lotes: 'un lote', pilas: 'una pila', eventos: 'un movimiento'
+}[clave.split(':')[0]] || 'otro cambio');
+
+// Sin señal el error viene sin `code` de Postgres. Con `code` el servidor
+// SÍ contestó, y tratarlo como falta de señal dejaba la cola parada para
+// siempre sin decir por qué.
 const esRed = (e) => {
+  if (!navigator.onLine) return true;
+  if (e.code) return false;
   const m = (e.message || '').toLowerCase();
-  return m.includes('fetch') || m.includes('network') || m.includes('timeout') || !e.code;
+  return /fetch|network|timeout|load failed|abort/.test(m);
 };
+
+// El texto crudo de Postgres no le sirve a nadie en el patio.
+function mensajeError(e) {
+  const m = e.message || 'Error desconocido';
+  if (e.code === '23505') return /codigo/.test(m)
+    ? 'Ya hay otro lote con ese código. Corrígelo desde la ficha o descarta este.'
+    : 'Ese registro ya existe en el servidor.';
+  if (e.code === '23503') return 'Apunta a un lote o una pila que no llegó al servidor.';
+  if (e.code === '42501' || /row-level security|policy/i.test(m))
+    return 'Tu usuario no tiene permiso para este cambio. Pídele al administrador que active tu perfil.';
+  if (e.code === '22P02') return 'Un dato quedó vacío o mal formado (revisa el proveedor del lote).';
+  if (e.code === '23502') return 'Falta un dato obligatorio en este registro.';
+  return m;
+}
+
+// ¿El servidor nos reconoce? Todo perfil nace inactivo, y mientras lo
+// esté las políticas devuelven CERO filas sin error: la app parecía estar
+// al día, borraba de la pantalla lo que sí estaba guardado y rechazaba en
+// silencio todo lo que la persona escribía. Se comprueba antes de bajar.
+async function perfilVivo() {
+  const { data: s } = await sb.auth.getSession();
+  const uid = s?.session?.user?.id;
+  if (!uid) return false;
+  const { data, error } = await sb.from('perfiles').select('id').eq('id', uid).maybeSingle();
+  if (error) throw new Error(error.message);
+  return !!data;
+}
 
 async function bajar() {
   const r = await Promise.all([
