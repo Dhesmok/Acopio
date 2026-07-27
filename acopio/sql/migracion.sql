@@ -60,6 +60,34 @@ alter table pilas add column if not exists rx     numeric not null default 100;
 alter table pilas add column if not exists ry     numeric not null default 70;
 alter table pilas add column if not exists rot    numeric not null default 0;
 
+-- ------------------------------------ para bajar solo lo que cambió
+--  La app bajaba TODO cada veinte segundos. Para pedir solo lo nuevo hace
+--  falta saber cuándo cambió cada fila, y que lo ponga el SERVIDOR: un
+--  celular con el reloj corrido no puede decidir qué se sincroniza.
+alter table lotes add column if not exists actualizado_en timestamptz not null default now();
+alter table pilas add column if not exists actualizado_en timestamptz not null default now();
+
+create or replace function fn_marcar_actualizado()
+returns trigger language plpgsql as $$
+begin
+  new.actualizado_en := now();
+  return new;
+end; $$;
+
+--  Se llama así para que corra ANTES que trg_proteger_derivados (los
+--  disparadores de un mismo momento van en orden alfabético). El de
+--  protección no toca esta columna, así que la marca sobrevive.
+drop trigger if exists trg_marcar_actualizado on lotes;
+create trigger trg_marcar_actualizado before insert or update on lotes
+  for each row execute function fn_marcar_actualizado();
+drop trigger if exists trg_marcar_actualizado on pilas;
+create trigger trg_marcar_actualizado before insert or update on pilas
+  for each row execute function fn_marcar_actualizado();
+
+create index if not exists idx_lotes_actualizado   on lotes (actualizado_en);
+create index if not exists idx_pilas_actualizado   on pilas (actualizado_en);
+create index if not exists idx_eventos_registrado  on eventos (registrado_en);
+
 -- ------------------------------------------------------------ eventos
 alter table eventos add column if not exists fecha_recogida date;
 alter table eventos add column if not exists x numeric;

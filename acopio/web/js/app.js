@@ -583,7 +583,7 @@ async function manejarSoltar(lote, blanco) {
     await Store.registrarEvento({
       lote_id: lote.id, tipo: 'ingreso_pila', pila_id: blanco.obj.id, usuario_id: S.perfil.id
     });
-    await recargar();
+    await recargar(); sincronizar();
     return;
   }
 
@@ -600,7 +600,7 @@ async function manejarSoltar(lote, blanco) {
       lote_id: l.id, tipo: 'ingreso_pila', pila_id: pila.id, usuario_id: S.perfil.id
     });
   }
-  await recargar();
+  await recargar(); sincronizar();
   fichaPila(pila.id);
 }
 
@@ -864,6 +864,8 @@ async function fichaLote(id) {
     <button class="btn btn-ancho" id="guardar-nota" style="width:100%">Guardar observación</button>`}
 
     <h3>Historial</h3>
+    ${Store.historialCompleto(eventos) ? '' : `<p class="aviso">Falta señal para traer la parte
+       más antigua de este historial. Lo que se ve abajo está completo de ahí en adelante.</p>`}
     <ul class="linea-tiempo">
       ${eventos.map((e) => `<li>
         <div class="cuando">${new Date(e.ocurrido_en).toLocaleString('es-CO')} · ${esc(quien(e.usuario_id))}</div>
@@ -895,8 +897,10 @@ async function fichaLote(id) {
   });
 
   const sacar = $('#sacar');
-  if (sacar) sacar.onclick = accion(async () => { await sacarDePila(l, pila); cerrarHoja(); },
-    { ocupado: 'Sacando…' });
+  if (sacar) sacar.onclick = accion(async () => {
+    await sacarDePila(l, pila);
+    cerrarHoja(); await recargar(); sincronizar();
+  }, { ocupado: 'Sacando…' });
 
   document.querySelectorAll('.hoja button[data-material]').forEach((b) => {
     b.onclick = accion(async () => {
@@ -959,7 +963,10 @@ async function fichaLote(id) {
   });
 }
 
-// Al salir de la pila el lote vuelve al mapa, junto a ella
+// Al salir de la pila el lote vuelve al mapa, junto a ella.
+// No repinta ni sincroniza: quien la llame decide cuándo, UNA vez. Antes
+// lo hacía aquí dentro, así que vaciar una pila de cinco lotes disparaba
+// cinco relecturas de toda la base y cinco sincronizaciones seguidas.
 async function sacarDePila(l, pila, { revisar = true } = {}) {
   const a = Math.random() * Math.PI * 2;
   const x = (pila?.x ?? l.x) + Math.cos(a) * ((pila?.rx ?? 80) + 70);
@@ -967,7 +974,6 @@ async function sacarDePila(l, pila, { revisar = true } = {}) {
   await Store.guardarFigura('lotes', { ...l, x, y });
   await Store.registrarEvento({ lote_id: l.id, tipo: 'salida_pila', usuario_id: S.perfil.id });
   if (revisar && pila) await revisarPila(pila);
-  await recargar(); sincronizar();
 }
 
 // Una pila de un solo lote no es una pila, y una vacía solo estorba:
@@ -1097,7 +1103,7 @@ async function fichaPila(id) {
       ev.stopPropagation();
       const l = await Store.lote(b.dataset.sacar);
       await sacarDePila(l, p);
-      cerrarHoja();
+      cerrarHoja(); await recargar(); sincronizar();
     }, { ocupado: '…' });
   });
   const pa = $('#pila-ajustar');

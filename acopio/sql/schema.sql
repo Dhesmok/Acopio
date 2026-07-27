@@ -111,12 +111,32 @@ create table lotes (
   pila_id          uuid references pilas (id),
   ultimo_evento_en timestamptz not null default now(),
   creado_por       uuid references perfiles (id),
-  creado_en        timestamptz not null default now()
+  creado_en        timestamptz not null default now(),
+  -- para que la app baje solo lo que cambió; lo pone el servidor
+  actualizado_en   timestamptz not null default now()
 );
 
-create index idx_lotes_estado on lotes (estado);
-create index idx_lotes_pila   on lotes (pila_id);
-create index idx_lotes_placa  on lotes (placa);
+create index idx_lotes_estado      on lotes (estado);
+create index idx_lotes_pila        on lotes (pila_id);
+create index idx_lotes_placa       on lotes (placa);
+create index idx_lotes_actualizado on lotes (actualizado_en);
+create index idx_pilas_actualizado on pilas (actualizado_en);
+
+-- La marca la escribe el servidor, no el cliente. Se llama así para que
+-- corra ANTES que trg_proteger_derivados: los disparadores de un mismo
+-- momento van en orden alfabético, y el de protección no toca esta
+-- columna, así que la marca sobrevive.
+create or replace function fn_marcar_actualizado()
+returns trigger language plpgsql as $$
+begin
+  new.actualizado_en := now();
+  return new;
+end; $$;
+
+create trigger trg_marcar_actualizado before insert or update on lotes
+  for each row execute function fn_marcar_actualizado();
+create trigger trg_marcar_actualizado before insert or update on pilas
+  for each row execute function fn_marcar_actualizado();
 
 -- -------------------------------------------------------------- eventos
 create table eventos (

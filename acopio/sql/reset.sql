@@ -17,6 +17,7 @@ drop table if exists mapa_figuras cascade;
 drop table if exists mapa_config cascade;
 drop table if exists perfiles cascade;
 
+drop function if exists fn_marcar_actualizado() cascade;
 drop function if exists fn_aplicar_evento() cascade;
 drop function if exists fn_proteger_derivados() cascade;
 drop function if exists fn_evento_recepcion() cascade;
