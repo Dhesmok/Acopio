@@ -116,6 +116,8 @@ header .crece { flex: 1; }
 .chip-sync[data-estado="pendiente"] .punto { background: var(--por_muestrear); animation: latir 1.4s ease-in-out infinite; }
 .chip-sync[data-estado="offline"] { border-color: #ffffff55; color: #cfd6cf; }
 .chip-sync[data-estado="offline"] .punto { background: var(--apagado); }
+.chip-sync[data-estado="error"] { border-color: var(--devolucion); color: #ffb3aa; background: #b8352a1f; }
+.chip-sync[data-estado="error"] .punto { background: var(--devolucion); animation: latir 1.4s ease-in-out infinite; }
 .chip-sync:active { transform: scale(.94); }
 @keyframes latir { 50% { opacity: .3; transform: scale(.8); } }
 
