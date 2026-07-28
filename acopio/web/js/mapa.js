@@ -193,10 +193,70 @@ function cuerpo(o, attrs) {
   return `<ellipse rx="${o.rx}" ry="${o.ry}" ${attrs}/>`;
 }
 
+// ------------------------------------------------- texto dentro de figura
+// El rótulo va DENTRO de la figura, así que su tamaño no puede ser fijo:
+// depende de lo grande que sea la figura y de lo largo que sea el texto.
+// Con un tamaño fijo, un código como SJ1015.2 se salía por los lados de
+// su óvalo y "CASETA" quedaba minúscula dentro de una caseta enorme.
+
+// Hueco útil dentro de cada forma.
+//
+// En una elipse el ancho NO es constante: depende de a qué altura se
+// mida. Un renglón de texto es bajo, así que puede usar casi toda la
+// cuerda central —2·rx·√(1−(h/ry)²)— en vez del rectángulo inscrito, que
+// es mucho más estrecho. Usar el rectángulo inscrito dejaba los códigos
+// bastante más pequeños de lo que hacía falta.
+function cajaInterior(o, tam = 0) {
+  if (o.forma === 'poligono') {
+    const ps = listaPuntos(o);
+    const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
+    // un polígono irregular aprovecha bastante menos que su caja
+    return { w: (Math.max(...xs) - Math.min(...xs)) * .68,
+             h: (Math.max(...ys) - Math.min(...ys)) * .5 };
+  }
+  if (o.forma === 'rectangulo') return { w: o.rx * 1.78, h: o.ry * 1.5 };
+  const media = tam ? Math.min(tam * .38, o.ry * .92) : o.ry * .6;
+  const cuerda = 2 * o.rx * Math.sqrt(Math.max(1 - (media / o.ry) ** 2, .05));
+  return { w: cuerda * .88, h: o.ry * 1.2 };
+}
+
+// Dónde se ancla el rótulo. En elipse y rectángulo, el origen. En un
+// polígono, el centro de sus vértices: al arrastrarlos deja de estar en
+// el origen, y el rótulo se quedaba colgado fuera de la figura.
+function anclaTexto(o) {
+  if (o.forma !== 'poligono') return { x: 0, y: 0 };
+  const ps = listaPuntos(o);
+  return { x: ps.reduce((a, p) => a + p.x, 0) / ps.length,
+           y: ps.reduce((a, p) => a + p.y, 0) / ps.length };
+}
+
+// El ancho de un texto se sabe sin medirlo si se conoce cuánto avanza
+// cada carácter. La monoespaciada de los códigos avanza ~0.6 em; la
+// etiqueta del fondo va en versalitas espaciadas y avanza ~0.72, bastante
+// más —dar por bueno el 0.6 ahí dejaba "VÍA DE ACCESO PRINCIPAL"
+// saliéndose 50 px por los lados—. Manda el límite más estrecho de los
+// dos, y el resultado se recorta a un rango que siga siendo legible.
+function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6 }) {
+  const calcular = (caja) => Math.max(min, Math.min(max,
+    caja.w / Math.max(String(texto).length * paso, 1),
+    (caja.h / lineas) * .92));
+  let t = calcular(cajaInterior(o));
+  // En la elipse el ancho depende del tamaño del texto y el tamaño del
+  // ancho: una segunda pasada con la cuerda ya a la altura correcta
+  // basta para que converja.
+  if (o.forma !== 'rectangulo' && o.forma !== 'poligono') t = calcular(cajaInterior(o, t));
+  return +t.toFixed(1);
+}
+
 function figuraFondo(f) {
   return `<g data-tipo="figura" data-id="${esc(f.id)}" ${trazo(f)} class="g-fondo${apagado(f.id)}">
     ${cuerpo(f, `fill="${esc(f.color)}" opacity=".85"`)}
-    ${f.etiqueta ? `<text y="5" text-anchor="middle" class="txt-fondo">${esc(f.etiqueta)}</text>` : ''}
+    ${f.etiqueta ? (() => {
+      const c = anclaTexto(f);
+      const t = tamanoTexto(f, f.etiqueta, { min: 9, max: 38, paso: .72 });
+      return `<text x="${c.x}" y="${c.y + t * .34}" text-anchor="middle" class="txt-fondo"
+        font-size="${t}">${esc(f.etiqueta)}</text>`;
+    })() : ''}
   </g>`;
 }
 
@@ -205,8 +265,15 @@ function figuraPila(p, lotes) {
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}">
     ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
-    <text y="-2" text-anchor="middle" class="txt-pila">Pila ${esc(p.codigo)}</text>
-    <text y="19" text-anchor="middle" class="txt-pila-sub">${n} lote${n === 1 ? '' : 's'}</text>
+    ${(() => {
+      const rotulo = `Pila ${p.codigo}`, c = anclaTexto(p);
+      const t = tamanoTexto(p, rotulo, { min: 8, max: 24, lineas: 2 });
+      const sub = Math.max(6, +(t * .58).toFixed(1));
+      return `<text x="${c.x}" y="${c.y}" text-anchor="middle" class="txt-pila"
+          font-size="${t}">${esc(rotulo)}</text>
+        <text x="${c.x}" y="${c.y + t * .95}" text-anchor="middle" class="txt-pila-sub"
+          font-size="${sub}">${n} lote${n === 1 ? '' : 's'}</text>`;
+    })()}
   </g>`;
 }
 
@@ -217,8 +284,15 @@ function figuraLote(l) {
      stroke-width="${venc ? 5 : 2}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
   return `<g data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)} class="g-lote${apagado(l.id)}">
     ${cuerpo(l, attrs)}
-    <text y="5" text-anchor="middle" class="txt-lote" fill="${claro(col) ? '#14171a' : '#ffffff'}"
-      >${esc(l.codigo)}</text>
+    ${(() => {
+      const c = anclaTexto(l);
+      // El suelo son 11 px: por debajo de eso un código deja de leerse a
+      // un brazo de distancia. Un código absurdamente largo prefiere
+      // sobresalir dos o tres píxeles de su óvalo a volverse ilegible.
+      const t = tamanoTexto(l, l.codigo, { min: 11, max: 20 });
+      return `<text x="${c.x}" y="${c.y + t * .35}" text-anchor="middle" class="txt-lote"
+        font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(l.codigo)}</text>`;
+    })()}
   </g>`;
 }
 
