@@ -8,13 +8,22 @@
    ===================================================================== */
 
 :root {
-  --piso:      #e7eae4;
+  /* El gris no es neutro: lleva una gota de verde mineral, la misma en
+     todos los tonos. Un gris de verdad neutro al lado de la tierra del
+     patio se ve muerto; este pertenece al sitio. */
+  --piso:      #e6eae3;
+  --piso-hondo:#dbe0d8;
   --superficie:#ffffff;
-  --tinta:     #14171a;
-  --tinta-2:   #23282c;
-  --apagado:   #5f6863;
-  --linea:     #d3d9cf;
-  --linea-suave: #e2e6de;
+  --tinta:     #131816;
+  --tinta-2:   #222927;
+  --tinta-3:   #3c4441;
+  --apagado:   #5c6663;
+  --linea:     #d2d8ce;
+  --linea-suave: #e3e7df;
+
+  /* Tinta con transparencia, para sombras y velos que pertenecen a la
+     misma familia en vez de ser negro genérico encima. */
+  --sombra-tinte: 22 32 28;
 
   --por_muestrear: #d99a06;
   --muestreado:    #e8b48a;
@@ -26,11 +35,24 @@
 
   /* El acento de la interfaz es SUYO, no el color de un estado: el admin
      puede repintar "facturado" y los botones no tienen por qué seguirlo. */
-  --acento:        #175d92;
-  --acento-fuerte: #124b76;
+  --acento:        #145a8f;
+  --acento-fuerte: #0f4770;
+  --acento-lavado: #145a8f14;   /* fondos teñidos, no otro azul suelto */
+
+  /* El ámbar de "por muestrear" vale sobre una pastilla de color, pero
+     como TEXTO sobre blanco da 2.45:1 y a pleno sol desaparece. Esta es
+     la misma familia, lo bastante oscura para leerse (5.5:1). */
+  --ambar-texto:   #8a6200;
 
   --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* El cero rayado y el uno con base: en un código de lote confundir
+     O con 0 cuesta un camión mal registrado. La fuente ya sabe hacerlo,
+     solo hay que pedírselo. Y las cifras tabulares hacen que las fechas
+     y los conteos no bailen al actualizarse. */
+  --mono-rasgos: "zero" 1, "ss01" 1, "cv01" 1;
+  --cifras: tabular-nums lining-nums;
 
   /* escala de espaciado: todo el ritmo vertical sale de aquí */
   --e1: 4px; --e2: 8px; --e3: 12px; --e4: 16px; --e5: 24px; --e6: 32px;
@@ -40,14 +62,29 @@
   --r-grande: 18px;
 
   /* Movimiento: rápido y con salida suave. Nada rebota ni se demora:
-     esto se usa con guantes, a pleno sol y con prisa. */
+     esto se usa con guantes, a pleno sol y con prisa. Lo único que se
+     permite un respiro es la hoja modal, porque cubre la pantalla y el
+     ojo necesita saber de dónde salió. */
   --t-rapido: 110ms;
   --t-medio:  180ms;
+  --t-lento:  300ms;
   --curva: cubic-bezier(.2, .8, .3, 1);
+  --curva-firme: cubic-bezier(.32, .72, 0, 1);   /* sale rápido, aterriza */
 
-  --sombra-baja:  0 1px 2px #14171a14, 0 1px 1px #14171a0a;
-  --sombra-media: 0 6px 18px #14171a1f, 0 2px 6px #14171a14;
-  --sombra-alta:  0 16px 40px #14171a38, 0 4px 12px #14171a1f;
+  /* Elevación en cuatro pisos, toda del mismo tinte. Dos capas por
+     sombra: una pegada al borde que define el canto, y una lejana y
+     difusa que da la altura. Una sola capa siempre se ve barata. */
+  --sombra-baja:
+    0 1px 1.5px rgb(var(--sombra-tinte) / .07),
+    0 1px 3px   rgb(var(--sombra-tinte) / .05);
+  --sombra-media:
+    0 1px 2px  rgb(var(--sombra-tinte) / .06),
+    0 6px 16px rgb(var(--sombra-tinte) / .11);
+  --sombra-alta:
+    0 2px 6px   rgb(var(--sombra-tinte) / .09),
+    0 18px 44px rgb(var(--sombra-tinte) / .24);
+  /* El canto de luz de una pieza física iluminada desde arriba */
+  --luz-canto: inset 0 1px 0 rgb(255 255 255 / .75);
 
   color-scheme: light;
 }
@@ -63,20 +100,40 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* El fondo es papel de plano, no un gris plano: retícula de 28px al 3%
+   de tinta y una luz suave que cae desde arriba. Al 3% no se "ve" —se
+   siente—, y sobre todo NO le roba contraste a nada de lo que va encima,
+   que es la única regla innegociable de esta pantalla. */
 html, body {
   margin: 0;
   height: 100%;
-  background: var(--piso);
+  background-color: var(--piso);
+  background-image:
+    linear-gradient(rgb(var(--sombra-tinte) / .030) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--sombra-tinte) / .030) 1px, transparent 1px),
+    radial-gradient(130% 55% at 50% -8%, #ffffffb0, #ffffff00 62%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  background-attachment: fixed;
   color: var(--tinta);
   font-family: var(--sans);
   font-size: 16px;
+  font-variant-numeric: var(--cifras);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: contain;
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
-::selection { background: #2b5ca833; }
+::selection { background: #145a8f2e; }
+
+/* Todo lo monoespaciado del proyecto es un IDENTIFICADOR —código de
+   lote, placa, número de pila—, así que todo lleva los mismos rasgos. */
+[data-mono], .con-sigla span,
+.lote .codigo, .pila .num, .pila .codigos, .pila-tag,
+.hoja h2, .barra-modo strong, .buscador {
+  font-feature-settings: var(--mono-rasgos);
+  font-variant-numeric: var(--cifras);
+}
 
 /* ------------------------------------------------------------ armazón */
 /* La pantalla es una columna de alto fijo: cabecera arriba y una sola
@@ -103,15 +160,38 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .cabecera-fija { flex: none; position: relative; z-index: 25; box-shadow: var(--sombra-media); }
 
+/* La cabecera es el cajetín del plano: la banda oscura donde va el
+   nombre de la obra. Lleva una luz cenital muy tenue, un canto claro
+   arriba —como metal anodizado— y un filo de acento abajo que la ata al
+   resto de la interfaz. */
 header {
-  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
+  position: relative;
+  background:
+    radial-gradient(120% 180% at 12% -40%, #39423e 0%, #39423e00 55%),
+    linear-gradient(180deg, var(--tinta-2), var(--tinta));
   color: #fff;
-  padding: calc(10px + env(safe-area-inset-top)) 14px 10px 14px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 11px 14px;
   display: flex; align-items: center; gap: 10px;
+  box-shadow: inset 0 1px 0 #ffffff14;
+}
+header::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg,
+    var(--acento) 0%, #2f86c9 22%, var(--acento) 45%, #1e2a26 100%);
+  opacity: .9;
 }
 header h1 {
   margin: 0; font-size: 15px; font-weight: 700;
-  letter-spacing: .14em; text-transform: uppercase;
+  letter-spacing: .22em; text-transform: uppercase;
+  /* la marca respira: es lo único de la pantalla que puede permitírselo */
+  padding-left: 1px;
+}
+/* Punto de registro, como el de una lámina de dibujo */
+header h1::before {
+  content: ''; display: inline-block;
+  width: 7px; height: 7px; margin-right: 10px; vertical-align: 1px;
+  border-radius: 50%; background: var(--acento);
+  box-shadow: 0 0 0 3px #145a8f38;
 }
 header .crece { flex: 1; }
 
@@ -170,18 +250,25 @@ nav.pestanas {
   border-bottom: 1px solid var(--linea);
 }
 nav.pestanas button {
-  flex: 1; border: 0; background: none; padding: 14px 8px;
-  font-size: 13px; font-weight: 700; letter-spacing: .08em;
+  position: relative;
+  flex: 1; border: 0; background: none; padding: 14px 8px 15px;
+  font-size: 13px; font-weight: 700; letter-spacing: .1em;
   text-transform: uppercase; color: var(--apagado);
-  border-bottom: 3px solid transparent; cursor: pointer;
+  cursor: pointer;
   transition: color var(--t-rapido) var(--curva),
-              border-color var(--t-medio) var(--curva),
               background-color var(--t-rapido) var(--curva);
 }
-nav.pestanas button:hover { background: var(--piso); }
-nav.pestanas button[aria-selected="true"] {
-  color: var(--tinta); border-bottom-color: var(--acento);
+/* El subrayado activo se dibuja solo, de dentro hacia fuera. Antes era
+   un borde que aparecía de golpe en todo el ancho. */
+nav.pestanas button::after {
+  content: ''; position: absolute; left: 50%; right: 50%; bottom: 0; height: 3px;
+  background: var(--acento); border-radius: 3px 3px 0 0;
+  transition: left var(--t-medio) var(--curva-firme),
+              right var(--t-medio) var(--curva-firme);
 }
+nav.pestanas button:hover { background: var(--piso); }
+nav.pestanas button[aria-selected="true"] { color: var(--tinta); }
+nav.pestanas button[aria-selected="true"]::after { left: 18%; right: 18%; }
 
 /* ------------------------------------------------------------ contenido */
 main {
@@ -232,23 +319,34 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 /* ------------------------------------------------------------ tarjetas */
 .lista { display: flex; flex-direction: column; gap: 9px; }
 
+/* La tarjeta es una PIEZA: canto de luz arriba, sombra corta abajo, y un
+   lomo de color a la izquierda que es lo primero que se lee de lejos.
+   El lomo pasó de 5 a 6px y lleva su propio brillo interior, para que se
+   lea como material pintado y no como una raya. */
 .lote {
-  display: grid; grid-template-columns: 5px 1fr auto;
+  display: grid; grid-template-columns: 6px 1fr auto;
   align-items: stretch; gap: 0;
   background: var(--superficie); border: 1px solid var(--linea);
   border-radius: var(--r); overflow: hidden; cursor: pointer;
   text-align: left; padding: 0; width: 100%;
-  box-shadow: var(--sombra-baja);
+  box-shadow: var(--sombra-baja), var(--luz-canto);
   transition: transform var(--t-rapido) var(--curva),
               border-color var(--t-rapido) var(--curva),
-              box-shadow var(--t-rapido) var(--curva);
+              box-shadow var(--t-medio) var(--curva);
 }
 .lote:hover {
-  border-color: var(--apagado); box-shadow: var(--sombra-media);
-  transform: translateY(-1px);
+  border-color: #b9c2b6; box-shadow: var(--sombra-media), var(--luz-canto);
+  transform: translateY(-2px);
 }
-.lote:active { transform: scale(.985); border-color: var(--tinta); }
-.lote .barra { background: var(--apagado); }
+.lote:active {
+  transform: translateY(0) scale(.988); border-color: var(--tinta-3);
+  box-shadow: var(--sombra-baja);
+  transition-duration: 60ms;
+}
+.lote .barra {
+  background: var(--apagado);
+  box-shadow: inset 1px 0 0 #ffffff59, inset -1px 0 0 rgb(var(--sombra-tinte) / .18);
+}
 .lote[data-estado="por_muestrear"] .barra { background: var(--por_muestrear); }
 .lote[data-estado="muestreado"]    .barra { background: var(--muestreado); }
 .lote[data-estado="remuestreo"]    .barra { background: var(--remuestreo); }
@@ -261,9 +359,12 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 }
 
 .lote .cuerpo { padding: 14px 14px; min-width: 0; }
+/* El código es el nombre propio del lote: se le da tamaño y aire para
+   que sea lo primero que encuentra el ojo al bajar por la lista. */
 .lote .codigo {
-  font-family: var(--mono); font-size: 18px; font-weight: 700;
-  letter-spacing: -.01em; display: block;
+  font-family: var(--mono); font-size: 19px; font-weight: 700;
+  letter-spacing: -.015em; display: block; line-height: 1.15;
+  color: var(--tinta);
 }
 /* la meta se separa con puntos medios, no con montones de espacio */
 .lote .meta {
@@ -279,9 +380,13 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 }
 
 .etiqueta {
-  font-size: 10.5px; font-weight: 800; letter-spacing: .06em;
-  text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
+  text-transform: uppercase; padding: 4.5px 11px; border-radius: 999px;
   color: #fff; white-space: nowrap;
+  /* un filo interior oscuro le da borde sin gastar un `border`, que
+     cambiaría el tamaño según el color */
+  box-shadow: inset 0 0 0 1px rgb(var(--sombra-tinte) / .12),
+              inset 0 1px 0 #ffffff38;
   transition: background-color var(--t-medio) var(--curva);
 }
 .etiqueta[data-e="por_muestrear"] { background: var(--por_muestrear); color: var(--txt-por_muestrear, #fff); }
@@ -329,36 +434,59 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 
 /* ------------------------------------------------------------ hoja modal */
 .velo {
-  position: fixed; inset: 0; background: #14171acc; z-index: 40;
+  position: fixed; inset: 0; z-index: 40;
+  /* el velo también es mineral: negro puro delante de un fondo verdoso
+     se ve sucio */
+  background: rgb(var(--sombra-tinte) / .62);
   display: flex; align-items: flex-end; justify-content: center;
   animation: aparecer var(--t-medio) var(--curva);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(6px) saturate(.85);
 }
 .hoja {
+  position: relative;
   background: var(--piso); width: 100%; max-width: 560px;
   max-height: 92vh; overflow-y: auto;
   border-radius: var(--r-grande) var(--r-grande) 0 0;
   padding: 8px 18px calc(20px + env(safe-area-inset-bottom)) 18px;
-  box-shadow: var(--sombra-alta);
-  animation: subir 260ms var(--curva);
+  box-shadow: var(--sombra-alta), var(--luz-canto);
+  /* sube con firmeza y aterriza; sin rebote, que aquí no viene a cuento */
+  animation: subir var(--t-lento) var(--curva-firme);
   overscroll-behavior: contain;
+}
+/* Filo de acento en el canto superior: ata la hoja a la cabecera */
+.hoja::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: linear-gradient(90deg, #145a8f00, var(--acento) 25%, var(--acento) 75%, #145a8f00);
+  border-radius: var(--r-grande) var(--r-grande) 0 0;
 }
 /* asidero: indica que el panel se puede desplazar */
 .hoja::before {
-  content: ''; display: block; width: 38px; height: 4px;
-  background: var(--linea); border-radius: 999px; margin: 8px auto 14px;
+  content: ''; display: block; width: 44px; height: 5px;
+  background: var(--linea); border-radius: 999px; margin: 9px auto 15px;
+  box-shadow: inset 0 1px 0 rgb(var(--sombra-tinte) / .10);
 }
 @keyframes aparecer { from { opacity: 0; } }
-@keyframes subir { from { transform: translateY(28px); opacity: 0; } }
+@keyframes subir { from { transform: translateY(34px); opacity: 0; } }
 
-.hoja h2 { margin: 0 0 2px 0; font-family: var(--mono); font-size: 22px; letter-spacing: -.01em; }
-.hoja h3 {
-  margin: 22px 0 8px 0; font-size: 11.5px; font-weight: 800;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--apagado);
-  display: flex; align-items: center; gap: 10px;
+.hoja h2 {
+  margin: 0 0 3px 0; font-family: var(--mono); font-size: 23px;
+  letter-spacing: -.02em; line-height: 1.15;
 }
-.hoja h3:first-of-type { margin-top: 16px; }
-.hoja h3::after { content: ''; flex: 1; height: 1px; background: var(--linea); }
+/* El rótulo de sección va sobre una regla que llega hasta el margen,
+   como los apartados de una lámina técnica. */
+.hoja h3 {
+  margin: 24px 0 9px 0; font-size: 11px; font-weight: 800;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--apagado);
+  display: flex; align-items: center; gap: 11px;
+}
+.hoja h3:first-of-type { margin-top: 17px; }
+.hoja h3::before {
+  content: ''; width: 9px; height: 2px; background: var(--acento); flex: none;
+}
+.hoja h3::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--linea), #d2d8ce00);
+}
 .hoja .sub { color: var(--apagado); font-size: 13.5px; margin-bottom: 4px; line-height: 1.45; }
 
 .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
@@ -375,11 +503,28 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
               border-color var(--t-rapido) var(--curva),
               box-shadow var(--t-rapido) var(--curva);
 }
-.btn-lleno  { background: var(--tinta);      border-color: var(--tinta);      color: #fff; box-shadow: var(--sombra-baja); }
-.btn-peligro{ background: var(--devolucion); border-color: var(--devolucion); color: #fff; }
+/* Los botones sólidos llevan un degradado casi imperceptible y un canto
+   de luz arriba: es lo que hace que se lean como una pieza con volumen
+   en vez de un rectángulo de color. Al pulsar, el canto se apaga y la
+   sombra se recoge, así que el botón "se hunde" de verdad. */
+.btn-lleno {
+  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
+  border-color: var(--tinta); color: #fff;
+  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff20;
+}
+.btn-peligro {
+  background: linear-gradient(180deg, #c94437, var(--devolucion));
+  border-color: var(--devolucion); color: #fff;
+  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff26;
+}
 .btn-ancho  { grid-column: 1 / -1; }
-:where(.acciones) button:disabled, .btn:disabled { opacity: .45; cursor: default; }
-:where(.acciones) button:active, .btn:active { transform: scale(.975); box-shadow: none; }
+:where(.acciones) button:disabled, .btn:disabled {
+  opacity: .42; cursor: default; box-shadow: none; transform: none;
+}
+:where(.acciones) button:active, .btn:active {
+  transform: scale(.975); box-shadow: inset 0 2px 5px rgb(var(--sombra-tinte) / .18);
+  transition-duration: 60ms;
+}
 :where(.acciones) button:not(.btn-lleno):not(.btn-peligro):hover,
 .btn:not(.btn-lleno):not(.btn-peligro):hover { background: var(--piso); }
 .btn-lleno:hover { background: var(--tinta-2); }
@@ -401,12 +546,22 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .campo input[type="color"] { height: 46px; padding: 4px; }
 .campo input[type="range"] { padding: 0; }
 
-.linea-tiempo { border-left: 2px solid var(--linea); margin-left: 5px; padding-left: 14px; }
-.linea-tiempo li { list-style: none; position: relative; padding-bottom: 15px; }
+/* El historial es la columna vertebral del lote: se dibuja como un hilo
+   que se desvanece hacia abajo, con el hito más reciente marcado en
+   acento. Lo viejo pesa menos que lo que acaba de pasar. */
+.linea-tiempo {
+  margin-left: 5px; padding-left: 16px; border-left: 0;
+  background: linear-gradient(180deg, var(--tinta-3), var(--linea) 85%, #d2d8ce00) left / 2px 100% no-repeat;
+}
+.linea-tiempo li { list-style: none; position: relative; padding-bottom: 16px; }
 .linea-tiempo li::before {
-  content: ''; position: absolute; left: -20px; top: 5px;
+  content: ''; position: absolute; left: -21px; top: 5px;
   width: 9px; height: 9px; border-radius: 50%;
-  background: var(--tinta); border: 2px solid var(--piso);
+  background: var(--apagado); border: 2.5px solid var(--piso);
+}
+.linea-tiempo li:first-child::before {
+  background: var(--acento);
+  box-shadow: 0 0 0 3px #145a8f26;
 }
 .linea-tiempo .cuando { font-size: 11.5px; color: var(--apagado); }
 .linea-tiempo .que { font-size: 14px; font-weight: 600; margin-top: 1px; }
@@ -423,11 +578,27 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .ingreso > *:nth-child(3) { animation-delay: 80ms; }
 .ingreso > *:nth-child(4) { animation-delay: 110ms; }
 .ingreso > *:nth-child(5) { animation-delay: 140ms; }
+/* La portada. Es lo único de la app que no está resolviendo una tarea,
+   así que es donde se puede poner el nombre en grande y dejar respirar. */
 .ingreso .marca {
-  font-size: 13px; font-weight: 800; letter-spacing: .2em;
-  text-transform: uppercase; color: var(--apagado); margin-bottom: 6px;
+  font-size: 12px; font-weight: 800; letter-spacing: .34em;
+  text-transform: uppercase; color: var(--apagado); margin-bottom: 14px;
+  display: flex; align-items: center; gap: 12px;
 }
-.ingreso h1 { margin: 0 0 26px 0; font-size: 30px; line-height: 1.1; }
+.ingreso .marca::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--linea), #d2d8ce00);
+}
+.ingreso h1 {
+  margin: 0 0 30px 0; font-size: clamp(34px, 11vw, 46px); line-height: .98;
+  letter-spacing: -.035em; font-weight: 800; text-wrap: balance;
+}
+/* la segunda palabra se apaga: el ojo entra por "Mapa" y el resto acompaña */
+.ingreso h1::after {
+  content: ''; display: block; width: 54px; height: 4px; margin-top: 18px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--acento), #2f86c9);
+}
 
 .vacio {
   text-align: center; padding: 48px 20px; color: var(--apagado);
@@ -447,18 +618,26 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   border-radius: var(--r); padding: 10px 12px; font-size: 13.5px; margin-bottom: 12px;
 }
 
-:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; border-radius: var(--r-chico); }
+:focus-visible {
+  outline: 3px solid var(--acento); outline-offset: 2px;
+  border-radius: var(--r-chico);
+  box-shadow: 0 0 0 6px #145a8f24;
+}
 button:focus:not(:focus-visible) { outline: none; }
 
-/* la lista entra escalonada: se lee el orden, no aparece un bloque */
-.lista > * { animation: entrar var(--t-medio) var(--curva) backwards; }
+/* La lista entra escalonada: se lee el orden, no aparece un bloque.
+   OJO con la duración: la lista se vuelve a dibujar entera en cada
+   sincronización, o sea cada veinte segundos, así que la entrada tiene
+   que ser lo bastante corta y sutil como para que repetirse no moleste.
+   Por eso solo desvanece y sube 5px, sin escala ni desplazamiento largo. */
+.lista > * { animation: entrar 150ms var(--curva) backwards; }
 .lista > *:nth-child(1) { animation-delay: 0ms; }
-.lista > *:nth-child(2) { animation-delay: 22ms; }
-.lista > *:nth-child(3) { animation-delay: 44ms; }
-.lista > *:nth-child(4) { animation-delay: 66ms; }
-.lista > *:nth-child(5) { animation-delay: 88ms; }
-.lista > *:nth-child(n+6) { animation-delay: 105ms; }
-@keyframes entrar { from { opacity: 0; transform: translateY(7px); } }
+.lista > *:nth-child(2) { animation-delay: 18ms; }
+.lista > *:nth-child(3) { animation-delay: 36ms; }
+.lista > *:nth-child(4) { animation-delay: 54ms; }
+.lista > *:nth-child(5) { animation-delay: 70ms; }
+.lista > *:nth-child(n+6) { animation-delay: 84ms; }
+@keyframes entrar { from { opacity: 0; transform: translateY(5px); } }
 
 /* =====================================================================
    EL MAPA · plano del patio
@@ -484,17 +663,19 @@ button:focus:not(:focus-visible) { outline: none; }
 .ctrl-esquina { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .ctrl-grupo { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; }
 
+/* Vidrio de verdad: además de desenfocar, satura un poco lo que hay
+   detrás. Sin eso el "cristal" es solo un blanco translúcido. */
 .ctrl {
   width: 44px; height: 44px; display: grid; place-items: center;
-  border: 1px solid var(--linea); background: #ffffffee;
-  backdrop-filter: blur(8px); color: var(--tinta);
+  border: 1px solid #ffffff9c; background: #ffffffdd;
+  backdrop-filter: blur(14px) saturate(1.5); color: var(--tinta);
   cursor: pointer; padding: 0; border-radius: var(--r);
-  box-shadow: var(--sombra-media);
+  box-shadow: var(--sombra-media), var(--luz-canto);
   transition: background-color var(--t-rapido) var(--curva),
               transform var(--t-rapido) var(--curva);
 }
 .ctrl:hover { background: #fff; }
-.ctrl:active { transform: scale(.92); }
+.ctrl:active { transform: scale(.9); transition-duration: 60ms; }
 .ctrl .ico { width: 20px; height: 20px; }
 
 /* el trío de zoom se lee como una sola pieza segmentada */
@@ -526,10 +707,11 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .btn-mapa {
   display: flex; align-items: center; gap: 9px;
-  border: 1px solid var(--linea); background: #ffffffee;
-  backdrop-filter: blur(8px); color: var(--tinta);
+  border: 1px solid #ffffff9c; background: #ffffffdd;
+  backdrop-filter: blur(14px) saturate(1.5); color: var(--tinta);
   border-radius: var(--r); padding: 11px 14px; cursor: pointer;
   font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap;
+  box-shadow: var(--luz-canto);
   transition: background-color var(--t-rapido) var(--curva),
               border-color var(--t-rapido) var(--curva),
               transform var(--t-rapido) var(--curva);
@@ -542,10 +724,14 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .btn-mapa[aria-pressed="true"] .ico { color: #fff; }
 
+/* La acción principal del mapa: es el único azul sólido sobre el plano,
+   así que puede permitirse peso y una sombra teñida de su propio color
+   —una sombra gris debajo de una pieza azul se ve pegada, no apoyada. */
 .btn-mapa-primario {
-  background: var(--acento); border-color: var(--acento); color: #fff;
-  padding: 13px 18px; font-size: 15px;
-  box-shadow: 0 8px 22px #0a1e3240;
+  background: linear-gradient(180deg, #1a6ba8, var(--acento));
+  border-color: var(--acento-fuerte); color: #fff;
+  padding: 13px 18px; font-size: 15px; letter-spacing: .005em;
+  box-shadow: 0 10px 26px #0e3d6047, 0 2px 6px #0e3d6033, inset 0 1px 0 #ffffff2e;
 }
 .btn-mapa-primario .ico { color: #fff; }
 .btn-mapa-primario:hover { background: var(--acento-fuerte); border-color: var(--acento-fuerte); }
@@ -699,3 +885,126 @@ button:focus:not(:focus-visible) { outline: none; }
   .hoja { border-radius: var(--r-grande); margin-bottom: 24px; max-height: 86vh; }
   .velo { align-items: center; }
 }
+
+/* =====================================================================
+   CAPA DE ACABADO
+   Lo que separa una pantalla correcta de una pantalla cuidada: el filo
+   de cada pieza, el peso de cada cifra, y que nada brille más que el
+   dato. Todo lo de aquí es superficie: no cambia qué hace un solo
+   control, solo cómo se siente al usarlo.
+   ===================================================================== */
+
+/* --- barras de desplazamiento: presentes, no protagonistas ---------- */
+main, .hoja, .filtros, .linea-tiempo { scrollbar-width: thin; scrollbar-color: #b9c2b6 transparent; }
+main::-webkit-scrollbar, .hoja::-webkit-scrollbar { width: 10px; }
+main::-webkit-scrollbar-thumb, .hoja::-webkit-scrollbar-thumb {
+  background: #b9c2b6; border-radius: 99px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: transparent; }
+
+/* --- el buscador: una ranura, no una caja ------------------------- */
+.buscador {
+  letter-spacing: .02em;
+  box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05);
+}
+.buscador:focus { box-shadow: 0 0 0 3px #145a8f24, inset 0 1px 2px rgb(var(--sombra-tinte) / .04); }
+
+/* --- pastillas de filtro: peso solo cuando están puestas ---------- */
+.filtros button { letter-spacing: .01em; box-shadow: var(--sombra-baja), var(--luz-canto); }
+.filtros button[aria-pressed="true"] {
+  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
+  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff1f;
+}
+
+/* --- datos secundarios de la tarjeta ----------------------------- */
+.lote .meta { letter-spacing: .005em; }
+/* El aviso de retraso es largo y se parte de línea; al partirse dejaba
+   el punto separador solo, abriendo el renglón con un "·" huérfano. Se
+   le da renglón propio y se le quita el separador: además así el retraso
+   se lee como lo que es, una alerta, y no como un dato más de la fila. */
+.lote .meta .dias[data-alerta="si"] { flex-basis: 100%; margin-top: 1px; }
+.lote .meta .dias[data-alerta="si"]::before { content: none; }
+.pila-tag {
+  border-width: 1.5px; padding: 1.5px 7px;
+  background: var(--superficie);
+}
+.dias[data-alerta="si"] { letter-spacing: .01em; }
+/* "sin subir" no es un error: avisa sin alarmar, y respira despacio.
+   Color propio, no el del estado: el ámbar de la pastilla no aguanta
+   como texto sobre blanco. */
+.sin-subir {
+  letter-spacing: .045em; text-transform: uppercase; font-size: 10.5px;
+  color: var(--ambar-texto);
+}
+.sin-subir:not([data-error="si"]) { animation: respirar 2.6s ease-in-out infinite; }
+@keyframes respirar { 50% { opacity: .5; } }
+
+/* --- el aviso de la ficha: papel con una pestaña de color -------- */
+.aviso {
+  border: 1px solid #e8cf95; border-left: 4px solid var(--por_muestrear);
+  border-radius: var(--r-chico) var(--r) var(--r) var(--r-chico);
+  background: linear-gradient(180deg, #fffaef, #fff5dc);
+  box-shadow: var(--sombra-baja);
+  line-height: 1.45;
+}
+
+/* --- estado vacío: un plano en blanco, no un error --------------- */
+.vacio {
+  border: 1.5px dashed #c8cfc4; background: #ffffff5c;
+  border-radius: var(--r-grande);
+}
+.vacio strong { font-size: 15.5px; letter-spacing: -.01em; }
+
+/* --- la pila, con su número como cifra grabada ------------------- */
+.pila .num { border-bottom-width: 4px; letter-spacing: -.03em; }
+.pila .codigos span {
+  background: var(--piso); border: 1px solid var(--linea-suave);
+  box-shadow: var(--luz-canto);
+}
+
+/* --- pastilla genérica ------------------------------------------- */
+.pastilla { box-shadow: var(--sombra-baja), var(--luz-canto); letter-spacing: .005em; }
+.pastilla:active { transition-duration: 60ms; }
+.pastilla-fuerte, .pastilla-activa { box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff24; }
+
+/* --- la barra de modo: cinta oscura con su propio filo ----------- */
+.barra-modo {
+  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
+  box-shadow: var(--sombra-alta), inset 0 1px 0 #ffffff17;
+  letter-spacing: .005em;
+}
+
+/* --- campos: la etiqueta manda, el campo obedece ---------------- */
+.campo label { letter-spacing: .11em; font-size: 11px; }
+.campo input, .campo select, .campo textarea {
+  box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05);
+}
+.campo input:focus, .campo select:focus, .campo textarea:focus {
+  box-shadow: 0 0 0 3px #145a8f24, inset 0 1px 2px rgb(var(--sombra-tinte) / .04);
+}
+.con-sigla span { letter-spacing: .02em; box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05); }
+
+/* --- el mapa: el plano manda, el resto se aparta ----------------- */
+/* Deliberadamente SIN filtros ni sombras sobre las figuras del SVG: se
+   redibujan enteras en cada repintado y en cada movimiento del dedo, y
+   un `drop-shadow` por figura convertiría un arrastre fluido en un
+   arrastre a tirones justo en el celular más humilde del patio. */
+.txt-lote { letter-spacing: .005em; }
+.txt-pila { letter-spacing: .01em; }
+.grupo-herramientas { box-shadow: var(--sombra-media), var(--luz-canto); }
+.chip-filtro {
+  background: linear-gradient(180deg, #1a6ba8, var(--acento));
+  box-shadow: 0 8px 20px #0e3d6040, inset 0 1px 0 #ffffff2e;
+  letter-spacing: .01em;
+}
+.mapa-caja { border-top-color: var(--linea-suave); }
+
+/* --- la marca de la cabecera y el menú --------------------------- */
+.icono { border-color: #ffffff33; }
+.icono:active { transition-duration: 60ms; }
+.chip-sync { box-shadow: inset 0 1px 0 #ffffff14; letter-spacing: .01em; }
+
+/* --- selección de figura: el halo late muy despacio -------------- */
+.manijas .halo { animation: halo 2.4s ease-in-out infinite; }
+@keyframes halo { 50% { opacity: .6; } }
