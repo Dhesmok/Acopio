@@ -217,6 +217,27 @@ const gesto = (fn) => (...args) => Promise.resolve()
   .then(() => fn(...args))
   .catch(fallaDeFondo);
 
+// Pregunta antes de un cambio que no se puede deshacer, y espera la
+// respuesta. Devuelve una promesa para poder usarla desde el gesto que
+// la provocó y decidir ahí mismo si se guarda o se devuelve todo a como
+// estaba. Tocar fuera de la hoja equivale a cancelar: ante la duda, no
+// se cambia nada.
+function confirmar({ titulo, detalle, aceptar = 'Aceptar', peligro = false }) {
+  return new Promise((resolver) => {
+    abrirHoja(`
+      <h2 class="pregunta">${esc(titulo)}</h2>
+      <div class="sub">${esc(detalle)}</div>
+      <div class="acciones" style="margin-top:20px">
+        <button id="c-no">Cancelar</button>
+        <button id="c-si" class="${peligro ? 'btn-peligro' : 'btn-lleno'}">${esc(aceptar)}</button>
+      </div>`);
+    const responder = (v) => { cerrarHoja(); resolver(v); };
+    $('#c-no').onclick = () => responder(false);
+    $('#c-si').onclick = () => responder(true);
+    $('.velo').onclick = (e) => { if (e.target === $('.velo')) responder(false); };
+  });
+}
+
 // --------------------------------------------------------------- ingreso
 function pantallaIngreso() {
   $('#app').innerHTML = `
@@ -377,8 +398,8 @@ function montarMapa() {
             <div class="grupo-herramientas">
               <button class="btn-mapa" id="r-filtrar" aria-label="Filtrar">
                 ${ICO.filtro}<span>Filtrar</span></button>
-              ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Editar formas">
-                ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Editar formas'}</span></button>`}
+              ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
+                ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
@@ -402,7 +423,19 @@ function montarMapa() {
     }),
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
     alTocarVacio: () => { if (S.edicion) barraEdicion(); },
-    alGuardarGeom: gesto(async (tipo, obj, origen) => {
+    alGuardarGeom: gesto(async (tipo, obj, origen, antes) => {
+      // `origen` solo viene cuando fue un TRASLADO. Ajustar el tamaño, el
+      // giro o un vértice no pregunta nada: para eso hubo que agarrar una
+      // manija concreta, y no se hace sin querer. Un traslado de verdad
+      // —el que saca la figura de donde estaba— sí se confirma.
+      if (origen && Mapa.movimientoReal(obj, origen)) {
+        const ok = await confirmar({
+          titulo: '¿Dejarlo aquí?',
+          detalle: `${nombreDeFigura(tipo, obj)} se movió en el plano. Esta es su ubicación real en el patio.`,
+          aceptar: 'Dejarlo aquí'
+        });
+        if (!ok) return Mapa.deshacerGeom(tipo, obj.id, antes);
+      }
       const tabla = tipo === 'lote' ? 'lotes' : tipo === 'pila' ? 'pilas' : 'mapa_figuras';
       await Store.guardarFigura(tabla, { ...obj });
       if (tipo === 'lote' && origen) await anotarRecorrido(obj, origen);
@@ -568,7 +601,7 @@ function refrescarMapa() {
 function barraEdicion() {
   $('#barra-forma').innerHTML = `
     <div class="barra-modo">
-      <span>Modo edición · toca cualquier lote, pila o figura del fondo para ajustar su tamaño, su giro o su contorno</span>
+      <span>Modo edición · ahora sí se puede arrastrar para mover, y tocar una figura muestra sus manijas de tamaño y giro</span>
       <button class="pastilla" id="salir-edicion">Salir</button>
     </div>`;
   $('#salir-edicion').onclick = () => { S.edicion = false; montarMapa(); };
@@ -578,8 +611,8 @@ function barraForma(tipo, obj) {
   const nombre = tipo === 'lote' ? obj.codigo
     : tipo === 'pila' ? `Pila ${obj.codigo}` : (obj.etiqueta || 'Figura');
   const ayuda = obj.forma === 'poligono'
-    ? 'arrastra los vértices, toca un “+” para agregar uno y toca un vértice para quitarlo'
-    : 'arrastra el punto de la esquina para el tamaño y el de arriba para girar';
+    ? 'arrástrala para moverla; los vértices se mueven uno a uno, un “+” agrega y tocar un vértice lo quita'
+    : 'arrástrala para moverla, el punto de la esquina es el tamaño y el de arriba el giro';
   $('#barra-forma').innerHTML = `
     <div class="barra-modo">
       <span>Ajustando <strong>${esc(nombre)}</strong> · ${ayuda}</span>
@@ -591,11 +624,25 @@ function barraForma(tipo, obj) {
   };
 }
 
+const nombreDeFigura = (tipo, o) =>
+  tipo === 'lote' ? `El lote ${o.codigo}`
+  : tipo === 'pila' ? `La pila ${o.codigo}`
+  : 'La figura del fondo';
+
 // Soltar un lote sobre otro arma una pila; sobre una pila, lo mete.
-async function manejarSoltar(lote, blanco) {
+// Las dos cosas escriben un evento que NO se puede borrar, así que las
+// dos preguntan. Si se cancela, el lote vuelve a donde estaba.
+async function manejarSoltar(lote, blanco, antes) {
   if (soloLectura()) return refrescarMapa();
+  const volver = () => Mapa.deshacerGeom('lote', lote.id, antes);
 
   if (blanco.tipo === 'pila') {
+    const ok = await confirmar({
+      titulo: `¿Meter ${lote.codigo} en la pila ${blanco.obj.codigo}?`,
+      detalle: 'Queda registrado en el historial del lote y en el de la pila.',
+      aceptar: 'Meterlo'
+    });
+    if (!ok) return volver();
     await Store.guardarFigura('lotes', { ...lote });
     await Store.registrarEvento({
       lote_id: lote.id, tipo: 'ingreso_pila', pila_id: blanco.obj.id, usuario_id: S.perfil.id
@@ -603,6 +650,13 @@ async function manejarSoltar(lote, blanco) {
     await recargar(); sincronizar();
     return;
   }
+
+  const okPila = await confirmar({
+    titulo: `¿Armar una pila con ${lote.codigo} y ${blanco.obj.codigo}?`,
+    detalle: 'Se crea una pila nueva con los dos lotes dentro y queda en el historial de ambos.',
+    aceptar: 'Armar la pila'
+  });
+  if (!okPila) return volver();
 
   const otro = blanco.obj;
   const cx = (lote.x + otro.x) / 2, cy = (lote.y + otro.y) / 2;
@@ -897,6 +951,14 @@ async function fichaLote(id) {
   document.querySelectorAll('.hoja .acciones button[data-estado]').forEach((b) => {
     b.onclick = accion(async () => {
       if (b.dataset.estado === 'devolucion') return pedirRecogida(l);
+      // Un cambio de estado es un evento, y los eventos no se borran: la
+      // única forma de corregirlo es otro evento encima. Se pregunta.
+      const ok = await confirmar({
+        titulo: `¿Pasar ${l.codigo} a ${ESTADOS[b.dataset.estado]}?`,
+        detalle: `Ahora está en "${ESTADOS[l.estado]}". El cambio queda en el historial con tu nombre y no se puede borrar.`,
+        aceptar: 'Cambiar el estado'
+      });
+      if (!ok) return fichaLote(id);
       await Store.registrarEvento({
         lote_id: id, tipo: 'cambio_estado', estado_nuevo: b.dataset.estado, usuario_id: S.perfil.id
       });
@@ -915,6 +977,12 @@ async function fichaLote(id) {
 
   const sacar = $('#sacar');
   if (sacar) sacar.onclick = accion(async () => {
+    const ok = await confirmar({
+      titulo: `¿Sacar ${l.codigo} de la pila ${pila.codigo}?`,
+      detalle: 'Vuelve al patio, junto a la pila. Si la pila queda con un solo lote se disuelve sola.',
+      aceptar: 'Sacarlo'
+    });
+    if (!ok) return fichaLote(id);
     await sacarDePila(l, pila);
     cerrarHoja(); await recargar(); sincronizar();
   }, { ocupado: 'Sacando…' });
@@ -1119,6 +1187,12 @@ async function fichaPila(id) {
     b.onclick = accion(async (ev) => {
       ev.stopPropagation();
       const l = await Store.lote(b.dataset.sacar);
+      const ok = await confirmar({
+        titulo: `¿Sacar ${l.codigo} de la pila ${p.codigo}?`,
+        detalle: 'Vuelve al patio, junto a la pila.',
+        aceptar: 'Sacarlo'
+      });
+      if (!ok) return fichaPila(id);
       await sacarDePila(l, p);
       cerrarHoja(); await recargar(); sincronizar();
     }, { ocupado: '…' });
@@ -1138,6 +1212,12 @@ async function fichaPila(id) {
 
   const ap = $('#a-plataforma');
   if (ap) ap.onclick = accion(async () => {
+    const ok = await confirmar({
+      titulo: `¿Llevar la pila ${p.codigo} a plataforma 5?`,
+      detalle: `Sus ${dentro.length} lote${dentro.length === 1 ? '' : 's'} pasan a ese estado y salen del mapa, y la pila se cierra. Queda en el historial de cada lote.`,
+      aceptar: 'Llevarla'
+    });
+    if (!ok) return fichaPila(id);
     for (const l of dentro) {
       await Store.registrarEvento({
         lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'plataforma', usuario_id: S.perfil.id
@@ -1149,6 +1229,12 @@ async function fichaPila(id) {
 
   const arch = $('#archivar-pila');
   if (arch) arch.onclick = accion(async () => {
+    const ok = await confirmar({
+      titulo: `¿Quitar la pila ${p.codigo} del mapa?`,
+      detalle: `Sus ${dentro.length} lote${dentro.length === 1 ? '' : 's'} vuelven al patio. La pila se archiva: su historial se conserva, pero deja de verse en el plano.`,
+      aceptar: 'Quitarla', peligro: true
+    });
+    if (!ok) return fichaPila(id);
     for (const l of dentro) await sacarDePila(l, p, { revisar: false });
     await Store.renombrarPila(id, { estado: 'consumida' });
     cerrarHoja(); await recargar(); sincronizar();

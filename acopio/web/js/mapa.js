@@ -10,7 +10,7 @@ let seleccion = null;
 let modo = 'ninguno', arrastre = null;
 let repintadoPendiente = null;   // lo que llegó mientras se interactuaba
 const punteros = new Map();
-let pinchInicial = null, tempLargo = null, movio = false;
+let pinchInicial = null, movio = false;
 
 // El plano se dibuja metiendo texto en innerHTML, así que todo lo que
 // venga de la base entra escapado. Un código de lote con "<" o "&" no
@@ -34,7 +34,6 @@ const paleta = () => ({ ...COLORES_BASE, ...(datos.config?.colores || {}) });
 // true, pintar() se va por el atajo y el mapa no se vuelve a dibujar
 // NUNCA MÁS: se guarda todo pero en pantalla no pasa nada.
 function reiniciarInteraccion() {
-  clearTimeout(tempLargo);
   punteros.clear();
   modo = 'ninguno';
   arrastre = null;
@@ -361,6 +360,21 @@ export function blancoEn(pt, excluirId) {
 }
 
 // ¿el lote se movió de verdad, o solo se acomodó encima de sí mismo?
+// Copia de la geometría antes de tocarla, para poder devolverla tal cual
+// si quien la movió decide cancelar.
+const instantanea = (o) => ({
+  x: o.x, y: o.y, rx: o.rx, ry: o.ry, rot: o.rot || 0,
+  puntos: o.puntos ? o.puntos.map((p) => ({ ...p })) : null
+});
+
+// Deshacer: devuelve la figura a donde estaba y repinta.
+export function deshacerGeom(tipo, id, antes) {
+  const o = objeto({ tipo, id });
+  if (!o || !antes) return;
+  Object.assign(o, antes);
+  pintarYa();
+}
+
 export function movimientoReal(o, desde) {
   if (!desde) return true;
   const d = Math.hypot(o.x - desde.x, o.y - desde.y);
@@ -380,7 +394,6 @@ function abajo(ev) {
     const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
     pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
     modo = 'zoom';
-    clearTimeout(tempLargo);
     return;
   }
 
@@ -409,25 +422,36 @@ function abajo(ev) {
     const tipo = g.dataset.tipo;
     const obj = objeto({ tipo, id: g.dataset.id });
     if (!obj) return;
+
+    // FUERA de modo edición nada se mueve. El dedo sobre una figura
+    // desplaza el plano, igual que sobre el fondo, y al levantarlo sin
+    // haber arrastrado se abre la ficha. Antes cualquier roce mientras
+    // se miraba el mapa arrastraba el lote a otro sitio, y el único
+    // aviso era que la figura había cambiado de lugar.
+    if (!modoEdicion) {
+      modo = 'paneando';
+      arrastre = {
+        pantalla: { x: ev.clientX, y: ev.clientY },
+        vista: { ...vista }, u: unidadesPorPixel(),
+        toque: { tipo, id: obj.id }        // para abrir la ficha si no se movió
+      };
+      return;
+    }
+
     if (tipo === 'figura' && !cb.puedeEditarFondo()) return;
     modo = 'arrastrando';
-    arrastre = { tipo, obj, nodo: g, inicio: aPlano(ev), origen: { x: obj.x, y: obj.y } };
-    // En modo edición la selección es inmediata: se ven las manijas al tocar
-    if (modoEdicion && (seleccion?.id !== obj.id)) {
+    arrastre = {
+      tipo, obj, nodo: g, inicio: aPlano(ev),
+      origen: { x: obj.x, y: obj.y },
+      antes: instantanea(obj)             // para poder deshacer si se cancela
+    };
+    // la selección es inmediata: se ven las manijas al tocar
+    if (seleccion?.id !== obj.id) {
       seleccion = { tipo, id: obj.id };
       pintarYa();
       arrastre.nodo = svg.querySelector(`[data-id="${obj.id}"]`);
       cb.alSeleccionar?.(tipo, obj);
     }
-    tempLargo = setTimeout(() => {
-      if (!movio) {
-        seleccion = { tipo, id: obj.id };
-        modo = 'ninguno';
-        pintarYa();
-        cb.alSeleccionar?.(tipo, obj);
-        navigator.vibrate?.(30);
-      }
-    }, 420);
     return;
   }
 
@@ -467,7 +491,7 @@ function movimiento(ev) {
   if (modo === 'paneando') {
     const sx = ev.clientX - arrastre.pantalla.x;
     const sy = ev.clientY - arrastre.pantalla.y;
-    if (Math.hypot(sx, sy) > 6) { movio = true; clearTimeout(tempLargo); }
+    if (Math.hypot(sx, sy) > 6) movio = true;
     vista.x = arrastre.vista.x - sx * arrastre.u;
     vista.y = arrastre.vista.y - sy * arrastre.u;
     aplicarVista();
@@ -476,7 +500,7 @@ function movimiento(ev) {
 
   const p = aPlano(ev);
   const dx = p.x - arrastre.inicio.x, dy = p.y - arrastre.inicio.y;
-  if (Math.hypot(dx, dy) > 6) { movio = true; clearTimeout(tempLargo); }
+  if (Math.hypot(dx, dy) > 6) movio = true;
 
   if (modo === 'arrastrando') {
     arrastre.obj.x = arrastre.origen.x + dx;
@@ -510,7 +534,6 @@ function resaltarBlanco(lote) {
 
 function arriba(ev) {
   punteros.delete(ev.pointerId);
-  clearTimeout(tempLargo);
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
 
   if (modo === 'zoom') {
@@ -521,22 +544,22 @@ function arriba(ev) {
     return;
   }
 
+  // Fuera de modo edición el dedo sobre una figura panea; si no llegó a
+  // moverse, era un toque y lo que se quiere es ver la ficha.
+  if (modo === 'paneando' && arrastre?.toque && !movio) {
+    cb.alTocar?.(arrastre.toque.tipo, arrastre.toque.id);
+  }
+
   if (modo === 'arrastrando' && arrastre) {
-    const { tipo, obj, origen } = arrastre;
+    const { tipo, obj, origen, antes } = arrastre;
     if (!movio) {
-      if (modoEdicion) {
-        seleccion = { tipo, id: obj.id };
-        pintarYa();
-        cb.alSeleccionar?.(tipo, obj);
-      } else {
-        seleccion = null;
-        pintarYa();
-        cb.alTocar?.(tipo, obj.id);
-      }
+      seleccion = { tipo, id: obj.id };
+      pintarYa();
+      cb.alSeleccionar?.(tipo, obj);
     } else {
       const blanco = tipo === 'lote' ? blancoEn({ x: obj.x, y: obj.y }, obj.id) : null;
-      if (blanco) cb.alSoltarSobre?.(obj, blanco);
-      else cb.alGuardarGeom?.(tipo, obj, origen);
+      if (blanco) cb.alSoltarSobre?.(obj, blanco, antes);
+      else cb.alGuardarGeom?.(tipo, obj, origen, antes);
     }
   } else if (modo === 'ajustando' && arrastre) {
     // tocar un vértice sin moverlo lo elimina, si quedan al menos tres
@@ -544,7 +567,7 @@ function arriba(ev) {
       const o = arrastre.obj, ps = listaPuntos(o).slice();
       if (ps.length > 3) { ps.splice(arrastre.i, 1); o.puntos = ps; pintarYa(); }
     }
-    cb.alGuardarGeom?.(seleccion.tipo, arrastre.obj);
+    cb.alGuardarGeom?.(seleccion.tipo, arrastre.obj, null, arrastre.antes);
   }
   modo = 'ninguno';
   arrastre = null;

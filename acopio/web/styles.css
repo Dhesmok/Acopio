@@ -477,6 +477,15 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .hoja h3::after {
   content: ''; flex: 1; height: 2px; background: var(--tinta); opacity: .2;
 }
+/* Una pregunta no es un identificador: va en la tipografía de texto y a
+   un tamaño que quepa de un vistazo, no en la monoespaciada de 33px que
+   usan los códigos. El código dentro de la pregunta se sigue
+   distinguiendo por su forma, sin cambiar de fuente. */
+.hoja h2.pregunta {
+  font-family: var(--sans); font-size: 22px; font-weight: 800;
+  letter-spacing: -.02em; line-height: 1.2; margin-bottom: 7px;
+}
+
 .hoja .sub { color: var(--apagado); font-size: 13.5px; margin-bottom: 4px; line-height: 1.45; }
 
 .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
