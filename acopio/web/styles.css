@@ -1,29 +1,41 @@
 /* =====================================================================
    Mapa de acopio · estilos
-   Dirección: señalización industrial. Fondo mineral, tinta densa,
-   color SOLO como significado (el estado del lote), código de lote en
-   monoespaciada porque es un identificador y O/0 no pueden confundirse.
-   Esto se usa con guantes, a pleno sol y con prisa: la pulcritud visual
-   nunca puede costar velocidad ni legibilidad.
+
+   Dirección: SEÑALIZACIÓN DE OBRA. Papel de plano y tinta negra, filo de
+   2px en todo, esquinas vivas, sombra sólida desplazada. Amarillo de
+   señalización para lo que reclama atención; color SOLO como significado
+   para el estado del lote. El código va en monoespaciada y a tamaño de
+   titular, porque es el nombre propio del lote y lo único que alguien
+   busca al bajar por la lista.
+
+   Todo lo de aquí sale de una condición y no de un gusto: esto se usa
+   con guantes, a pleno sol y con prisa. El gris medio es lo primero que
+   desaparece bajo el sol, así que no hay grises medios. La sombra
+   difuminada tampoco existe al aire libre, así que la sombra es un
+   desplazamiento sólido. Y la esquina viva se recorta contra el fondo
+   mejor que la redondeada.
    ===================================================================== */
 
 :root {
-  /* El gris no es neutro: lleva una gota de verde mineral, la misma en
-     todos los tonos. Un gris de verdad neutro al lado de la tierra del
-     patio se ve muerto; este pertenece al sitio. */
-  --piso:      #e6eae3;
-  --piso-hondo:#dbe0d8;
-  --superficie:#ffffff;
-  --tinta:     #131816;
-  --tinta-2:   #222927;
-  --tinta-3:   #3c4441;
-  --apagado:   #5c6663;
-  --linea:     #d2d8ce;
-  --linea-suave: #e3e7df;
+  /* Concreto y tinta. Nada de grises intermedios: en un patio a mediodía
+     el gris medio es lo primero que desaparece. Aquí solo hay papel
+     cálido, negro, y el color que significa algo. */
+  --piso:      #e9e5dc;
+  --piso-hondo:#dbd6c9;
+  --superficie:#fdfbf7;
+  --tinta:     #0c0c0b;
+  --tinta-2:   #1c1c19;
+  --tinta-3:   #45433d;
+  --apagado:   #635f57;
+  --linea:     #0c0c0b;      /* el filo es negro; no hay bordes tímidos */
+  --linea-suave: #cdc7ba;    /* para separar, no para encerrar */
 
-  /* Tinta con transparencia, para sombras y velos que pertenecen a la
-     misma familia en vez de ser negro genérico encima. */
-  --sombra-tinte: 22 32 28;
+  /* Amarillo de señalización. NO es un estado: es el color de "mírame".
+     Solo lo llevan la cinta de la cabecera, la pestaña activa y lo que
+     está esperando a subir. */
+  --amarillo:  #f2c007;
+
+  --sombra-tinte: 12 12 11;
 
   --por_muestrear: #d99a06;
   --muestreado:    #e8b48a;
@@ -35,14 +47,14 @@
 
   /* El acento de la interfaz es SUYO, no el color de un estado: el admin
      puede repintar "facturado" y los botones no tienen por qué seguirlo. */
-  --acento:        #145a8f;
-  --acento-fuerte: #0f4770;
-  --acento-lavado: #145a8f14;   /* fondos teñidos, no otro azul suelto */
+  --acento:        #1b3fd1;     /* azul de señalización, no azul de app */
+  --acento-fuerte: #142f9e;
+  --acento-lavado: #1b3fd114;
 
   /* El ámbar de "por muestrear" vale sobre una pastilla de color, pero
      como TEXTO sobre blanco da 2.45:1 y a pleno sol desaparece. Esta es
-     la misma familia, lo bastante oscura para leerse (5.5:1). */
-  --ambar-texto:   #8a6200;
+     la misma familia, lo bastante oscura para leerse. */
+  --ambar-texto:   #7a5600;
 
   --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -57,9 +69,11 @@
   /* escala de espaciado: todo el ritmo vertical sale de aquí */
   --e1: 4px; --e2: 8px; --e3: 12px; --e4: 16px; --e5: 24px; --e6: 32px;
 
-  --r-chico: 6px;
-  --r: 10px;
-  --r-grande: 18px;
+  /* Sin esquinas redondeadas, en ninguna parte. Una esquina redonda dice
+     "software"; una esquina viva dice placa, señal, plantilla. */
+  --r-chico: 0;
+  --r: 0;
+  --r-grande: 0;
 
   /* Movimiento: rápido y con salida suave. Nada rebota ni se demora:
      esto se usa con guantes, a pleno sol y con prisa. Lo único que se
@@ -71,20 +85,13 @@
   --curva: cubic-bezier(.2, .8, .3, 1);
   --curva-firme: cubic-bezier(.32, .72, 0, 1);   /* sale rápido, aterriza */
 
-  /* Elevación en cuatro pisos, toda del mismo tinte. Dos capas por
-     sombra: una pegada al borde que define el canto, y una lejana y
-     difusa que da la altura. Una sola capa siempre se ve barata. */
-  --sombra-baja:
-    0 1px 1.5px rgb(var(--sombra-tinte) / .07),
-    0 1px 3px   rgb(var(--sombra-tinte) / .05);
-  --sombra-media:
-    0 1px 2px  rgb(var(--sombra-tinte) / .06),
-    0 6px 16px rgb(var(--sombra-tinte) / .11);
-  --sombra-alta:
-    0 2px 6px   rgb(var(--sombra-tinte) / .09),
-    0 18px 44px rgb(var(--sombra-tinte) / .24);
-  /* El canto de luz de una pieza física iluminada desde arriba */
-  --luz-canto: inset 0 1px 0 rgb(255 255 255 / .75);
+  /* La sombra no simula luz: es un desplazamiento sólido, como una
+     plancha levantada sobre otra. Se ve igual de nítida bajo el sol, que
+     es donde una sombra difuminada simplemente no existe. */
+  --sombra-baja:  3px 3px 0 var(--tinta);
+  --sombra-media: 4px 4px 0 var(--tinta);
+  --sombra-alta:  6px 6px 0 var(--tinta);
+  --luz-canto: none;
 
   color-scheme: light;
 }
@@ -100,19 +107,17 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-/* El fondo es papel de plano, no un gris plano: retícula de 28px al 3%
-   de tinta y una luz suave que cae desde arriba. Al 3% no se "ve" —se
-   siente—, y sobre todo NO le roba contraste a nada de lo que va encima,
-   que es la única regla innegociable de esta pantalla. */
+/* Papel de obra: retícula de 32px al 3.5% de tinta sobre concreto cálido.
+   Al 3.5% no se "ve" —se siente—, y sobre todo NO le roba contraste a
+   nada de lo que va encima, que es la única regla innegociable aquí. */
 html, body {
   margin: 0;
   height: 100%;
   background-color: var(--piso);
   background-image:
-    linear-gradient(rgb(var(--sombra-tinte) / .030) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--sombra-tinte) / .030) 1px, transparent 1px),
-    radial-gradient(130% 55% at 50% -8%, #ffffffb0, #ffffff00 62%);
-  background-size: 28px 28px, 28px 28px, 100% 100%;
+    linear-gradient(rgb(var(--sombra-tinte) / .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--sombra-tinte) / .035) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
   background-attachment: fixed;
   color: var(--tinta);
   font-family: var(--sans);
@@ -158,86 +163,78 @@ button, input, select, textarea { font: inherit; color: inherit; }
 #flotantes > * { pointer-events: auto; }
 #barra-forma:empty, #barra-recorrido:empty { display: none; }
 
-.cabecera-fija { flex: none; position: relative; z-index: 25; box-shadow: var(--sombra-media); }
+/* Sin sombra: la cinta de peligro ya es el filo de la cabecera. Una
+   sombra sólida desplazada en un elemento a todo el ancho solo deja una
+   banda negra debajo, que no significa nada. */
+.cabecera-fija { flex: none; position: relative; z-index: 25; }
 
-/* La cabecera es el cajetín del plano: la banda oscura donde va el
-   nombre de la obra. Lleva una luz cenital muy tenue, un canto claro
-   arriba —como metal anodizado— y un filo de acento abajo que la ata al
-   resto de la interfaz. */
+/* Banda negra con el nombre de la obra y, debajo, cinta de peligro. Es
+   la cita más directa al sitio: cualquiera que haya pisado una obra la
+   reconoce antes de leer una sola palabra. */
 header {
   position: relative;
-  background:
-    radial-gradient(120% 180% at 12% -40%, #39423e 0%, #39423e00 55%),
-    linear-gradient(180deg, var(--tinta-2), var(--tinta));
+  background: var(--tinta);
   color: #fff;
-  padding: calc(10px + env(safe-area-inset-top)) 14px 11px 14px;
+  padding: calc(12px + env(safe-area-inset-top)) 14px 13px 14px;
   display: flex; align-items: center; gap: 10px;
-  box-shadow: inset 0 1px 0 #ffffff14;
 }
 header::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: linear-gradient(90deg,
-    var(--acento) 0%, #2f86c9 22%, var(--acento) 45%, #1e2a26 100%);
-  opacity: .9;
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 7px;
+  background: repeating-linear-gradient(135deg,
+    var(--amarillo) 0 12px, var(--tinta) 12px 24px);
 }
 header h1 {
-  margin: 0; font-size: 15px; font-weight: 700;
-  letter-spacing: .22em; text-transform: uppercase;
-  /* la marca respira: es lo único de la pantalla que puede permitírselo */
-  padding-left: 1px;
-}
-/* Punto de registro, como el de una lámina de dibujo */
-header h1::before {
-  content: ''; display: inline-block;
-  width: 7px; height: 7px; margin-right: 10px; vertical-align: 1px;
-  border-radius: 50%; background: var(--acento);
-  box-shadow: 0 0 0 3px #145a8f38;
+  margin: 0; font-size: 16px; font-weight: 800;
+  letter-spacing: .34em; text-transform: uppercase;
 }
 header .crece { flex: 1; }
 
 .chip-sync {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid #ffffff40; border-radius: 999px;
-  padding: 5px 11px; font-size: 12.5px; font-weight: 600;
-  background: #ffffff0d; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 2px solid #ffffff; border-radius: 0;
+  padding: 5px 11px; font-size: 11.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .07em;
+  background: none; cursor: pointer;
   transition: border-color var(--t-medio) var(--curva), color var(--t-medio) var(--curva),
               background-color var(--t-medio) var(--curva), transform var(--t-rapido) var(--curva);
 }
 .chip-sync .punto {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--muestreado);
+  width: 8px; height: 8px; background: var(--muestreado);
   transition: background-color var(--t-medio) var(--curva);
 }
-.chip-sync[data-estado="pendiente"] { border-color: var(--por_muestrear); color: #ffd679; background: #d99a0614; }
-.chip-sync[data-estado="pendiente"] .punto { background: var(--por_muestrear); animation: latir 1.4s ease-in-out infinite; }
-.chip-sync[data-estado="offline"] { border-color: #ffffff55; color: #cfd6cf; }
-.chip-sync[data-estado="offline"] .punto { background: var(--apagado); }
-.chip-sync[data-estado="error"] { border-color: var(--devolucion); color: #ffb3aa; background: #b8352a1f; }
-.chip-sync[data-estado="error"] .punto { background: var(--devolucion); animation: latir 1.4s ease-in-out infinite; }
+/* Pendiente y error dejan de ser un borde de color: se convierten en un
+   bloque macizo. Desde el otro lado del patio se ve el bloque, no el
+   borde. */
+.chip-sync[data-estado="pendiente"] {
+  background: var(--amarillo); border-color: var(--amarillo); color: var(--tinta);
+}
+.chip-sync[data-estado="pendiente"] .punto { background: var(--tinta); animation: latir 1.4s ease-in-out infinite; }
+.chip-sync[data-estado="offline"] { border-color: #ffffff66; color: #d6d2c8; }
+.chip-sync[data-estado="offline"] .punto { background: #d6d2c8; }
+.chip-sync[data-estado="error"] {
+  background: var(--devolucion); border-color: var(--devolucion); color: #fff;
+}
+.chip-sync[data-estado="error"] .punto { background: #fff; animation: latir 1.4s ease-in-out infinite; }
 .chip-sync:active { transform: scale(.94); }
 @keyframes latir { 50% { opacity: .3; transform: scale(.8); } }
 
 /* Franja de advertencia: hay cambios sin subir. Vive en #flotantes, así
    que es una tarjeta que entra desde abajo, no una banda que empuja. */
+/* La misma cinta de peligro de la cabecera, ahora como aviso. No hace
+   falta explicar qué significa: ya se aprendió arriba. */
 .franja {
   cursor: pointer;
-  border-radius: var(--r); overflow: hidden;
-  box-shadow: var(--sombra-alta);
+  border: 2px solid var(--tinta); box-shadow: var(--sombra-alta);
   animation: entrar var(--t-medio) var(--curva);
-  background: repeating-linear-gradient(
-    -45deg, #d99a06, #d99a06 12px, #14171a 12px, #14171a 24px
-  );
-  padding: 2px;
+  background: var(--tinta);
+  padding: 3px;
 }
 .franja > div {
-  background: #fff5dc; color: #4a3400;
-  border-radius: calc(var(--r) - 2px);
-  font-size: 13px; font-weight: 600; padding: 8px 12px; text-align: center;
+  background: var(--amarillo); color: var(--tinta);
+  font-size: 12.5px; font-weight: 800; padding: 9px 12px; text-align: center;
+  text-transform: uppercase; letter-spacing: .04em; line-height: 1.35;
 }
-.franja[data-tono="error"] {
-  background: repeating-linear-gradient(-45deg,
-    #b8352a, #b8352a 12px, #14171a 12px, #14171a 24px);
-}
-.franja[data-tono="error"] > div { background: #fbeae8; color: #6b1a12; }
+.franja[data-tono="error"] > div { background: var(--devolucion); color: #fff; }
 
 /* En pantalla ancha no tiene por qué ocupar todo el borde inferior */
 @media (min-width: 720px) {
@@ -245,30 +242,26 @@ header .crece { flex: 1; }
 }
 
 /* ------------------------------------------------------------ pestañas */
+/* La pestaña activa no se subraya: se enciende. Bloque amarillo macizo
+   sobre negro, como el interruptor que está puesto. */
 nav.pestanas {
-  display: flex; background: var(--superficie);
-  border-bottom: 1px solid var(--linea);
+  display: flex; background: var(--tinta);
+  border-bottom: 0;
 }
 nav.pestanas button {
   position: relative;
-  flex: 1; border: 0; background: none; padding: 14px 8px 15px;
-  font-size: 13px; font-weight: 700; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--apagado);
+  flex: 1; border: 0; background: none; padding: 15px 8px;
+  font-size: 12.5px; font-weight: 800; letter-spacing: .17em;
+  text-transform: uppercase; color: #ffffff8a;
   cursor: pointer;
   transition: color var(--t-rapido) var(--curva),
               background-color var(--t-rapido) var(--curva);
 }
-/* El subrayado activo se dibuja solo, de dentro hacia fuera. Antes era
-   un borde que aparecía de golpe en todo el ancho. */
-nav.pestanas button::after {
-  content: ''; position: absolute; left: 50%; right: 50%; bottom: 0; height: 3px;
-  background: var(--acento); border-radius: 3px 3px 0 0;
-  transition: left var(--t-medio) var(--curva-firme),
-              right var(--t-medio) var(--curva-firme);
+nav.pestanas button + button { box-shadow: inset 2px 0 0 #ffffff26; }
+nav.pestanas button:hover { color: #fff; background: #ffffff12; }
+nav.pestanas button[aria-selected="true"] {
+  color: var(--tinta); background: var(--amarillo); box-shadow: none;
 }
-nav.pestanas button:hover { background: var(--piso); }
-nav.pestanas button[aria-selected="true"] { color: var(--tinta); }
-nav.pestanas button[aria-selected="true"]::after { left: 18%; right: 18%; }
 
 /* ------------------------------------------------------------ contenido */
 main {
@@ -289,8 +282,8 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 
 .buscador {
   width: 100%; padding: 12px 14px 12px 40px; margin-bottom: 10px;
-  border: 1px solid var(--linea); border-radius: var(--r);
-  background: var(--superficie) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="%235f6863" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>') no-repeat 12px center;
+  border: 2px solid var(--tinta); border-radius: 0;
+  background: var(--superficie) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="%230c0c0b" stroke-width="2.4" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>') no-repeat 12px center;
   font-family: var(--mono);
   text-transform: uppercase; font-size: 16px;
   transition: border-color var(--t-rapido) var(--curva), box-shadow var(--t-rapido) var(--curva);
@@ -304,49 +297,41 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 }
 .filtros::-webkit-scrollbar { display: none; }
 .filtros button {
-  white-space: nowrap; border: 1px solid var(--linea); background: var(--superficie);
-  border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600;
-  color: var(--apagado); cursor: pointer; box-shadow: var(--sombra-baja);
+  white-space: nowrap; border: 2px solid var(--tinta); background: var(--superficie);
+  border-radius: 0; padding: 8px 14px; font-size: 11.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--tinta); cursor: pointer; box-shadow: none;
   transition: background-color var(--t-rapido) var(--curva), border-color var(--t-rapido) var(--curva),
               color var(--t-rapido) var(--curva), transform var(--t-rapido) var(--curva);
 }
 .filtros button:hover { border-color: var(--apagado); }
 .filtros button:active { transform: scale(.96); }
 .filtros button[aria-pressed="true"] {
-  background: var(--tinta); border-color: var(--tinta); color: #fff;
+  background: var(--tinta); border-color: var(--tinta); color: var(--amarillo);
 }
 
 /* ------------------------------------------------------------ tarjetas */
 .lista { display: flex; flex-direction: column; gap: 9px; }
 
-/* La tarjeta es una PIEZA: canto de luz arriba, sombra corta abajo, y un
-   lomo de color a la izquierda que es lo primero que se lee de lejos.
-   El lomo pasó de 5 a 6px y lleva su propio brillo interior, para que se
-   lea como material pintado y no como una raya. */
+/* Una placa atornillada al plano: filo negro de 2px, sombra sólida
+   desplazada y un lomo de color de 16px que se lee desde el otro lado
+   del patio. Al pulsar, la placa se asienta sobre su propia sombra. */
 .lote {
-  display: grid; grid-template-columns: 6px 1fr auto;
+  display: grid; grid-template-columns: 16px 1fr auto;
   align-items: stretch; gap: 0;
-  background: var(--superficie); border: 1px solid var(--linea);
-  border-radius: var(--r); overflow: hidden; cursor: pointer;
+  background: var(--superficie); border: 2px solid var(--tinta);
+  border-radius: 0; overflow: hidden; cursor: pointer;
   text-align: left; padding: 0; width: 100%;
-  box-shadow: var(--sombra-baja), var(--luz-canto);
-  transition: transform var(--t-rapido) var(--curva),
-              border-color var(--t-rapido) var(--curva),
-              box-shadow var(--t-medio) var(--curva);
-}
-.lote:hover {
-  border-color: #b9c2b6; box-shadow: var(--sombra-media), var(--luz-canto);
-  transform: translateY(-2px);
-}
-.lote:active {
-  transform: translateY(0) scale(.988); border-color: var(--tinta-3);
   box-shadow: var(--sombra-baja);
+  transition: transform var(--t-rapido) var(--curva-firme),
+              box-shadow var(--t-rapido) var(--curva-firme);
+}
+.lote:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--tinta); }
+.lote:active {
+  transform: translate(3px, 3px); box-shadow: 0 0 0 var(--tinta);
   transition-duration: 60ms;
 }
-.lote .barra {
-  background: var(--apagado);
-  box-shadow: inset 1px 0 0 #ffffff59, inset -1px 0 0 rgb(var(--sombra-tinte) / .18);
-}
+.lote .barra { background: var(--apagado); box-shadow: inset -2px 0 0 var(--tinta); }
 .lote[data-estado="por_muestrear"] .barra { background: var(--por_muestrear); }
 .lote[data-estado="muestreado"]    .barra { background: var(--muestreado); }
 .lote[data-estado="remuestreo"]    .barra { background: var(--remuestreo); }
@@ -358,35 +343,40 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
     var(--vencida), var(--vencida) 6px, #14171a 6px, #14171a 12px);
 }
 
-.lote .cuerpo { padding: 14px 14px; min-width: 0; }
-/* El código es el nombre propio del lote: se le da tamaño y aire para
-   que sea lo primero que encuentra el ojo al bajar por la lista. */
+.lote .cuerpo { padding: 16px 16px 15px; min-width: 0; }
+/* El código es el nombre propio del lote y lo único que se busca al
+   bajar por la lista: se le da tamaño de titular y se aprieta el
+   tracking, que es lo que hace que una cifra grande se vea dibujada y
+   no simplemente grande. */
 .lote .codigo {
-  font-family: var(--mono); font-size: 19px; font-weight: 700;
-  letter-spacing: -.015em; display: block; line-height: 1.15;
+  font-family: var(--mono); font-size: 27px; font-weight: 800;
+  letter-spacing: -.05em; display: block; line-height: 1;
   color: var(--tinta);
 }
-/* la meta se separa con puntos medios, no con montones de espacio */
+/* La meta va en caja baja y sin versalitas: en mayúsculas espaciadas no
+   cabía en un renglón y se partía en dos, que es justo lo que un dato
+   secundario no debe hacer. */
 .lote .meta {
-  margin-top: 5px; font-size: 12.5px; color: var(--apagado);
-  display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px;
+  margin-top: 8px; font-size: 12.5px; color: var(--apagado);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px 14px;
+  font-weight: 600;
 }
-.lote .meta > span + span::before {
-  content: '·'; margin-right: 8px; color: var(--linea);
-}
+/* Sin puntos separadores: al partirse de línea dejaban un "·" solo
+   abriendo el renglón, y CSS no puede saber cuándo un pseudo-elemento
+   cae al principio de una línea. El espacio separa igual de bien. */
+.lote .meta > span + span::before { content: none; }
 .lote .lado {
   display: flex; flex-direction: column; justify-content: center;
-  align-items: flex-end; gap: 5px; padding: 12px 14px 12px 6px;
+  align-items: flex-end; gap: 6px; padding: 14px 14px 14px 8px;
 }
 
+/* Bloque de color con filo negro, no pastilla. El filo hace que un
+   amarillo claro y un azul oscuro pesen lo mismo en la composición. */
 .etiqueta {
-  font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
-  text-transform: uppercase; padding: 4.5px 11px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; padding: 5px 10px; border-radius: 0;
   color: #fff; white-space: nowrap;
-  /* un filo interior oscuro le da borde sin gastar un `border`, que
-     cambiaría el tamaño según el color */
-  box-shadow: inset 0 0 0 1px rgb(var(--sombra-tinte) / .12),
-              inset 0 1px 0 #ffffff38;
+  box-shadow: inset 0 0 0 2px var(--tinta);
   transition: background-color var(--t-medio) var(--curva);
 }
 .etiqueta[data-e="por_muestrear"] { background: var(--por_muestrear); color: var(--txt-por_muestrear, #fff); }
@@ -397,8 +387,8 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .etiqueta[data-e="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
 
 .pila-tag {
-  font-family: var(--mono); font-size: 12px; font-weight: 700;
-  border: 1.5px solid var(--tinta); border-radius: var(--r-chico); padding: 1px 6px;
+  font-family: var(--mono); font-size: 12px; font-weight: 800;
+  border: 2px solid var(--tinta); border-radius: 0; padding: 1.5px 7px;
 }
 .dias { font-size: 11.5px; color: var(--apagado); }
 .dias[data-alerta="si"] { color: var(--vencida); font-weight: 700; }
@@ -440,7 +430,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   background: rgb(var(--sombra-tinte) / .62);
   display: flex; align-items: flex-end; justify-content: center;
   animation: aparecer var(--t-medio) var(--curva);
-  backdrop-filter: blur(6px) saturate(.85);
+  backdrop-filter: blur(4px);
 }
 .hoja {
   position: relative;
@@ -448,29 +438,30 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   max-height: 92vh; overflow-y: auto;
   border-radius: var(--r-grande) var(--r-grande) 0 0;
   padding: 8px 18px calc(20px + env(safe-area-inset-bottom)) 18px;
-  box-shadow: var(--sombra-alta), var(--luz-canto);
+  border: 2px solid var(--tinta); border-bottom: 0;
+  box-shadow: none;
   /* sube con firmeza y aterriza; sin rebote, que aquí no viene a cuento */
   animation: subir var(--t-lento) var(--curva-firme);
   overscroll-behavior: contain;
 }
-/* Filo de acento en el canto superior: ata la hoja a la cabecera */
+/* La misma cinta de la cabecera, ahora como canto superior de la hoja:
+   la pantalla que se abre pertenece al mismo sitio que la que la abrió. */
 .hoja::after {
-  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px;
-  background: linear-gradient(90deg, #145a8f00, var(--acento) 25%, var(--acento) 75%, #145a8f00);
-  border-radius: var(--r-grande) var(--r-grande) 0 0;
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 6px;
+  background: repeating-linear-gradient(135deg,
+    var(--amarillo) 0 10px, var(--tinta) 10px 20px);
 }
 /* asidero: indica que el panel se puede desplazar */
 .hoja::before {
-  content: ''; display: block; width: 44px; height: 5px;
-  background: var(--linea); border-radius: 999px; margin: 9px auto 15px;
-  box-shadow: inset 0 1px 0 rgb(var(--sombra-tinte) / .10);
+  content: ''; display: block; width: 46px; height: 4px;
+  background: var(--tinta); margin: 14px auto 16px;
 }
 @keyframes aparecer { from { opacity: 0; } }
 @keyframes subir { from { transform: translateY(34px); opacity: 0; } }
 
 .hoja h2 {
-  margin: 0 0 3px 0; font-family: var(--mono); font-size: 23px;
-  letter-spacing: -.02em; line-height: 1.15;
+  margin: 0 0 5px 0; font-family: var(--mono); font-size: 33px;
+  font-weight: 800; letter-spacing: -.05em; line-height: .98;
 }
 /* El rótulo de sección va sobre una regla que llega hasta el margen,
    como los apartados de una lámina técnica. */
@@ -481,19 +472,18 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 }
 .hoja h3:first-of-type { margin-top: 17px; }
 .hoja h3::before {
-  content: ''; width: 9px; height: 2px; background: var(--acento); flex: none;
+  content: ''; width: 12px; height: 3px; background: var(--tinta); flex: none;
 }
 .hoja h3::after {
-  content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, var(--linea), #d2d8ce00);
+  content: ''; flex: 1; height: 2px; background: var(--tinta); opacity: .2;
 }
 .hoja .sub { color: var(--apagado); font-size: 13.5px; margin-bottom: 4px; line-height: 1.45; }
 
 .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 :where(.acciones) button, :where(.acciones) .btn, .btn {
   padding: 14px 12px;
-  border-radius: var(--r);
-  border: 1.5px solid var(--tinta);
+  border-radius: 0;
+  border: 2px solid var(--tinta);
   background: var(--superficie);
   color: var(--tinta);
   font-size: 14.5px; font-weight: 700; line-height: 1.25;
@@ -508,21 +498,19 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
    en vez de un rectángulo de color. Al pulsar, el canto se apaga y la
    sombra se recoge, así que el botón "se hunde" de verdad. */
 .btn-lleno {
-  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
-  border-color: var(--tinta); color: #fff;
-  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff20;
+  background: var(--tinta); border-color: var(--tinta); color: #fff;
+  box-shadow: none;
 }
 .btn-peligro {
-  background: linear-gradient(180deg, #c94437, var(--devolucion));
-  border-color: var(--devolucion); color: #fff;
-  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff26;
+  background: var(--devolucion); border-color: var(--tinta); color: #fff;
+  box-shadow: none;
 }
 .btn-ancho  { grid-column: 1 / -1; }
 :where(.acciones) button:disabled, .btn:disabled {
   opacity: .42; cursor: default; box-shadow: none; transform: none;
 }
 :where(.acciones) button:active, .btn:active {
-  transform: scale(.975); box-shadow: inset 0 2px 5px rgb(var(--sombra-tinte) / .18);
+  transform: translate(2px, 2px); box-shadow: none;
   transition-duration: 60ms;
 }
 :where(.acciones) button:not(.btn-lleno):not(.btn-peligro):hover,
@@ -535,8 +523,8 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   text-transform: uppercase; color: var(--apagado); margin-bottom: 5px;
 }
 .campo input, .campo select, .campo textarea {
-  width: 100%; padding: 12px; border: 1px solid var(--linea);
-  border-radius: var(--r); background: var(--superficie); font-size: 16px;
+  width: 100%; padding: 12px; border: 2px solid var(--tinta);
+  border-radius: 0; background: var(--superficie); font-size: 16px;
   transition: border-color var(--t-rapido) var(--curva), box-shadow var(--t-rapido) var(--curva);
 }
 .campo input:focus, .campo select:focus, .campo textarea:focus {
@@ -551,18 +539,15 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
    acento. Lo viejo pesa menos que lo que acaba de pasar. */
 .linea-tiempo {
   margin-left: 5px; padding-left: 16px; border-left: 0;
-  background: linear-gradient(180deg, var(--tinta-3), var(--linea) 85%, #d2d8ce00) left / 2px 100% no-repeat;
+  background: linear-gradient(180deg, var(--tinta), #cdc7ba 88%, #cdc7ba00) left / 3px 100% no-repeat;
 }
 .linea-tiempo li { list-style: none; position: relative; padding-bottom: 16px; }
 .linea-tiempo li::before {
-  content: ''; position: absolute; left: -21px; top: 5px;
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--apagado); border: 2.5px solid var(--piso);
+  content: ''; position: absolute; left: -22px; top: 5px;
+  width: 9px; height: 9px; border-radius: 0;
+  background: var(--piso); border: 3px solid var(--tinta);
 }
-.linea-tiempo li:first-child::before {
-  background: var(--acento);
-  box-shadow: 0 0 0 3px #145a8f26;
-}
+.linea-tiempo li:first-child::before { background: var(--amarillo); }
 .linea-tiempo .cuando { font-size: 11.5px; color: var(--apagado); }
 .linea-tiempo .que { font-size: 14px; font-weight: 600; margin-top: 1px; }
 .linea-tiempo .nota { font-size: 13.5px; color: var(--apagado); margin-top: 2px; }
@@ -586,8 +571,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   display: flex; align-items: center; gap: 12px;
 }
 .ingreso .marca::after {
-  content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, var(--linea), #d2d8ce00);
+  content: ''; flex: 1; height: 2px; background: var(--tinta);
 }
 .ingreso h1 {
   margin: 0 0 30px 0; font-size: clamp(34px, 11vw, 46px); line-height: .98;
@@ -595,9 +579,9 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 }
 /* la segunda palabra se apaga: el ojo entra por "Mapa" y el resto acompaña */
 .ingreso h1::after {
-  content: ''; display: block; width: 54px; height: 4px; margin-top: 18px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, var(--acento), #2f86c9);
+  content: ''; display: block; height: 9px; margin-top: 22px;
+  background: repeating-linear-gradient(135deg,
+    var(--amarillo) 0 12px, var(--tinta) 12px 24px);
 }
 
 .vacio {
@@ -667,10 +651,10 @@ button:focus:not(:focus-visible) { outline: none; }
    detrás. Sin eso el "cristal" es solo un blanco translúcido. */
 .ctrl {
   width: 44px; height: 44px; display: grid; place-items: center;
-  border: 1px solid #ffffff9c; background: #ffffffdd;
-  backdrop-filter: blur(14px) saturate(1.5); color: var(--tinta);
-  cursor: pointer; padding: 0; border-radius: var(--r);
-  box-shadow: var(--sombra-media), var(--luz-canto);
+  border: 2px solid var(--tinta); background: var(--superficie);
+  color: var(--tinta);
+  cursor: pointer; padding: 0; border-radius: 0;
+  box-shadow: none;
   transition: background-color var(--t-rapido) var(--curva),
               transform var(--t-rapido) var(--curva);
 }
@@ -707,9 +691,9 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .btn-mapa {
   display: flex; align-items: center; gap: 9px;
-  border: 1px solid #ffffff9c; background: #ffffffdd;
-  backdrop-filter: blur(14px) saturate(1.5); color: var(--tinta);
-  border-radius: var(--r); padding: 11px 14px; cursor: pointer;
+  border: 2px solid var(--tinta); background: var(--superficie);
+  color: var(--tinta);
+  border-radius: 0; padding: 11px 14px; cursor: pointer;
   font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap;
   box-shadow: var(--luz-canto);
   transition: background-color var(--t-rapido) var(--curva),
@@ -760,10 +744,10 @@ button:focus:not(:focus-visible) { outline: none; }
 @media (min-width: 701px) { #chip-filtro-caja { display: none; } }
 
 .pastilla {
-  white-space: nowrap; border: 1.5px solid var(--linea);
+  white-space: nowrap; border: 2px solid var(--tinta);
   background: var(--superficie); color: var(--tinta);
-  border-radius: 999px; padding: 10px 16px; font-size: 14px; font-weight: 700;
-  cursor: pointer; min-width: 46px; box-shadow: var(--sombra-baja);
+  border-radius: 0; padding: 10px 16px; font-size: 13.5px; font-weight: 800;
+  cursor: pointer; min-width: 46px; box-shadow: none;
   transition: transform var(--t-rapido) var(--curva),
               background-color var(--t-rapido) var(--curva),
               border-color var(--t-rapido) var(--curva),
@@ -836,7 +820,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .fila-chips { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; flex-wrap: wrap; }
 .pista { font-size: 12.5px; color: var(--apagado); margin: 6px 0 0 0; line-height: 1.5; }
 .acciones input[type="date"], .acciones input[type="number"] {
-  padding: 12px; border: 1px solid var(--linea); border-radius: var(--r); background: #fff; font-size: 16px;
+  padding: 12px; border: 2px solid var(--tinta); border-radius: 0; background: #fff; font-size: 16px;
 }
 
 /* --- filtro del mapa: atenuar en vez de esconder --- */
@@ -869,7 +853,7 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .color-item {
   display: flex; align-items: center; gap: 9px;
-  border: 1px solid var(--linea); border-radius: var(--r);
+  border: 2px solid var(--tinta); border-radius: 0;
   padding: 8px 10px; background: var(--superficie); font-size: 12.5px; font-weight: 600;
 }
 .color-item input[type="color"] {
@@ -888,122 +872,106 @@ button:focus:not(:focus-visible) { outline: none; }
 
 /* =====================================================================
    CAPA DE ACABADO
-   Lo que separa una pantalla correcta de una pantalla cuidada: el filo
-   de cada pieza, el peso de cada cifra, y que nada brille más que el
-   dato. Todo lo de aquí es superficie: no cambia qué hace un solo
-   control, solo cómo se siente al usarlo.
+   El filo de cada pieza, el peso de cada cifra, y que nada brille más
+   que el dato. Todo lo de aquí es superficie: no cambia qué hace un
+   solo control, solo cómo se siente al usarlo.
    ===================================================================== */
 
 /* --- barras de desplazamiento: presentes, no protagonistas ---------- */
-main, .hoja, .filtros, .linea-tiempo { scrollbar-width: thin; scrollbar-color: #b9c2b6 transparent; }
+main, .hoja, .filtros, .linea-tiempo { scrollbar-width: thin; scrollbar-color: var(--tinta) transparent; }
 main::-webkit-scrollbar, .hoja::-webkit-scrollbar { width: 10px; }
 main::-webkit-scrollbar-thumb, .hoja::-webkit-scrollbar-thumb {
-  background: #b9c2b6; border-radius: 99px;
-  border: 3px solid transparent; background-clip: content-box;
+  background: var(--tinta); border: 3px solid transparent; background-clip: content-box;
 }
 main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: transparent; }
 
-/* --- el buscador: una ranura, no una caja ------------------------- */
-.buscador {
-  letter-spacing: .02em;
-  box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05);
-}
-.buscador:focus { box-shadow: 0 0 0 3px #145a8f24, inset 0 1px 2px rgb(var(--sombra-tinte) / .04); }
+/* --- el buscador ------------------------------------------------- */
+.buscador { letter-spacing: .02em; font-weight: 700; }
+.buscador:focus { box-shadow: 3px 3px 0 var(--acento); border-color: var(--acento); }
+.buscador::placeholder { font-weight: 500; }
 
-/* --- pastillas de filtro: peso solo cuando están puestas ---------- */
-.filtros button { letter-spacing: .01em; box-shadow: var(--sombra-baja), var(--luz-canto); }
-.filtros button[aria-pressed="true"] {
-  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
-  box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff1f;
-}
+/* --- pastillas de filtro: la puesta se invierte en negro ---------- */
+.filtros button:active { transform: translate(1px, 1px); }
 
 /* --- datos secundarios de la tarjeta ----------------------------- */
-.lote .meta { letter-spacing: .005em; }
 /* El aviso de retraso es largo y se parte de línea; al partirse dejaba
    el punto separador solo, abriendo el renglón con un "·" huérfano. Se
    le da renglón propio y se le quita el separador: además así el retraso
    se lee como lo que es, una alerta, y no como un dato más de la fila. */
-.lote .meta .dias[data-alerta="si"] { flex-basis: 100%; margin-top: 1px; }
+.lote .meta .dias[data-alerta="si"] { flex-basis: 100%; margin-top: 3px; }
 .lote .meta .dias[data-alerta="si"]::before { content: none; }
-.pila-tag {
-  border-width: 1.5px; padding: 1.5px 7px;
-  background: var(--superficie);
-}
-.dias[data-alerta="si"] { letter-spacing: .01em; }
-/* "sin subir" no es un error: avisa sin alarmar, y respira despacio.
-   Color propio, no el del estado: el ámbar de la pastilla no aguanta
-   como texto sobre blanco. */
+.dias[data-alerta="si"] { letter-spacing: .01em; font-weight: 800; }
+/* "sin subir" es el mismo amarillo de señalización, en bloque */
 .sin-subir {
-  letter-spacing: .045em; text-transform: uppercase; font-size: 10.5px;
-  color: var(--ambar-texto);
+  letter-spacing: .07em; text-transform: uppercase; font-size: 10px; font-weight: 800;
+  background: var(--amarillo); color: var(--tinta); padding: 3px 7px;
+  box-shadow: inset 0 0 0 2px var(--tinta);
 }
-.sin-subir:not([data-error="si"]) { animation: respirar 2.6s ease-in-out infinite; }
-@keyframes respirar { 50% { opacity: .5; } }
+.sin-subir[data-error="si"] { background: var(--devolucion); color: #fff; }
 
-/* --- el aviso de la ficha: papel con una pestaña de color -------- */
+/* --- el aviso de la ficha ---------------------------------------- */
 .aviso {
-  border: 1px solid #e8cf95; border-left: 4px solid var(--por_muestrear);
-  border-radius: var(--r-chico) var(--r) var(--r) var(--r-chico);
-  background: linear-gradient(180deg, #fffaef, #fff5dc);
-  box-shadow: var(--sombra-baja);
-  line-height: 1.45;
+  border: 2px solid var(--tinta); border-left-width: 8px;
+  background: #fdf0cd; box-shadow: var(--sombra-baja); line-height: 1.45;
 }
 
-/* --- estado vacío: un plano en blanco, no un error --------------- */
-.vacio {
-  border: 1.5px dashed #c8cfc4; background: #ffffff5c;
-  border-radius: var(--r-grande);
-}
-.vacio strong { font-size: 15.5px; letter-spacing: -.01em; }
+/* --- estado vacío: una lámina en blanco, no un error ------------- */
+.vacio { border: 3px dashed var(--linea-suave); background: none; }
+.vacio strong { font-size: 16px; letter-spacing: -.02em; }
 
-/* --- la pila, con su número como cifra grabada ------------------- */
-.pila .num { border-bottom-width: 4px; letter-spacing: -.03em; }
-.pila .codigos span {
-  background: var(--piso); border: 1px solid var(--linea-suave);
-  box-shadow: var(--luz-canto);
-}
+/* --- la pila ----------------------------------------------------- */
+.pila { border: 2px solid var(--tinta); box-shadow: var(--sombra-baja); }
+.pila .num { border-bottom-width: 5px; letter-spacing: -.045em; font-size: 25px; }
+.pila .codigos span { background: var(--piso); border: 2px solid var(--tinta); }
 
 /* --- pastilla genérica ------------------------------------------- */
-.pastilla { box-shadow: var(--sombra-baja), var(--luz-canto); letter-spacing: .005em; }
-.pastilla:active { transition-duration: 60ms; }
-.pastilla-fuerte, .pastilla-activa { box-shadow: var(--sombra-baja), inset 0 1px 0 #ffffff24; }
+.pastilla:active { transform: translate(2px, 2px); transition-duration: 60ms; }
+.pastilla-fuerte, .pastilla-activa { box-shadow: none; }
 
-/* --- la barra de modo: cinta oscura con su propio filo ----------- */
+/* --- la barra de modo: cinta negra maciza ------------------------ */
 .barra-modo {
-  background: linear-gradient(180deg, var(--tinta-2), var(--tinta));
-  box-shadow: var(--sombra-alta), inset 0 1px 0 #ffffff17;
-  letter-spacing: .005em;
+  background: var(--tinta); border: 2px solid var(--tinta);
+  box-shadow: var(--sombra-alta); letter-spacing: .005em;
 }
+.barra-modo .pastilla { box-shadow: none; }
 
 /* --- campos: la etiqueta manda, el campo obedece ---------------- */
-.campo label { letter-spacing: .11em; font-size: 11px; }
-.campo input, .campo select, .campo textarea {
-  box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05);
-}
+.campo label { letter-spacing: .14em; font-size: 11px; color: var(--tinta); }
 .campo input:focus, .campo select:focus, .campo textarea:focus {
-  box-shadow: 0 0 0 3px #145a8f24, inset 0 1px 2px rgb(var(--sombra-tinte) / .04);
+  box-shadow: 3px 3px 0 var(--acento); border-color: var(--acento);
 }
-.con-sigla span { letter-spacing: .02em; box-shadow: inset 0 1px 2px rgb(var(--sombra-tinte) / .05); }
+.con-sigla span { letter-spacing: .02em; border: 2px solid var(--tinta); border-right: 0; color: var(--tinta); }
 
 /* --- el mapa: el plano manda, el resto se aparta ----------------- */
 /* Deliberadamente SIN filtros ni sombras sobre las figuras del SVG: se
    redibujan enteras en cada repintado y en cada movimiento del dedo, y
    un `drop-shadow` por figura convertiría un arrastre fluido en un
-   arrastre a tirones justo en el celular más humilde del patio. */
-.txt-lote { letter-spacing: .005em; }
-.txt-pila { letter-spacing: .01em; }
-.grupo-herramientas { box-shadow: var(--sombra-media), var(--luz-canto); }
-.chip-filtro {
-  background: linear-gradient(180deg, #1a6ba8, var(--acento));
-  box-shadow: 0 8px 20px #0e3d6040, inset 0 1px 0 #ffffff2e;
-  letter-spacing: .01em;
+   arrastre a tirones justo en el celular más humilde del patio. Por lo
+   mismo desaparecio el `backdrop-filter` de los controles flotantes:
+   ahora son opacos, que ademas se leen mejor a pleno sol. */
+.txt-lote { letter-spacing: -.01em; font-weight: 700; }
+.txt-pila { letter-spacing: .01em; font-weight: 700; }
+.ctrl:active, .btn-mapa:active { transform: translate(2px, 2px); }
+.ctrl-grupo, .grupo-herramientas { box-shadow: var(--sombra-media); }
+.ctrl-grupo .ctrl + .ctrl, .grupo-herramientas .btn-mapa + .btn-mapa { border-top-width: 0; }
+.btn-mapa[aria-pressed="true"] { background: var(--amarillo); border-color: var(--tinta); color: var(--tinta); }
+.btn-mapa[aria-pressed="true"] .ico { color: var(--tinta); }
+.btn-mapa-primario {
+  background: var(--acento); border-color: var(--tinta); color: #fff;
+  box-shadow: var(--sombra-media);
+  text-transform: uppercase; letter-spacing: .07em; font-weight: 800; font-size: 14px;
 }
-.mapa-caja { border-top-color: var(--linea-suave); }
+.btn-mapa-primario:hover { background: var(--acento-fuerte); border-color: var(--tinta); }
+.chip-filtro {
+  background: var(--acento); border: 2px solid var(--tinta); border-radius: 0;
+  box-shadow: var(--sombra-baja); letter-spacing: .05em;
+  text-transform: uppercase; font-size: 12px; font-weight: 800;
+}
+.mapa-caja { border-top: 2px solid var(--tinta); }
 
 /* --- la marca de la cabecera y el menú --------------------------- */
-.icono { border-color: #ffffff33; }
+.icono { border: 2px solid #fff; border-radius: 0; }
 .icono:active { transition-duration: 60ms; }
-.chip-sync { box-shadow: inset 0 1px 0 #ffffff14; letter-spacing: .01em; }
 
 /* --- selección de figura: el halo late muy despacio -------------- */
 .manijas .halo { animation: halo 2.4s ease-in-out infinite; }
