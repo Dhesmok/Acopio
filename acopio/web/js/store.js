@@ -387,7 +387,7 @@ async function renombrarPorChoque(op) {
   if (fig) await idb.guardar('cola', { ...fig, fila: { ...fig.fila, codigo: nuevo } });
 
   await anotarAviso(`La pila ${antes} ya existía en el servidor, creada desde otro celular. `
-    + `Esta quedó como pila ${nuevo}. Los lotes que le metiste siguen dentro.`);
+    + `Esta quedó como pila ${nuevo}. Sus lotes siguen dentro.`);
   return true;
 }
 

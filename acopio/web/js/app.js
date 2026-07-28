@@ -351,10 +351,10 @@ function pintarSync() {
   f.dataset.tono = (S.rechazados || sinPermiso()) ? 'error' : 'aviso';
   if (sinPermiso()) {
     f.firstElementChild.textContent =
-      'Tu usuario todavía no está habilitado en el servidor · lo que registres se guarda aquí, pero no sube. Avisa al administrador.';
+      'Usuario sin habilitar en el servidor · lo que se registre se guarda en el celular pero no sube. Avisar al administrador.';
     f.onclick = () => avisar(
-      'El administrador tiene que activar tu perfil en la base de datos (perfiles → activo). '
-      + 'Mientras tanto puedes seguir trabajando: todo queda guardado en el celular y sube solo cuando te habiliten.');
+      'El administrador debe activar el perfil en la base de datos (perfiles → activo). '
+      + 'Hasta entonces todo se guarda en el celular y sube en cuanto quede habilitado.');
   } else if (S.actualizacion) {
     // recargar no pierde nada: lo pendiente vive en el celular, no en la pantalla
     f.firstElementChild.textContent = 'Hay una versión nueva de la app · toca para actualizar';
@@ -424,15 +424,16 @@ function montarMapa() {
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
     alTocarVacio: () => { if (S.edicion) barraEdicion(); },
     alGuardarGeom: gesto(async (tipo, obj, origen, antes) => {
-      // `origen` solo viene cuando fue un TRASLADO. Ajustar el tamaño, el
-      // giro o un vértice no pregunta nada: para eso hubo que agarrar una
-      // manija concreta, y no se hace sin querer. Un traslado de verdad
-      // —el que saca la figura de donde estaba— sí se confirma.
-      if (origen && Mapa.movimientoReal(obj, origen)) {
+      // `origen` solo viene cuando la figura se ARRASTRÓ. Ajustar el
+      // tamaño, el giro o un vértice no pregunta: para eso hubo que
+      // agarrar una manija concreta. Todo arrastre sí pregunta, por corto
+      // que sea: la posición en el plano es la ubicación real en el
+      // patio, y cambiarla sin querer deja el material mal ubicado.
+      if (origen) {
         const ok = await confirmar({
-          titulo: '¿Dejarlo aquí?',
-          detalle: `${nombreDeFigura(tipo, obj)} se movió en el plano. Esta es su ubicación real en el patio.`,
-          aceptar: 'Dejarlo aquí'
+          titulo: tipo === 'figura' ? '¿Dejar la figura aquí?' : `¿Dejar ${obj.codigo} aquí?`,
+          detalle: `${nombreDeFigura(tipo, obj)} cambia de ubicación en el patio.`,
+          aceptar: 'Dejar aquí'
         });
         if (!ok) return Mapa.deshacerGeom(tipo, obj.id, antes);
       }
@@ -601,7 +602,7 @@ function refrescarMapa() {
 function barraEdicion() {
   $('#barra-forma').innerHTML = `
     <div class="barra-modo">
-      <span>Modo edición · ahora sí se puede arrastrar para mover, y tocar una figura muestra sus manijas de tamaño y giro</span>
+      <span>Modo edición · arrastra para mover; toca una figura para ver sus manijas de tamaño y giro</span>
       <button class="pastilla" id="salir-edicion">Salir</button>
     </div>`;
   $('#salir-edicion').onclick = () => { S.edicion = false; montarMapa(); };
@@ -624,6 +625,10 @@ function barraForma(tipo, obj) {
   };
 }
 
+// Abre la frase, así que va en mayúscula: escrito en medio obligaba a
+// contraer "de el" en "del" según el tipo, y salía "de el lote PG1042".
+// El título usa el código, que no tiene género, para no tener que
+// concordar "dejarlo" con "dejarla" según sea lote o pila.
 const nombreDeFigura = (tipo, o) =>
   tipo === 'lote' ? `El lote ${o.codigo}`
   : tipo === 'pila' ? `La pila ${o.codigo}`
@@ -791,9 +796,9 @@ async function panelRechazados() {
         <div class="que">${esc(m.error)}</div>
         ${m.detalle && m.detalle !== m.error ? `<div class="nota">${esc(m.detalle)}</div>` : ''}</li>`).join('')}
     </ul>
-    <p class="pista">Nada se perdió: siguen en pantalla marcados como “sin subir”.
-       Corrige la causa (normalmente el primero de la lista) y usa Reintentar;
-       lo que solo estaba esperándolo sube detrás, en el mismo orden en que se registró.</p>
+    <p class="pista">Siguen en pantalla marcados como “sin subir”. Corregida la causa —suele ser
+       la primera de la lista— Reintentar los vuelve a mandar en el mismo orden en que se
+       registraron, primero el lote y detrás lo que dependa de él.</p>
     <div class="acciones">
       <button id="reintentar" class="btn-lleno btn-ancho">Reintentar</button>
       <button id="cerrar">Cerrar</button>
@@ -842,8 +847,8 @@ function confirmarSalida() {
     <h2>Todavía hay ${n} cambio${n === 1 ? '' : 's'} sin subir</h2>
     <div class="sub">No se pudieron subir al servidor y solo existen en este celular.
       Si cierras sesión ahora se pierden y no hay forma de recuperarlos.</div>
-    <p class="pista">Lo normal es que falte señal: espera a tener internet y vuelve a intentarlo.
-      Si el servidor los está rechazando, míralos primero en la franja roja.</p>
+    <p class="pista">La causa habitual es falta de señal. Si el servidor los está rechazando,
+      el detalle está en la franja roja.</p>
     <div class="acciones" style="margin-top:16px">
       <button id="quedarse" class="btn-lleno btn-ancho">Quedarme y esperar señal</button>
       <button id="salir-igual" class="btn-peligro">Salir y perderlos</button>
@@ -955,7 +960,7 @@ async function fichaLote(id) {
       // única forma de corregirlo es otro evento encima. Se pregunta.
       const ok = await confirmar({
         titulo: `¿Pasar ${l.codigo} a ${ESTADOS[b.dataset.estado]}?`,
-        detalle: `Ahora está en "${ESTADOS[l.estado]}". El cambio queda en el historial con tu nombre y no se puede borrar.`,
+        detalle: `Estado actual: ${ESTADOS[l.estado]}. El cambio queda en el historial y no se puede borrar.`,
         aceptar: 'Cambiar el estado'
       });
       if (!ok) return fichaLote(id);
