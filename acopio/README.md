@@ -65,14 +65,14 @@ La primera entrada necesita señal (para validar la contraseña). De ahí en ade
 
 La pantalla principal es el plano del patio.
 
-- **Cada lote es una figura** con su código encima y el color de su estado. Se arrastra con el dedo para moverlo: esa posición es su ubicación real en el acopio.
+- **Cada lote es una figura** con su código encima y el color de su estado. Su posición en el plano es su ubicación real en el acopio, pero **solo se puede mover en modo edición**: fuera de él, el dedo sobre el plano lo desplaza y un toque abre la ficha.
 - **El plano va de borde a borde y los controles flotan encima.** A la izquierda, "Nuevo lote" y debajo las herramientas (filtrar, editar formas, fondo); a la derecha, acercar, alejar y encuadrar. En pantalla angosta las herramientas se quedan solo con su ícono para no robarle espacio al patio; de resto es idéntico y cambia solo con el ancho, sin recargar. La lista de lotes sí conserva sus márgenes, porque un renglón de texto muy largo se lee mal.
-- **"Editar formas"** activa el modo edición: ahí un solo toque sobre cualquier lote, pila o figura del fondo muestra sus manijas, para estirarlo, girarlo o mover sus vértices. Fuera de ese modo, mantener presionado hace lo mismo. Las pilas se ajustan igual que los lotes, porque crecen a medida que se apila material.
-- **Soltar un lote encima de otro crea una pila** con los dos y le asigna el siguiente consecutivo libre. Soltarlo sobre una pila existente lo mete en ella.
+- **"Mover y editar"** activa el modo edición, y es el único sitio donde el plano se deja tocar: ahí se arrastran las figuras y un toque muestra sus manijas para estirarlas, girarlas o mover sus vértices. Las pilas se ajustan igual que los lotes, porque crecen a medida que se apila material.
+- **Soltar un lote encima de otro crea una pila** con los dos y le asigna el siguiente consecutivo libre. Soltarlo sobre una pila existente lo mete en ella. Las dos cosas preguntan antes, y si se cancela el lote vuelve exactamente a donde estaba.
 - **Las pilas se ven como un óvalo con su nombre.** Al tocarla se ve qué lotes contiene, y ahí mismo se le cambia el nombre y el destino (alimentación a planta, devolución, espera).
 - **Para sacar un lote de una pila**, se abre su ficha y se usa "Sacar de la pila": vuelve al mapa, junto a ella.
-- **Un toque abre la ficha**: estado, recogida, observaciones e historial completo, con el nombre de quién hizo cada cambio.
-- **La forma se elige en la ficha**: óvalo o rectángulo, este último para los bigbags. Mantener presionado sigue sirviendo para estirar y girar.
+- **Un toque abre la ficha**: estado, recogida, observaciones e historial completo, con el nombre de quién hizo cada cambio. Cambiar el estado pregunta antes, porque escribe un evento que nadie puede borrar después.
+- **La forma se elige en la ficha**: óvalo o rectángulo, este último para los bigbags.
 - **Filtrar el mapa** por proveedor, estado o placa de volqueta: lo que coincide se resalta y el resto queda atenuado, sin desaparecer. El filtro activo queda como una pastilla azul sobre el plano y se quita tocándola.
 - **El recorrido se guarda solo**: cada vez que un lote se traslada de verdad queda registrado. Si solo se acomoda unos metros sobre el mismo sitio (la figura sigue traslapando su posición anterior) no cuenta como traslado. "Ver recorrido" dibuja el rastro numerado sobre el plano.
 - **Granel o Bigbag**: el tipo de material define la figura (óvalo el granel, rectángulo el bigbag) y se puede filtrar por él. "Dibujar a mano" convierte cualquier lote en un polígono editable vértice por vértice, con las esquinas suavizadas.
@@ -81,7 +81,7 @@ La pantalla principal es el plano del patio.
 - **Formas editables**: óvalo, rectángulo o polígono. El polígono deja mover cada vértice, agregar puntos tocando los "+" de los lados y quitarlos tocando el vértice.
 - **Los colores los define el admin** desde el panel Fondo: cada estado y cada tipo de pila. La app calcula sola si el texto encima debe ir claro u oscuro.
 - **Un lote despachado sale del mapa** y queda en la lista, filtrable por su estado.
-- Dos dedos para acercar y alejar; un dedo sobre el fondo para desplazarse. El zoom se ancla donde están los dedos, así que el plano no se escapa de donde uno está mirando.
+- Dos dedos para acercar y alejar; un dedo para desplazarse, empiece donde empiece —también encima de un lote, mientras no se esté en modo edición—. El zoom se ancla donde están los dedos, así que el plano no se escapa de donde uno está mirando.
 
 ### El fondo, solo para el admin
 
@@ -100,6 +100,8 @@ Con el rol `admin`, el menú de opciones del mapa incluye **Fondo del mapa**: ta
 - **Ningún botón que escribe se queda mudo.** Mientras trabaja se bloquea y lo dice; si falla, muestra el motivo. Un botón que no daba señal de vida invitaba a tocarlo diez veces, y cada toque era un lote más.
 - **El nombre de una pila no es su identidad.** La identidad es el `id`, generado en el celular. El consecutivo lo elige cada teléfono por su cuenta, así que dos personas sin señal escogen el mismo número: al subir, la segunda se renombra al siguiente libre y se avisa. Los lotes que ya tenía dentro no se mueven, porque apuntan al `id`, no al número.
 - **Las fechas del patio son locales; los instantes, UTC.** `fecha_recepcion` es el día del reloj de quien registra: calcularla desde UTC fechaba al día siguiente todo lo recibido después de las 7 de la noche. `creado_en` y `ocurrido_en` sí van en UTC, que es lo correcto para un instante.
+- **Fuera de modo edición, el plano no se mueve.** Tocar un lote abre su ficha; arrastrar el dedo desplaza el plano, aunque el dedo empiece encima de una figura. Mover, estirar o girar exige entrar en "Mover y editar". Antes cualquier roce mientras se consultaba el mapa dejaba el lote en otro sitio, y el único aviso era que la figura había cambiado de lugar.
+- **Lo que cambia el significado se pregunta antes.** Mover un lote de verdad —el que lo saca de donde estaba—, meterlo en una pila, armar una pila, cambiar de estado, sacarlo, llevar una pila a plataforma o quitarla del mapa: todo eso escribe un evento que NO se puede borrar, así que todo eso confirma. Cancelar devuelve la figura exactamente a donde estaba. Ajustar tamaño, giro o vértices no pregunta: para eso hay que agarrar una manija concreta, y no se hace sin querer.
 - **Ningún fallo se queda callado.** Los botones los cubre su propio envoltorio; los gestos del mapa —arrastrar, soltar sobre una pila, ajustar una forma— no pasan por ningún botón, así que van envueltos aparte; y detrás de los dos hay una red que atrapa cualquier cosa que se escape. Antes eso terminaba en la consola del navegador, que nadie mira desde un celular en el patio.
 - **Nada de lo que viene de la base se dibuja en crudo.** El mapa se arma con `innerHTML`, así que un código de lote con `<` no rompía solo esa figura: dejaba el plano entero sin dibujar, para todos.
 - **Cerrar sesión borra lo del celular, así que primero intenta subirlo.** Si algo queda sin subir, hay que decidirlo a propósito en una pantalla que lo explica, no aceptando un aviso del navegador sin leerlo.
