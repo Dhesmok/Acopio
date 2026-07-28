@@ -782,27 +782,31 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 #barra-forma:empty { display: none; }
 
-/* --- figuras dentro del SVG --- */
+/* --- figuras dentro del SVG ---
+   OJO: el tamaño de los rótulos NO se fija aquí. Lo calcula mapa.js para
+   cada figura, porque depende de lo grande que sea y de lo largo que sea
+   el texto: un código de ocho caracteres no cabe en el mismo óvalo que
+   uno de cuatro. Aquí solo van familia, peso y color. */
 .g-lote, .g-pila { cursor: grab; }
 .g-lote, .g-pila, .g-fondo { transition: opacity var(--t-medio) var(--curva); }
 .g-lote:active, .g-pila:active { cursor: grabbing; }
 .g-lote > *, .g-pila > * { transition: stroke-width var(--t-rapido) var(--curva); }
 .txt-lote {
-  font-family: var(--mono); font-size: 17px; font-weight: 600;
-  letter-spacing: .01em; pointer-events: none; user-select: none;
+  font-family: var(--mono); font-weight: 700;
+  pointer-events: none; user-select: none;
 }
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
 .txt-pila {
-  font-family: var(--mono); font-size: 19px; font-weight: 600;
+  font-family: var(--mono); font-weight: 700;
   fill: #14171a; pointer-events: none; user-select: none;
 }
 .txt-pila-sub {
-  font-size: 12.5px; font-weight: 500; fill: #5f6863;
+  font-weight: 600; fill: #4d4a43;
   pointer-events: none; user-select: none;
 }
 .txt-fondo {
-  font-size: 13px; font-weight: 500; fill: #14171a;
-  opacity: .55; pointer-events: none; user-select: none;
+  font-weight: 700; fill: #14171a;
+  opacity: .5; pointer-events: none; user-select: none;
 }
 
 /* la figura sobre la que vas a soltar */
@@ -958,8 +962,9 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
    arrastre a tirones justo en el celular más humilde del patio. Por lo
    mismo desaparecio el `backdrop-filter` de los controles flotantes:
    ahora son opacos, que ademas se leen mejor a pleno sol. */
-.txt-lote { letter-spacing: -.01em; font-weight: 700; }
-.txt-pila { letter-spacing: .01em; font-weight: 700; }
+.txt-lote { letter-spacing: -.03em; }
+.txt-pila { letter-spacing: -.02em; }
+.txt-fondo { letter-spacing: .06em; text-transform: uppercase; }
 .ctrl:active, .btn-mapa:active { transform: translate(2px, 2px); }
 .ctrl-grupo, .grupo-herramientas { box-shadow: var(--sombra-media); }
 .ctrl-grupo .ctrl + .ctrl, .grupo-herramientas .btn-mapa + .btn-mapa { border-top-width: 0; }

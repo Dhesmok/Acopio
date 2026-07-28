@@ -144,4 +144,53 @@ ok(antes?.x === 300 && antes?.y === 300, 'y se guarda una instantánea para pode
 Mapa.deshacerGeom('lote', suelto.id, antes);
 ok(suelto.x === 300 && suelto.y === 300, 'cancelar lo devuelve exactamente a donde estaba');
 
+// ---------------------------------------------------------------------
+titulo('El rótulo se ajusta a su figura, no al revés.');
+
+const conCodigo = (codigo, rx = 46, ry = 34) =>
+  ({ id: 'lx' + codigo, codigo, estado: 'muestreado', pila_id: null,
+     forma: 'elipse', x: 400, y: 400, rx, ry, rot: 0 });
+// tamaño del rótulo de una figura, leído del SVG que sale de pintar()
+const tamRotulo = (figura, texto) => {
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+                lotes: [], ...figura });
+  const m = lienzo.innerHTML.match(
+    new RegExp(`font-size="([\\d.]+)"[^>]*>${texto.replace(/[.*+?^${}()|[\\]\\\\-]/g, '\\\\$&')}<`));
+  return m ? +m[1] : null;
+};
+
+const corto = tamRotulo({ lotes: [conCodigo('PG1')] }, 'PG1');
+const largo = tamRotulo({ lotes: [conCodigo('SJ1015.2')] }, 'SJ1015.2');
+const larguisimo = tamRotulo({ lotes: [conCodigo('ABG-2026-000117')] }, 'ABG-2026-000117');
+ok(corto > largo && largo > larguisimo,
+   `a más caracteres, menos tamaño (${corto} > ${largo} > ${larguisimo})`);
+// el `largo > 0` no sobra: sin la corrección no hay `font-size` en el
+// SVG, `largo` vale null y la comparación pasaba sola sin probar nada
+ok(largo > 0 && largo * 0.6 * 'SJ1015.2'.length <= 46 * 2,
+   'un código de ocho caracteres cabe en el ancho de su óvalo');
+ok(larguisimo >= 11,
+   `y uno absurdamente largo se planta en el suelo legible, no se hace invisible (${larguisimo})`);
+
+// La misma figura, más grande, admite el rótulo más grande. Se usa un
+// código largo a propósito: uno corto llega al tope de 20 px en las dos
+// —el tope existe para que un código de tres letras no acabe siendo un
+// titular dentro de su óvalo— y la prueba no compararía nada.
+const chica = tamRotulo({ lotes: [conCodigo('ABG-2026-000117', 30, 22)] }, 'ABG-2026-000117');
+const grande = tamRotulo({ lotes: [conCodigo('ABG-2026-000117', 120, 90)] }, 'ABG-2026-000117');
+ok(grande > chica, `una figura más grande lleva el rótulo más grande (${grande} > ${chica})`);
+
+const caseta = tamRotulo({ figuras: [{ id: 'f1', forma: 'rectangulo', etiqueta: 'CASETA',
+  x: 300, y: 300, rx: 180, ry: 110, rot: 0, color: '#ccc' }] }, 'CASETA');
+ok(caseta > 25, `la etiqueta de una caseta grande la llena, no se queda en 13px (${caseta})`);
+
+// el rótulo de un polígono va en el centro de sus vértices, no en el
+// origen: al arrastrarlos, el origen deja de estar dentro de la figura
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [
+  { id: 'pz', codigo: 'SAN JUDAS', tipo: 'otro', estado: 'abierta', forma: 'poligono',
+    x: 300, y: 300, rx: 150, ry: 110, rot: 0,
+    puntos: [{ x: -120, y: 60 }, { x: -80, y: -90 }, { x: 60, y: -120 },
+             { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
+const anclaX = +lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/)[1];
+ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
+
 cerrar();
