@@ -443,7 +443,11 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   background: var(--piso); width: 100%; max-width: 560px;
   max-height: 92vh; overflow-y: auto;
   border-radius: var(--r-grande) var(--r-grande) 0 0;
-  padding: 8px 18px calc(20px + env(safe-area-inset-bottom)) 18px;
+  /* Sin acolchado arriba a propósito: el encabezado fijo se pega al
+     borde de esta caja, y cualquier acolchado aquí sería un carril por
+     el que se vería asomar el contenido al pasar por debajo. El aire de
+     arriba lo pone el asidero con su margen. */
+  padding: 0 18px calc(20px + env(safe-area-inset-bottom)) 18px;
   border: 2px solid var(--tinta); border-bottom: 0;
   box-shadow: none;
   /* sube con firmeza y aterriza; sin rebote, que aquí no viene a cuento */
@@ -460,7 +464,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 /* asidero: indica que el panel se puede desplazar */
 .hoja::before {
   content: ''; display: block; width: 46px; height: 4px;
-  background: var(--tinta); margin: 14px auto 16px;
+  background: var(--tinta); margin: 22px auto 16px;
 }
 @keyframes aparecer { from { opacity: 0; } }
 @keyframes subir { from { transform: translateY(34px); opacity: 0; } }
@@ -1082,6 +1086,33 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 }
 /* El título ya no puede correr por debajo de la equis */
 .hoja h2 { padding-right: 4px; }
+
+/* --- el encabezado que no se desplaza ---------------------------
+   Como congelar la fila de encabezados de una hoja de cálculo. Una
+   ficha de lote es larga: al llegar al historial ya no quedaba en
+   pantalla de qué lote se estaba hablando, y el estado y la fecha de
+   recogida —justo lo que uno va a comprobar mientras baja— se habían
+   ido cinco pantallas arriba. Ahora el bloque de identificación se
+   queda pegado al canto de la hoja y el resto pasa por debajo.
+
+   El margen negativo lo lleva de canto a canto: si se quedara dentro
+   del acolchado de 18 px, el contenido se vería asomar por los lados
+   al pasar. */
+.hoja-fija {
+  position: sticky; top: 0; z-index: 3;
+  margin: 0 -18px 14px; padding: 2px 18px 11px;
+  background: var(--piso);
+  border-bottom: 2px solid var(--tinta);
+}
+/* dentro del encabezado fijo, la equis ya no tiene que pegarse sola:
+   se pega el bloque entero y ella viaja dentro */
+.hoja-fija .cerrar-hoja { position: static; }
+/* Un teléfono acostado deja la hoja muy baja y el encabezado no puede
+   comerse la mitad. La línea del proveedor es la que menos falta hace
+   con el código a la vista. */
+@media (max-height: 560px) {
+  .hoja-fija .sub { display: none; }
+}
 
 /* --- buscar un lote sobre el plano ------------------------------
    Es una pieza del mismo lenguaje que las herramientas de al lado:
