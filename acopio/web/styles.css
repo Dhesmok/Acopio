@@ -60,6 +60,7 @@
      admin desde la app, así que colgar de él la equis de cerrar haría que
      cambiara de color al cambiar la paleta. Este es aparte y no se toca. */
   --rojo:          #c0281a;
+  --rojo-fuerte:   #94190e;
 
   --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1009,16 +1010,19 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   width: 40px; height: 40px; padding: 0;
   display: grid; place-items: center;
   border: 2px solid var(--tinta); border-radius: 0;
-  background: var(--superficie); color: var(--rojo);
+  background: var(--rojo); color: #fff;
   box-shadow: var(--sombra-baja); cursor: pointer;
 }
-/* La equis va roja y con más cuerpo que el resto de iconos: es lo único
-   rojo de la hoja, así que el ojo la encuentra sin buscarla. El marco
-   sigue negro —el rojo es la señal, no la pieza— y al pulsar se invierte. */
+/* Es la única pieza roja de la hoja, así que el ojo la encuentra sin
+   buscarla: es justo lo que hacía falta, porque antes había que
+   desplazarse hasta el final para dar con el botón de cerrar. El marco
+   negro se queda —lo llevan todas las piezas de la app— y al pulsar se
+   hunde sobre su sombra y se oscurece, como los demás botones sólidos. */
 .cerrar-hoja .ico { width: 20px; height: 20px; stroke-width: 2.6; }
+.cerrar-hoja:hover { background: var(--rojo-fuerte); }
 .cerrar-hoja:active {
   transform: translate(2px, 2px); box-shadow: none;
-  background: var(--rojo); color: #fff;
+  background: var(--rojo-fuerte);
 }
 /* El título ya no puede correr por debajo de la equis */
 .hoja h2 { padding-right: 4px; }
