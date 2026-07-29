@@ -220,13 +220,33 @@ export function pintar(d) {
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}
     ${pilasVivas.map((p) => figuraPila(p, datos.lotes)).join('')}
-    ${sueltos.map(figuraLote).join('')}
+    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)))}</g>
+    ${capasLote(sueltos.filter((l) => !tenue(l.id)))}
     ${recorrido(datos.recorrido)}
     ${seleccion ? manijas() : ''}`;
 }
 
+// Los lotes se dibujan en DOS pasadas: primero todos los contornos, y
+// encima todos los rellenos con su rótulo. Así el relleno de cualquier
+// lote borra el trazo de los demás, y la línea negra desaparece justo
+// donde dos círculos se cruzan: dos lotes que se tocan se leen como un
+// solo montón de material, que es lo que son en el patio.
+//
+// El trazo se dibuja al DOBLE de grueso a propósito: el trazo del SVG va
+// centrado en el borde, así que su propio relleno le come la mitad de
+// adentro. Lo que queda a la vista es el grosor de siempre.
+function capasLote(ls) {
+  // El lote señalado va al final: su aro de "aquí está" tiene que quedar
+  // por encima de los vecinos que lo toquen, no debajo.
+  const orden = ls.filter((l) => l.id !== datos.resaltado)
+    .concat(ls.filter((l) => l.id === datos.resaltado));
+  return orden.map((l) => figuraLote(l, 'trazo')).join('')
+       + orden.map((l) => figuraLote(l, 'relleno')).join('');
+}
+
 const trazo = (o) => `transform="translate(${o.x} ${o.y}) rotate(${o.rot || 0})"`;
 const apagado = (id) => (datos.destacados && !datos.destacados.has(id)) ? ' atenuado' : '';
+const tenue = (id) => !!apagado(id);
 
 // Vértices por defecto de un polígono, derivados del tamaño actual
 export function puntosPorDefecto(rx, ry, n = 6) {
@@ -360,14 +380,25 @@ function figuraPila(p, lotes) {
   </g>`;
 }
 
-function figuraLote(l) {
+// Un lote sale dos veces: en la capa de trazos (contorno + relleno, para
+// que el contorno no se vea por dentro) y en la de rellenos (relleno +
+// rótulo, que es lo que borra los contornos de los vecinos). Las dos
+// llevan data-id, así que tocar cualquiera sigue dando con el lote.
+function figuraLote(l, capa) {
   const venc = !!l.fecha_recogida && l.fecha_recogida < hoyISO();
   const col = paleta()[l.estado] || '#5f6863';
-  const attrs = `fill="${esc(col)}" stroke="${venc ? '#7a1f16' : '#14171a'}"
-     stroke-width="${venc ? 5 : 2}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
-  return `<g data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)} class="g-lote${apagado(l.id)}${datos.resaltado === l.id ? ' g-resaltado' : ''}">
+  const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)}
+    class="g-lote${datos.resaltado === l.id ? ' g-resaltado' : ''}"`;
+
+  if (capa === 'trazo') {
+    const attrs = `fill="${esc(col)}" stroke="${venc ? '#7a1f16' : '#14171a'}"
+     stroke-width="${venc ? 10 : 4}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
+    return `<g ${marca}>${cuerpo(l, attrs)}</g>`;
+  }
+
+  return `<g ${marca}>
     ${datos.resaltado === l.id ? halo(l) : ''}
-    ${cuerpo(l, attrs)}
+    ${cuerpo(l, `fill="${esc(col)}"`)}
     ${(() => {
       const c = anclaTexto(l);
       // El suelo son 11 px: por debajo de eso un código deja de leerse a
@@ -543,6 +574,10 @@ export function movimientoReal(o, desde) {
 }
 
 // --------------------------------------------------------- interacción
+// Un lote vive en dos capas del SVG, así que arrastrarlo con el dedo es
+// mover todos sus nodos: mover solo uno dejaba el contorno atrás.
+const nodosDe = (id) => [...svg.querySelectorAll(`[data-id="${id}"]`)];
+
 function abajo(ev) {
   cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
   svg.setPointerCapture(ev.pointerId);
@@ -600,7 +635,7 @@ function abajo(ev) {
     if (tipo === 'figura' && !cb.puedeEditarFondo()) return;
     modo = 'arrastrando';
     arrastre = {
-      tipo, obj, nodo: g, inicio: aPlano(ev),
+      tipo, obj, nodos: nodosDe(obj.id), inicio: aPlano(ev),
       origen: { x: obj.x, y: obj.y },
       antes: instantanea(obj)             // para poder deshacer si se cancela
     };
@@ -608,7 +643,7 @@ function abajo(ev) {
     if (seleccion?.id !== obj.id) {
       seleccion = { tipo, id: obj.id };
       pintarYa();
-      arrastre.nodo = svg.querySelector(`[data-id="${obj.id}"]`);
+      arrastre.nodos = nodosDe(obj.id);
       cb.alSeleccionar?.(tipo, obj);
     }
     return;
@@ -664,8 +699,8 @@ function movimiento(ev) {
   if (modo === 'arrastrando') {
     arrastre.obj.x = arrastre.origen.x + dx;
     arrastre.obj.y = arrastre.origen.y + dy;
-    arrastre.nodo.setAttribute('transform',
-      `translate(${arrastre.obj.x} ${arrastre.obj.y}) rotate(${arrastre.obj.rot || 0})`);
+    const t = `translate(${arrastre.obj.x} ${arrastre.obj.y}) rotate(${arrastre.obj.rot || 0})`;
+    arrastre.nodos.forEach((n) => n.setAttribute('transform', t));
     if (arrastre.tipo === 'lote') resaltarBlanco(arrastre.obj);
   } else if (modo === 'ajustando') {
     const o = arrastre.obj;
@@ -687,8 +722,11 @@ function movimiento(ev) {
 function resaltarBlanco(lote) {
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
   const b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
-  if (b) svg.querySelector(`[data-id="${b.obj.id}"] ellipse,
-    [data-id="${b.obj.id}"] rect, [data-id="${b.obj.id}"] polygon`)?.classList.add('blanco');
+  // Todas sus copias, no la primera: la del lote en la capa de trazos
+  // queda tapada por los rellenos y el aro azul no se vería.
+  if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] ellipse,
+    [data-id="${b.obj.id}"] rect, [data-id="${b.obj.id}"] polygon`)
+    .forEach((n) => n.classList.add('blanco'));
 }
 
 function arriba(ev) {
