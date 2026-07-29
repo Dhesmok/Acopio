@@ -238,6 +238,9 @@ function confirmar({ titulo, detalle, aceptar = 'Aceptar', peligro = false }) {
     const responder = (v) => { cerrarHoja(); resolver(v); };
     $('#c-no').onclick = () => responder(false);
     $('#c-si').onclick = () => responder(true);
+    // La equis de la hoja cierra y ya; aquí además tiene que contestar,
+    // o quien esté esperando la respuesta se queda esperando para siempre.
+    $('#x-hoja').onclick = () => responder(false);
     $('.velo').onclick = (e) => { if (e.target === $('.velo')) responder(false); };
   });
 }
@@ -891,7 +894,13 @@ function abrirHoja(html) {
   // no puede tumbar la app por no tener dónde ponerse.
   let m = $('#modal');
   if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
-  m.innerHTML = `<div class="velo"><div class="hoja">${html}</div></div>`;
+  // La equis va aquí y no en cada hoja: el botón de cerrar vivía al final
+  // del todo, así que en una ficha con historial largo había que bajar
+  // hasta abajo para salir. Quien abra una hoja la tiene sin hacer nada.
+  m.innerHTML = `<div class="velo"><div class="hoja">
+    <button class="cerrar-hoja" id="x-hoja" aria-label="Cerrar">${ICO.cerrar}</button>
+    ${html}</div></div>`;
+  $('#x-hoja').onclick = cerrarHoja;
   $('.velo').onclick = (e) => { if (e.target === $('.velo')) cerrarHoja(); };
 }
 const cerrarHoja = () => { const m = $('#modal'); if (m) m.innerHTML = ''; };

@@ -991,6 +991,27 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .manijas .halo { animation: halo 2.4s ease-in-out infinite; }
 @keyframes halo { 50% { opacity: .6; } }
 
+/* --- la equis de la hoja ----------------------------------------
+   El botón de cerrar vivía al final del todo, así que en una ficha con
+   historial largo había que desplazarse hasta abajo para salir. La
+   equis va arriba a la derecha y es `sticky`: la hoja es lo que se
+   desplaza, así que la equis se queda pegada a su borde superior por
+   muy larga que sea. Flota a la derecha para compartir renglón con el
+   título en vez de robarle una línea a cada hoja. */
+.cerrar-hoja {
+  position: sticky; top: 4px; z-index: 3;
+  float: right; margin: 0 0 4px 12px;
+  width: 40px; height: 40px; padding: 0;
+  display: grid; place-items: center;
+  border: 2px solid var(--tinta); border-radius: 0;
+  background: var(--superficie); color: var(--tinta);
+  box-shadow: var(--sombra-baja); cursor: pointer;
+}
+.cerrar-hoja .ico { width: 19px; height: 19px; }
+.cerrar-hoja:active { transform: translate(2px, 2px); box-shadow: none; }
+/* El título ya no puede correr por debajo de la equis */
+.hoja h2 { padding-right: 4px; }
+
 /* --- buscar un lote sobre el plano ------------------------------
    Es una pieza del mismo lenguaje que las herramientas de al lado:
    borde negro de 2 px, sin esquinas redondeadas, sombra sólida. Se
