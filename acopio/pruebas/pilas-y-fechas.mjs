@@ -55,4 +55,22 @@ ok(nocturno.fecha_recepcion === '2026-07-27',
 ok(nocturno.creado_en.startsWith('2026-07-28T01:30'),
    `creado_en sigue en UTC, que es lo correcto para un instante: ${nocturno.creado_en}`);
 
+
+// ---------------------------------------------------------------------
+titulo('Un lote a granel nace redondo, no ovalado.');
+
+const redondo = await Store.crearLote({ codigo: 'ABG80', proveedor_id: 'p1', placa: 'CCC333',
+  material: 'granel', forma: 'elipse', x: 300, y: 300, usuario_id: 'yo' });
+ok(redondo.rx === redondo.ry, `el granel sale circular (${redondo.rx} \u00d7 ${redondo.ry})`);
+// La misma superficie que el \u00f3valo de 46 \u00d7 34 que hab\u00eda antes: el patio no
+// cambia de densidad por cambiar la forma.
+const antes = Math.PI * 46 * 34, ahora = Math.PI * redondo.rx * redondo.ry;
+ok(Math.abs(ahora - antes) / antes < 0.05,
+   `y ocupa lo mismo que el \u00f3valo de antes (${ahora.toFixed(0)} contra ${antes.toFixed(0)})`);
+
+const bigbag = await Store.crearLote({ codigo: 'ABG81', proveedor_id: 'p1', placa: 'DDD444',
+  material: 'bigbag', forma: 'rectangulo', x: 400, y: 300, usuario_id: 'yo' });
+ok(bigbag.rx === 46 && bigbag.ry === 34,
+   `el bigbag se queda como estaba (${bigbag.rx} \u00d7 ${bigbag.ry})`);
+
 cerrar();

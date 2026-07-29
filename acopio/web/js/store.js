@@ -194,11 +194,19 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   if (ya) return ya;
 
   const t = ahora();
+  const fma = forma || 'elipse';
+  // El granel nace REDONDO, no ovalado: un montón de material volcado no
+  // tiene una dirección larga, y la que traía el óvalo era inventada. Si
+  // en el patio quedó alargado, se estira a mano con las manijas. El
+  // bigbag se queda como estaba. Los 40 de radio son la misma superficie
+  // que tenía el óvalo de 46 × 34, así que el patio no cambia de aspecto.
+  const tam = fma === 'rectangulo' ? { rx: 46, ry: 34 } : { rx: 40, ry: 40 };
+
   const fila = {
     id: uuid(), codigo: cod, proveedor_id,
     placa: (placa || '').trim().toUpperCase(), fecha_recepcion: hoyLocal(),
-    material: material || 'granel', forma: forma || 'elipse',
-    puntos: null, x, y, rx: 46, ry: 34, rot: 0,
+    material: material || 'granel', forma: fma,
+    puntos: null, x, y, ...tam, rot: 0,
     estado: 'por_muestrear', estado_desde: t, fecha_recogida: null,
     pila_id: null, ultimo_evento_en: t, creado_por: usuario_id, creado_en: t
   };

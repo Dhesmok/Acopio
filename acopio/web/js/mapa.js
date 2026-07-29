@@ -199,7 +199,10 @@ export function pintar(d) {
   if (!svg.getAttribute('viewBox')) encuadrar();
   const c = datos.config;
   const fuera = (l) => l.estado === 'despachado' || l.estado === 'plataforma';
-  const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l));
+  // `naciendo` es el lote que la volqueta está descargando en la capa de
+  // encima: no se dibuja hasta que el material cae, o se vería aparecer
+  // antes de que lo traigan.
+  const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l) && l.id !== datos.naciendo);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
 
   svg.innerHTML = `

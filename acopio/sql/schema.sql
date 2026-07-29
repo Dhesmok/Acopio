@@ -101,8 +101,9 @@ create table lotes (
   puntos           jsonb,
   x                numeric not null default 500,
   y                numeric not null default 350,
-  rx               numeric not null default 46,
-  ry               numeric not null default 34,
+  -- el granel es redondo; el bigbag lo estira la app al crearlo
+  rx               numeric not null default 40,
+  ry               numeric not null default 40,
   rot              numeric not null default 0,
   -- derivados del log de eventos (protegidos por trigger)
   estado           estado_lote not null default 'por_muestrear',
