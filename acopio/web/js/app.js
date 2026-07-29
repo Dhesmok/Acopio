@@ -27,6 +27,8 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             lotes: [], pilas: [], proveedores: [], figuras: [], gente: [], config: {},
             pendientes: 0, idsPendientes: new Set(), rechazados: 0, sync: null,
             actualizacion: false,
+            // buscar sobre el plano, y la figura que se acaba de encontrar
+            buscarMapa: false, busquedaMapa: '', resaltado: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: { campo: 'ninguno', valor: null },
             recorrido: null };
@@ -45,7 +47,9 @@ const ICO = {
   filtro:    ico('<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>'),
   editar:    ico('<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
   fondo:     ico('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'),
-  cerrar:    ico('<path d="M18 6L6 18M6 6l12 12"/>')
+  cerrar:    ico('<path d="M18 6L6 18M6 6l12 12"/>'),
+  lupa:      ico('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>'),
+  diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')
 };
 
 const hoyISO = (mas = 0) => {
@@ -396,6 +400,8 @@ function montarMapa() {
             ${soloLectura() ? '' : `<button class="btn-mapa btn-mapa-primario" id="nuevo"
               >${ICO.mas}<span>Nuevo lote</span></button>`}
             <div class="grupo-herramientas">
+              <button class="btn-mapa" id="r-buscar" aria-label="Buscar un lote"
+                ${S.buscarMapa ? 'aria-pressed="true"' : ''}>${ICO.lupa}<span>Buscar</span></button>
               <button class="btn-mapa" id="r-filtrar" aria-label="Filtrar">
                 ${ICO.filtro}<span>Filtrar</span></button>
               ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
@@ -403,6 +409,7 @@ function montarMapa() {
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
+            <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
           </div>
           <div class="ctrl-grupo">
@@ -452,6 +459,14 @@ function montarMapa() {
   $('#zoom-menos').onclick = () => Mapa.acercar(1.25);
   $('#encuadrar').onclick = () => Mapa.encuadrar();
   if ($('#nuevo')) $('#nuevo').onclick = formLote;
+  $('#r-buscar').onclick = () => {
+    S.buscarMapa = !S.buscarMapa;
+    if (!S.buscarMapa) S.busquedaMapa = '';
+    montarMapa();
+    $('#q-mapa')?.focus();
+    volverAlMapa();
+  };
+  pintarBuscadorMapa();
   $('#r-filtrar').onclick = panelFiltro;
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
@@ -497,6 +512,29 @@ function abrirEdicion(tipo, obj) {
   barraForma(tipo, obj);
 }
 
+// Lleva el plano hasta un lote y lo deja latiendo unos segundos. Llegar
+// no basta: al llegar hay que saber cuál de las figuras era.
+function ubicarEnMapa(l) {
+  if (l.estado === 'despachado' || l.estado === 'plataforma') {
+    return avisar(`${l.codigo}: ${ESTADOS[l.estado]}. Ya salió del patio, no se dibuja en el plano.`);
+  }
+  const figura = figurasEnElPlano([l])[0];
+  if (!figura) return avisar(`${l.codigo} no se está dibujando en el plano.`);
+
+  // limpiar filtro y búsqueda: se pidió ver ESTE lote, y dejarlo
+  // atenuado por un filtro puesto antes sería justo lo contrario
+  S.mapaFiltro = { campo: 'ninguno', valor: null };
+  S.busquedaMapa = ''; S.buscarMapa = false;
+  S.resaltado = figura.id;
+  irAlMapa();
+  Mapa.enfocar([figura]);
+  if (figura !== l) {
+    avisar(`${l.codigo} está en la pila ${figura.codigo}. Se resalta la pila.`);
+  }
+  clearTimeout(ubicarEnMapa.temporizador);
+  ubicarEnMapa.temporizador = setTimeout(() => { S.resaltado = null; refrescarMapa(); }, 4000);
+}
+
 function irAlMapa() {
   S.pestana = 'mapa';
   document.querySelectorAll('nav.pestanas button')
@@ -514,23 +552,47 @@ function textoFiltro() {
   return f.valor;
 }
 
-// Lo que coincide se ve normal; lo demás se atenúa, no se esconde
-function calcularDestacados() {
+// Lo que coincide se ve normal; lo demás se atenúa, no se esconde.
+// La búsqueda y el filtro se acumulan: buscar dentro de un filtro puesto
+// es lo que uno espera, no que el segundo borre al primero.
+const lotesQueCoinciden = () => {
+  const q = S.busquedaMapa.trim().toUpperCase();
   const f = S.mapaFiltro;
-  if (f.campo === 'ninguno') return null;
-  const coincide = (l) =>
-    f.campo === 'proveedor' ? l.proveedor_id === f.valor
-    : f.campo === 'estado' ? l.estado === f.valor
-    : f.campo === 'placa' ? (l.placa || '') === f.valor
-    : f.campo === 'material' ? (l.material || 'granel') === f.valor
-    : true;
-  const ids = new Set(S.lotes.filter(coincide).map((l) => l.id));
+  if (!q && f.campo === 'ninguno') return null;
+  return S.lotes.filter((l) => {
+    // se busca por código y por placa: "¿qué trajo la WGY308?" es una
+    // pregunta tan normal en el patio como "¿dónde está el PG1042?"
+    if (q && !`${l.codigo} ${l.placa || ''}`.toUpperCase().includes(q)) return false;
+    return f.campo === 'ninguno' ? true
+      : f.campo === 'proveedor' ? l.proveedor_id === f.valor
+      : f.campo === 'estado' ? l.estado === f.valor
+      : f.campo === 'placa' ? (l.placa || '') === f.valor
+      : f.campo === 'material' ? (l.material || 'granel') === f.valor
+      : true;
+  });
+};
+
+function calcularDestacados() {
+  const encontrados = lotesQueCoinciden();
+  if (!encontrados) return null;
+  const ids = new Set(encontrados.map((l) => l.id));
   for (const p of S.pilas)
     if (S.lotes.some((l) => l.pila_id === p.id && ids.has(l.id))) ids.add(p.id);
-  if (f.campo === 'material')
-    for (const l of S.lotes) if ((l.material || 'granel') === f.valor) ids.add(l.id);
   for (const g of S.figuras) ids.add(g.id);
   return ids;
+}
+
+// Un lote metido en una pila no se dibuja: lo que se ve es la pila. Y uno
+// despachado o en plataforma ya no está en el patio. Para encuadrar hay
+// que traducir de lote a la figura que de verdad está en el plano.
+function figurasEnElPlano(lotes) {
+  const vistas = new Map();
+  for (const l of lotes || []) {
+    if (l.estado === 'despachado' || l.estado === 'plataforma') continue;
+    const f = l.pila_id ? S.pilas.find((p) => p.id === l.pila_id && p.estado === 'abierta') : l;
+    if (f) vistas.set(f.id, f);
+  }
+  return [...vistas.values()];
 }
 
 function panelFiltro() {
@@ -588,14 +650,69 @@ function panelFiltro() {
 // Repinta el filtro del mapa sin perder el encuadre actual
 function volverAlMapa() {
   actualizarChipFiltro();
+  actualizarConteoBusqueda();
   refrescarMapa();
+}
+
+// --------------------------------------------------- buscar en el plano
+// La pregunta que se hace alguien parado en el patio no es "¿cuáles hay
+// por muestrear?" sino "¿DÓNDE está el PG1042?". El buscador de la lista
+// no la responde: dice que existe, no dónde. Este escribe sobre el plano
+// y el plano va hasta el lote.
+function pintarBuscadorMapa() {
+  const caja = $('#caja-buscar');
+  if (!caja) return;
+  if (!S.buscarMapa) { caja.innerHTML = ''; return; }
+  caja.innerHTML = `
+    <div class="buscar-mapa">
+      ${ICO.lupa}
+      <input id="q-mapa" data-mono inputmode="search" autocomplete="off"
+             autocapitalize="characters" spellcheck="false"
+             placeholder="Código o placa" value="${esc(S.busquedaMapa)}">
+      <span class="conteo" id="q-conteo"></span>
+      <button class="cerrar-buscar" id="q-cerrar" aria-label="Cerrar la búsqueda">${ICO.cerrar}</button>
+    </div>`;
+
+  const campo = $('#q-mapa');
+  campo.oninput = () => {
+    S.busquedaMapa = campo.value;
+    actualizarConteoBusqueda();
+    refrescarMapa();
+    enfocarBusqueda();
+  };
+  // Enter no envía nada: solo quita el teclado, que en un celular tapa
+  // media pantalla justo cuando se quiere mirar el plano.
+  campo.onkeydown = (e) => { if (e.key === 'Enter') campo.blur(); };
+  $('#q-cerrar').onclick = () => {
+    S.buscarMapa = false; S.busquedaMapa = '';
+    montarMapa(); volverAlMapa();
+  };
+  actualizarConteoBusqueda();
+}
+
+function actualizarConteoBusqueda() {
+  const n = $('#q-conteo');
+  if (!n) return;
+  if (!S.busquedaMapa.trim()) { n.textContent = ''; n.dataset.vacio = 'no'; return; }
+  const cuantos = (lotesQueCoinciden() || []).length;
+  n.textContent = cuantos === 0 ? 'ninguno' : String(cuantos);
+  n.dataset.vacio = cuantos === 0 ? 'si' : 'no';
+}
+
+// El plano se mueve mientras se escribe. Con muchas coincidencias no
+// encuadra: saltar de un extremo a otro del patio en cada letra marea y
+// no ayuda; ahí basta con que lo demás quede atenuado.
+function enfocarBusqueda() {
+  if (!S.busquedaMapa.trim()) return;
+  const figuras = figurasEnElPlano(lotesQueCoinciden());
+  if (figuras.length && figuras.length <= 8) Mapa.enfocar(figuras);
 }
 
 function refrescarMapa() {
   if (S.pestana !== 'mapa' || !document.querySelector('#lienzo-caja')) return;
   Mapa.pintar({
     config: S.config, figuras: S.figuras, pilas: S.pilas, lotes: S.lotes,
-    destacados: calcularDestacados(), recorrido: S.recorrido
+    destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado
   });
 }
 
@@ -880,6 +997,8 @@ async function fichaLote(id) {
     </div>
     ${r ? `<div class="dias" data-alerta="${vencido(l) ? 'si' : 'no'}" style="margin:6px 0">
              Recogida ${esc(l.fecha_recogida)} · ${esc(r)}</div>` : ''}
+    <button class="btn btn-ancho btn-ubicar" id="ver-en-mapa" style="width:100%;margin-top:10px">
+      ${ICO.diana}<span>Ver en el mapa</span></button>
 
     ${lectura ? '' : `
     <h3>Cambiar estado</h3>
@@ -951,6 +1070,7 @@ async function fichaLote(id) {
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Cerrar</button>`);
 
   $('#cerrar').onclick = cerrarHoja;
+  $('#ver-en-mapa').onclick = () => { cerrarHoja(); ubicarEnMapa(l); };
   if (lectura) return;
 
   document.querySelectorAll('.hoja .acciones button[data-estado]').forEach((b) => {

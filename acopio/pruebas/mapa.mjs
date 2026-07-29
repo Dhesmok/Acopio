@@ -5,6 +5,12 @@
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 
 globalThis.addEventListener = () => {};
+// El vuelo hasta una figura buscada usa los cuadros del navegador. Aquí
+// no hay pantalla que pintar: el reloj corre de una y el vuelo termina
+// en el acto, que es justo lo que las pruebas necesitan comprobar.
+globalThis.requestAnimationFrame = (fn) => { fn(performance.now() + 1e4); return 1; };
+globalThis.cancelAnimationFrame = () => {};
+globalThis.matchMedia = () => ({ matches: false });
 
 const lienzo = {
   attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
@@ -192,5 +198,58 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas:
              { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
 const anclaX = +lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/)[1];
 ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
+
+// ---------------------------------------------------------------------
+titulo('Buscar un lote lleva el plano hasta él y lo señala.');
+
+const perdido = { id: 'lp', codigo: 'PG1042', estado: 'muestreado', pila_id: null,
+                  forma: 'elipse', x: 860, y: 600, rx: 46, ry: 34, rot: 0 };
+const plano = { config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+  perdido, { id: 'lo', codigo: 'PG7', estado: 'muestreado', pila_id: null,
+             forma: 'elipse', x: 60, y: 60, rx: 46, ry: 34, rot: 0 }] };
+
+Mapa.pintar(plano);
+Mapa.encuadrar();
+const todo = Mapa.obtenerVista();
+Mapa.enfocar([perdido]);
+const cerca = Mapa.obtenerVista();
+
+ok(cerca.w < todo.w, `el plano se acercó (${Math.round(cerca.w)} de ancho, antes ${Math.round(todo.w)})`);
+ok(cerca.x < perdido.x && perdido.x < cerca.x + cerca.w &&
+   cerca.y < perdido.y && perdido.y < cerca.y + cerca.h,
+   'y el lote quedó dentro del encuadre');
+const centroX = cerca.x + cerca.w / 2, centroY = cerca.y + cerca.h / 2;
+ok(Math.abs(centroX - perdido.x) < 1 && Math.abs(centroY - perdido.y) < 1,
+   `centrado en el lote (${Math.round(centroX)}, ${Math.round(centroY)})`);
+// Un óvalo de 46 × 34 llenando la pantalla no dice dónde está: hace
+// falta ver patio alrededor para reconocer el sitio.
+ok(cerca.w >= 320, `queda patio alrededor, no solo el lote (${Math.round(cerca.w)} de ancho)`);
+
+// dos lotes: el encuadre tiene que abarcar a los dos
+Mapa.enfocar(plano.lotes);
+const ambos = Mapa.obtenerVista();
+ok(ambos.x < 60 && ambos.x + ambos.w > 860, 'con dos resultados, el encuadre abarca a los dos');
+
+// el dedo manda: tocar el plano corta el vuelo en curso
+Mapa.enfocar([perdido]);
+disparar('pointerdown', evento(500, 350));
+disparar('pointerup', evento(500, 350));
+ok(true, 'tocar el plano durante el vuelo no lanza ningún error');
+
+// --- la señal sobre la figura encontrada ---
+Mapa.pintar({ ...plano, resaltado: perdido.id });
+const conAro = lienzo.innerHTML;
+ok(conAro.includes('halo-hallazgo'), 'la figura buscada lleva su aro de señal');
+ok((conAro.match(/halo-hallazgo/g) || []).length === 1,
+   'y solo ella: las demás quedan como estaban');
+ok(conAro.includes('g-resaltado'), 'el grupo queda marcado para el estilo');
+
+// el aro NO puede tocar el color ni el borde: dicen el estado y el vencido
+Mapa.pintar(plano);
+const sinAro = lienzo.innerHTML;
+const cuerpoDe = (html) => html.match(/<ellipse rx="46" ry="34" fill="([^"]+)" stroke="([^"]+)"/);
+ok(String(cuerpoDe(conAro)) === String(cuerpoDe(sinAro)),
+   'el lote resaltado conserva su color y su borde de siempre');
+ok(!sinAro.includes('halo-hallazgo'), 'al quitar el resaltado, el aro desaparece');
 
 cerrar();

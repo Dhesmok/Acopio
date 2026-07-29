@@ -85,6 +85,74 @@ export function encuadrar() {
 }
 
 export const centroVista = () => ({ x: vista.x + vista.w / 2, y: vista.y + vista.h / 2 });
+
+// ------------------------------------------------------------ ir hasta
+// Cuánto ocupa una figura a cada lado de su centro. Con giro se usa la
+// diagonal: una figura girada 45° ocupa más que su ancho.
+function radioDe(o) {
+  let rx = o.rx, ry = o.ry;
+  if (o.forma === 'poligono') {
+    const ps = listaPuntos(o);
+    rx = Math.max(...ps.map((p) => Math.abs(p.x)));
+    ry = Math.max(...ps.map((p) => Math.abs(p.y)));
+  }
+  if (o.rot) { const d = Math.hypot(rx, ry); return { x: d, y: d }; }
+  return { x: rx, y: ry };
+}
+
+let animacion = 0;
+const menosMovimiento = () =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// El encuadre se desliza en vez de saltar: si el plano cambia de golpe,
+// nadie sabe hacia dónde se movió ni de dónde venía.
+function deslizarHasta(destino, ms = 420) {
+  cancelAnimationFrame(animacion);
+  if (menosMovimiento()) { vista = destino; aplicarVista(); return; }
+  const desde = { ...vista }, t0 = performance.now();
+  const suave = (t) => 1 - (1 - t) ** 3;
+  const paso = (ahora) => {
+    const k = Math.min((ahora - t0) / ms, 1), e = suave(k);
+    vista = { x: desde.x + (destino.x - desde.x) * e, y: desde.y + (destino.y - desde.y) * e,
+              w: desde.w + (destino.w - desde.w) * e, h: desde.h + (destino.h - desde.h) * e };
+    aplicarVista();
+    if (k < 1) animacion = requestAnimationFrame(paso);
+  };
+  animacion = requestAnimationFrame(paso);
+}
+
+// Encuadra el plano sobre un conjunto de figuras. Se usa al buscar: en
+// vez de decir dónde está el lote, el plano va hasta él.
+export function enfocar(objs, { margen = 90, animar = true } = {}) {
+  if (!objs?.length || !svg) return;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const o of objs) {
+    const r = radioDe(o);
+    x1 = Math.min(x1, o.x - r.x); x2 = Math.max(x2, o.x + r.x);
+    y1 = Math.min(y1, o.y - r.y); y2 = Math.max(y2, o.y + r.y);
+  }
+  const caja = { x: x1 - margen, y: y1 - margen,
+                 w: (x2 - x1) + margen * 2, h: (y2 - y1) + margen * 2 };
+
+  // El lienzo dibuja con "meet", así que si la caja no tiene su misma
+  // proporción sobra espacio por un lado y la figura queda descentrada.
+  const r = svg.getBoundingClientRect();
+  const prop = r.height / Math.max(r.width, 1);
+  if (caja.h / caja.w < prop) {
+    const h = caja.w * prop; caja.y -= (h - caja.h) / 2; caja.h = h;
+  } else {
+    const w = caja.h / prop; caja.x -= (w - caja.w) / 2; caja.w = w;
+  }
+  // Un solo lote no puede llenar la pantalla: sin nada alrededor, saber
+  // dónde está no sirve de nada.
+  const minimo = 320;
+  if (caja.w < minimo) {
+    const f = minimo / caja.w;
+    caja.x -= caja.w * (f - 1) / 2; caja.y -= caja.h * (f - 1) / 2;
+    caja.w *= f; caja.h *= f;
+  }
+  if (animar) deslizarHasta(caja); else { vista = caja; aplicarVista(); }
+}
 export const limpiarSeleccion = () => { seleccion = null; pintarYa(); };
 export const seleccionar = (tipo, id) => { seleccion = { tipo, id }; pintarYa(); };
 export const haySeleccion = () => seleccion;
@@ -193,6 +261,17 @@ function cuerpo(o, attrs) {
   return `<ellipse rx="${o.rx}" ry="${o.ry}" ${attrs}/>`;
 }
 
+// Anillo de "aquí está": dos copias de la misma forma, sin relleno,
+// dibujadas DEBAJO de la figura. La figura tapa la mitad interior del
+// trazo, así que lo que se ve es un aro por fuera. Van dos porque uno
+// solo no sirve: el aro amarillo se pierde sobre un lote que ya es
+// amarillo, y el negro se pierde sobre una foto oscura. Juntos —negro a
+// rayas sobre amarillo— es cinta de peligro, y se ve sobre lo que sea.
+function halo(o) {
+  return cuerpo(o, 'class="halo-hallazgo" fill="none"')
+       + cuerpo(o, 'class="halo-rayas" fill="none"');
+}
+
 // ------------------------------------------------- texto dentro de figura
 // El rótulo va DENTRO de la figura, así que su tamaño no puede ser fijo:
 // depende de lo grande que sea la figura y de lo largo que sea el texto.
@@ -263,7 +342,8 @@ function figuraFondo(f) {
 function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
-  return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}">
+  return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
+    ${datos.resaltado === p.id ? halo(p) : ''}
     ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
     ${(() => {
       const rotulo = `Pila ${p.codigo}`, c = anclaTexto(p);
@@ -282,7 +362,8 @@ function figuraLote(l) {
   const col = paleta()[l.estado] || '#5f6863';
   const attrs = `fill="${esc(col)}" stroke="${venc ? '#7a1f16' : '#14171a'}"
      stroke-width="${venc ? 5 : 2}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
-  return `<g data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)} class="g-lote${apagado(l.id)}">
+  return `<g data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)} class="g-lote${apagado(l.id)}${datos.resaltado === l.id ? ' g-resaltado' : ''}">
+    ${datos.resaltado === l.id ? halo(l) : ''}
     ${cuerpo(l, attrs)}
     ${(() => {
       const c = anclaTexto(l);
@@ -460,6 +541,7 @@ export function movimientoReal(o, desde) {
 
 // --------------------------------------------------------- interacción
 function abajo(ev) {
+  cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
   svg.setPointerCapture(ev.pointerId);
   punteros.set(ev.pointerId, ev);
 
