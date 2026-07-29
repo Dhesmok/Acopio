@@ -33,6 +33,8 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             actualizacion: false,
             // buscar sobre el plano, y la figura que se acaba de encontrar
             buscarMapa: false, busquedaMapa: '', resaltado: null,
+            // el lote que la volqueta está descargando: no se dibuja aún
+            naciendo: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: { campo: 'ninguno', valor: null },
             recorrido: null };
@@ -719,9 +721,102 @@ function refrescarMapa() {
   if (S.pestana !== 'mapa' || !document.querySelector('#lienzo-caja')) return;
   Mapa.pintar({
     config: S.config, figuras: S.figuras, pilas: S.pilas, lotes: S.lotes,
-    destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado
+    destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado,
+    naciendo: S.naciendo
   });
 }
+
+// --------------------------------------------------- la volqueta descarga
+// Un lote se registra una vez, y ese momento es el único que vale la pena
+// celebrar: cambiar de estado pasa veinte veces al día y una escena ahí
+// estorbaría. La escena va en una capa APARTE, encima del plano: el mapa
+// se redibuja entero en cada sincronización y una animación metida dentro
+// del SVG se cortaría a media descarga.
+//
+// Se puede saltar tocando la pantalla, y con `prefers-reduced-motion` no
+// se reproduce: quien no quiera espectáculo no lo tiene.
+const DURACION_VOLQUETA = 1700;   // ms; el lote real aparece a los 1080
+
+function animarLlegada(lote) {
+  const caja = document.querySelector('.mapa-caja');
+  const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Si no hay escena, el lote tiene que aparecer YA. Dejar `naciendo`
+  // puesto lo escondería para siempre.
+  if (!caja || sinMovimiento || S.pestana !== 'mapa') {
+    S.naciendo = null; refrescarMapa();
+    return Promise.resolve();
+  }
+
+  const v = Mapa.obtenerVista();
+  const r = Math.max(lote.rx || 40, lote.ry || 40);
+  const s = r / 40;                       // la volqueta crece con el lote
+  const col = paletaActual()[lote.estado] || '#d99a06';
+
+  // Entra y sale por fuera del encuadre, sea cual sea el zoom y esté el
+  // lote donde esté: con una distancia fija, un lote pegado al borde
+  // haría que la volqueta apareciera de la nada en mitad del patio. Se
+  // mide desde el lote hasta cada borde, más el largo de la volqueta, y
+  // en unidades del grupo —que va escalado—, no de pantalla.
+  const largo = 200;
+  const entra = (lote.x - v.x) / s + largo;
+  const sale = (v.x + v.w - lote.x) / s + largo;
+
+  const capa = document.createElement('div');
+  capa.className = 'capa-volqueta';
+  capa.style.setProperty('--entra', `${Math.round(entra)}px`);
+  capa.style.setProperty('--sale', `${Math.round(sale)}px`);
+  capa.innerHTML = `
+    <svg viewBox="${v.x} ${v.y} ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet">
+      <g transform="translate(${lote.x} ${lote.y}) scale(${s})">
+        ${terrones(col)}
+        <circle class="vq-monton" r="40" fill="${esc(col)}" stroke="#14171a" stroke-width="2"/>
+        <g transform="translate(54 0)"><g class="vq-camion">${volqueta()}</g></g>
+      </g>
+    </svg>`;
+  caja.appendChild(capa);
+
+  return new Promise((listo) => {
+    let acabado = false;
+    const terminar = () => {
+      if (acabado) return;
+      acabado = true;
+      clearTimeout(t1); clearTimeout(t2);
+      capa.remove();
+      if (S.naciendo) { S.naciendo = null; refrescarMapa(); }
+      listo();
+    };
+    // el lote de verdad entra justo cuando el material termina de caer,
+    // debajo del montón dibujado aquí: no hay salto, se relevan
+    const t1 = setTimeout(() => { S.naciendo = null; refrescarMapa(); }, 1080);
+    const t2 = setTimeout(terminar, DURACION_VOLQUETA);
+    capa.onpointerdown = terminar;        // un toque la salta
+  });
+}
+
+// Volqueta de perfil, en el lenguaje de los pictogramas de obra: filo
+// negro, sin degradados. El origen (0,0) es el punto donde cae el
+// material, o sea la esquina trasera del volco a ras de suelo.
+const volqueta = () => `
+  <g transform="translate(0 -34)"><g class="vq-volco">
+    <path d="M2 0 L98 0 L92 -36 L4 -36 Z" fill="var(--amarillo)" stroke="#14171a" stroke-width="3"/>
+    <path d="M14 -8 L86 -8" stroke="#14171a" stroke-width="2" opacity=".35"/>
+  </g></g>
+  <path d="M0 -34 L110 -34 L110 -24 L0 -24 Z" fill="#14171a"/>
+  <path d="M102 -34 L102 -64 L116 -72 L134 -72 L134 -24 L102 -24 Z"
+        fill="var(--amarillo)" stroke="#14171a" stroke-width="3"/>
+  <path d="M110 -62 L116 -66 L128 -66 L128 -50 L110 -50 Z" fill="#e9e5dc" stroke="#14171a" stroke-width="2"/>
+  ${[32, 64, 124].map((x) => `<g><circle cx="${x}" cy="-15" r="15" fill="#14171a"/>
+    <circle cx="${x}" cy="-15" r="6" fill="#e9e5dc"/></g>`).join('')}`;
+
+// Los terrones que salen por detrás. Cada uno con su retardo y su caída,
+// para que no parezca una sola pieza bajando.
+const terrones = (col) => [
+  [4, -8, 0], [-20, 6, 60], [16, 12, 110], [-8, -16, 160], [-26, -4, 210]
+].map(([dx, dy, ret], i) => `
+  <g class="vq-terron" style="--dx:${dx}px; --dy:${dy}px; animation-delay:${620 + ret}ms">
+    <path transform="rotate(${i * 47})" d="M-7 -6 L6 -8 L9 4 L-2 8 L-8 2 Z"
+      fill="${esc(col)}" stroke="#14171a" stroke-width="2"/>
+  </g>`).join('');
 
 function barraEdicion() {
   $('#barra-forma').innerHTML = `
@@ -1458,13 +1553,17 @@ function formLote() {
     // él; es preferible pararlo aquí que dejarlo trabado en la cola
     if (!proveedor_id) return falla('No hay proveedores cargados todavía. Sincroniza antes de registrar el lote.');
     if (S.lotes.some((l) => l.codigo === codigo)) return falla(`El lote ${codigo} ya está registrado.`);
-    await Store.crearLote({
+    const nuevo = await Store.crearLote({
       codigo, proveedor_id, placa,
       material, forma: FORMA_DE[material],
       x: c.x + (Math.random() - 0.5) * 90, y: c.y + (Math.random() - 0.5) * 70,
       usuario_id: S.perfil.id
     });
+    // el lote ya está guardado y subiendo; la escena no retrasa nada, solo
+    // ocupa la espera que de todos modos había
+    S.naciendo = nuevo.id;
     cerrarHoja(); await recargar(); sincronizar();
+    await animarLlegada(nuevo);
   }, { ocupado: 'Poniendo…', alFallar: (e) => falla(`No se pudo guardar el lote: ${e?.message || e}`) });
 }
 

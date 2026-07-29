@@ -997,6 +997,62 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .manijas .halo { animation: halo 2.4s ease-in-out infinite; }
 @keyframes halo { 50% { opacity: .6; } }
 
+/* --- la volqueta descarga el lote nuevo --------------------------
+   Vive en su propia capa sobre el plano y no dentro del SVG del mapa:
+   el mapa se redibuja entero en cada sincronización y la escena se
+   cortaría a media descarga. Dura 1.7 s, se salta tocando la pantalla
+   y no se reproduce si el sistema pide menos movimiento. */
+.capa-volqueta { position: absolute; inset: 0; z-index: 5; }
+.capa-volqueta svg { width: 100%; height: 100%; display: block; }
+
+/* la volqueta entra por la izquierda, descarga y sigue de largo */
+.vq-camion {
+  animation: vq-entrar 460ms var(--curva-firme) both,
+             vq-salir  420ms var(--curva) 1280ms both;
+}
+@keyframes vq-entrar { from { transform: translateX(calc(-1 * var(--entra))); } }
+@keyframes vq-salir  { to   { transform: translateX(var(--sale)); opacity: 0; } }
+
+/* el volco bascula sobre su esquina trasera, que es de donde sale el
+   material: por eso el origen es la esquina inferior izquierda de su
+   propia caja y no el centro */
+.vq-volco {
+  transform-box: fill-box; transform-origin: 0% 100%;
+  animation: vq-volcar 300ms var(--curva-firme) 500ms both,
+             vq-bajar  230ms var(--curva) 1050ms both;
+}
+@keyframes vq-volcar { to { transform: rotate(-46deg); } }
+@keyframes vq-bajar  { from { transform: rotate(-46deg); } to { transform: rotate(0); } }
+
+/* cada terrón cae con su propio retardo y a su propio sitio: bajando
+   todos a la vez parecerían una sola pieza */
+.vq-terron {
+  transform-box: fill-box; transform-origin: center;
+  animation: vq-caer 330ms var(--curva-firme) both,
+             vq-fundir 160ms linear 920ms both;
+}
+@keyframes vq-caer {
+  from { transform: translate(0, -30px) scale(.5); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 1; }
+}
+/* los terrones no se quedan sueltos alrededor: el montón se los traga */
+@keyframes vq-fundir { to { opacity: 0; } }
+
+/* El montón crece donde cayó el material, con un rebote corto. A los
+   1080 ms el lote de verdad entra por debajo —ya con su código— y este
+   se desvanece encima: se relevan sin que se vea el cambio. */
+.vq-monton {
+  transform-box: fill-box; transform-origin: center;
+  animation: vq-brotar 300ms var(--curva-firme) 820ms both,
+             vq-fundir 200ms linear 1120ms both;
+}
+@keyframes vq-brotar {
+  from { transform: scale(0); opacity: 0; }
+  70%  { transform: scale(1.08); opacity: 1; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
 /* --- la equis de la hoja ----------------------------------------
    El botón de cerrar vivía al final del todo, así que en una ficha con
    historial largo había que desplazarse hasta abajo para salir. La
