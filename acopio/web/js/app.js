@@ -988,7 +988,13 @@ function avisar(texto) {
   $('#ok').onclick = cerrarHoja;
 }
 
-function abrirHoja(html) {
+// `fijo` es el encabezado que NO se desplaza: de quién es la ficha y en
+// qué estado está. En una ficha larga se llegaba al historial sin nada en
+// pantalla que dijera de qué lote se estaba hablando, y el estado y la
+// fecha de recogida —justo lo que uno va a mirar— habían quedado cinco
+// pantallas arriba. Quien no lo necesite lo deja vacío y la hoja se
+// comporta igual que siempre.
+function abrirHoja(html, fijo = '') {
   // En la pantalla de ingreso todavía no existe el contenedor, y un aviso
   // no puede tumbar la app por no tener dónde ponerse.
   let m = $('#modal');
@@ -996,8 +1002,10 @@ function abrirHoja(html) {
   // La equis va aquí y no en cada hoja: el botón de cerrar vivía al final
   // del todo, así que en una ficha con historial largo había que bajar
   // hasta abajo para salir. Quien abra una hoja la tiene sin hacer nada.
+  // Si hay encabezado fijo, viaja dentro de él; si no, se pega sola.
+  const equis = `<button class="cerrar-hoja" id="x-hoja" aria-label="Cerrar">${ICO.cerrar}</button>`;
   m.innerHTML = `<div class="velo"><div class="hoja">
-    <button class="cerrar-hoja" id="x-hoja" aria-label="Cerrar">${ICO.cerrar}</button>
+    ${fijo ? `<div class="hoja-fija">${equis}${fijo}</div>` : equis}
     ${html}</div></div>`;
   $('#x-hoja').onclick = cerrarHoja;
   $('.velo').onclick = (e) => { if (e.target === $('.velo')) cerrarHoja(); };
@@ -1094,7 +1102,9 @@ async function fichaLote(id) {
   const r = textoRecogida(l);
   const lectura = soloLectura();
 
-  abrirHoja(`
+  // De quién es la ficha, en qué estado está y para cuándo se recoge: eso
+  // se queda arriba, y todo lo demás pasa por debajo.
+  const encabezado = `
     <h2>${esc(l.codigo)}</h2>
     <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}
       · volqueta ${esc(l.placa || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
@@ -1103,8 +1113,10 @@ async function fichaLote(id) {
       <span class="dias">${dias(l.estado_desde) === 0 ? 'desde hoy' : `hace ${dias(l.estado_desde)} días`}</span>
       ${pila ? `<span class="pila-tag">Pila ${esc(pila.codigo)}</span>` : ''}
     </div>
-    ${r ? `<div class="dias" data-alerta="${vencido(l) ? 'si' : 'no'}" style="margin:6px 0">
-             Recogida ${esc(l.fecha_recogida)} · ${esc(r)}</div>` : ''}
+    ${r ? `<div class="dias" data-alerta="${vencido(l) ? 'si' : 'no'}" style="margin:6px 0 0">
+             Recogida ${esc(l.fecha_recogida)} · ${esc(r)}</div>` : ''}`;
+
+  abrirHoja(`
     <button class="btn btn-ancho btn-ubicar" id="ver-en-mapa" style="width:100%;margin-top:10px">
       ${ICO.diana}<span>Ver en el mapa</span></button>
 
@@ -1175,7 +1187,8 @@ async function fichaLote(id) {
         <div class="que">${textoEvento(e)}</div>
         ${e.nota ? `<div class="nota">${esc(e.nota)}</div>` : ''}</li>`).join('')}
     </ul>
-    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Cerrar</button>`);
+    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Cerrar</button>`,
+    encabezado);
 
   $('#cerrar').onclick = cerrarHoja;
   $('#ver-en-mapa').onclick = () => { cerrarHoja(); ubicarEnMapa(l); };
@@ -1359,9 +1372,11 @@ async function fichaPila(id) {
   const prov = Object.fromEntries(S.proveedores.map((x) => [x.id, x.abreviatura]));
   const lectura = soloLectura();
 
-  abrirHoja(`
+  const encabezado = `
     <h2>Pila ${esc(p.codigo)}</h2>
-    <div class="sub">${TIPOS_PILA[p.tipo] || p.tipo} · ${dentro.length} lote${dentro.length === 1 ? '' : 's'}</div>
+    <div class="sub">${TIPOS_PILA[p.tipo] || p.tipo} · ${dentro.length} lote${dentro.length === 1 ? '' : 's'}</div>`;
+
+  abrirHoja(`
     ${lectura ? '' : `
     <h3>Datos de la pila</h3>
     <div class="campo">
@@ -1416,7 +1431,8 @@ async function fichaPila(id) {
         : '<li><div class="nota">Sin movimientos registrados.</div></li>'}
     </ul>
 
-    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Cerrar</button>`);
+    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Cerrar</button>`,
+    encabezado);
 
   $('#cerrar').onclick = cerrarHoja;
   document.querySelectorAll('.hoja .lote').forEach((c) => { c.onclick = () => fichaLote(c.dataset.id); });
