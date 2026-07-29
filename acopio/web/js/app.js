@@ -18,6 +18,10 @@ const ESTADOS = {
 const MATERIALES = { granel: 'Granel', bigbag: 'Bigbag' };
 // el material define con qué figura se dibuja
 const FORMA_DE = { granel: 'elipse', bigbag: 'rectangulo' };
+// El granel es redondo. Al volver a él desde un bigbag o desde un polígono
+// se iguala el radio, pero conservando la SUPERFICIE que ya tenía: quien
+// agrandó un lote a mano no puede verlo encoger por cambiar el material.
+const aCirculo = (o) => { const r = Math.round(Math.sqrt(o.rx * o.ry)) || 40; return { rx: r, ry: r }; };
 const TIPOS_PILA = {
   alimentacion: 'Alimentación a planta', devolucion: 'Devolución',
   espera: 'En espera', otro: 'Otro'
@@ -1126,7 +1130,10 @@ async function fichaLote(id) {
       const material = b.dataset.material;
       const cambios = { material };
       // si estaba dibujado a mano se respeta; si no, toma la figura del material
-      if (l.forma !== 'poligono') cambios.forma = FORMA_DE[material];
+      if (l.forma !== 'poligono') {
+        cambios.forma = FORMA_DE[material];
+        if (cambios.forma === 'elipse') Object.assign(cambios, aCirculo(l));
+      }
       await Store.actualizarLote(l.id, cambios);
       cerrarHoja(); await recargar(); sincronizar();
     });
@@ -1134,8 +1141,9 @@ async function fichaLote(id) {
 
   const pol = $('#poligono');
   if (pol) pol.onclick = accion(async () => {
+    const vuelta = FORMA_DE[l.material || 'granel'];
     const cambios = l.forma === 'poligono'
-      ? { forma: FORMA_DE[l.material || 'granel'] }
+      ? { forma: vuelta, ...(vuelta === 'elipse' ? aCirculo(l) : {}) }
       : { forma: 'poligono', puntos: l.puntos?.length >= 3 ? l.puntos : Mapa.puntosPorDefecto(l.rx, l.ry) };
     await Store.actualizarLote(l.id, cambios);
     cerrarHoja(); await recargar(); sincronizar();
