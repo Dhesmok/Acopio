@@ -56,6 +56,11 @@
      la misma familia, lo bastante oscura para leerse. */
   --ambar-texto:   #7a5600;
 
+  /* Rojo de la interfaz, no el de un estado. `--devolucion` lo repinta el
+     admin desde la app, así que colgar de él la equis de cerrar haría que
+     cambiara de color al cambiar la paleta. Este es aparte y no se toca. */
+  --rojo:          #c0281a;
+
   --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -1004,11 +1009,17 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   width: 40px; height: 40px; padding: 0;
   display: grid; place-items: center;
   border: 2px solid var(--tinta); border-radius: 0;
-  background: var(--superficie); color: var(--tinta);
+  background: var(--superficie); color: var(--rojo);
   box-shadow: var(--sombra-baja); cursor: pointer;
 }
-.cerrar-hoja .ico { width: 19px; height: 19px; }
-.cerrar-hoja:active { transform: translate(2px, 2px); box-shadow: none; }
+/* La equis va roja y con más cuerpo que el resto de iconos: es lo único
+   rojo de la hoja, así que el ojo la encuentra sin buscarla. El marco
+   sigue negro —el rojo es la señal, no la pieza— y al pulsar se invierte. */
+.cerrar-hoja .ico { width: 20px; height: 20px; stroke-width: 2.6; }
+.cerrar-hoja:active {
+  transform: translate(2px, 2px); box-shadow: none;
+  background: var(--rojo); color: #fff;
+}
 /* El título ya no puede correr por debajo de la equis */
 .hoja h2 { padding-right: 4px; }
 
