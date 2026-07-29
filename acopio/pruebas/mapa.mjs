@@ -12,14 +12,18 @@ globalThis.requestAnimationFrame = (fn) => { fn(performance.now() + 1e4); return
 globalThis.cancelAnimationFrame = () => {};
 globalThis.matchMedia = () => ({ matches: false });
 
+const nodoFalso = () => ({ setAttribute() {}, classList: { add() {}, remove() {} } });
+
 const lienzo = {
   attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
   getAttribute: (k) => lienzo.attrs[k],
   setAttribute: (k, v) => { lienzo.attrs[k] = v; },
   addEventListener(tipo, fn) { (lienzo.oyentes[tipo] ||= []).push(fn); },
-  // un nodo de mentira que aguanta lo que mapa.js le hace al arrastrar
-  querySelector: () => ({ setAttribute() {}, classList: { add() {}, remove() {} } }),
-  querySelectorAll: () => [],
+  // nodos de mentira que aguantan lo que mapa.js les hace al arrastrar.
+  // Son varios a propósito: un lote se dibuja en dos capas —contorno y
+  // relleno— y arrastrarlo tiene que mover las dos.
+  querySelector: () => nodoFalso(),
+  querySelectorAll: () => [nodoFalso(), nodoFalso()],
   setPointerCapture() {},
   getBoundingClientRect: () => ({ width: 1000, height: 700 }),
   // el plano y la pantalla coinciden uno a uno: así las cuentas de la
@@ -251,5 +255,42 @@ const cuerpoDe = (html) => html.match(/<ellipse rx="46" ry="34" fill="([^"]+)" s
 ok(String(cuerpoDe(conAro)) === String(cuerpoDe(sinAro)),
    'el lote resaltado conserva su color y su borde de siempre');
 ok(!sinAro.includes('halo-hallazgo'), 'al quitar el resaltado, el aro desaparece');
+
+// ---------------------------------------------------------------------
+titulo('Dos lotes que se tocan se ven como un solo montón de material.');
+
+const pegados = [
+  { id: 'la', codigo: 'PG1', estado: 'muestreado', pila_id: null,
+    forma: 'elipse', x: 300, y: 300, rx: 46, ry: 34, rot: 0 },
+  { id: 'lb', codigo: 'PG2', estado: 'muestreado', pila_id: null,
+    forma: 'elipse', x: 360, y: 300, rx: 46, ry: 34, rot: 0 }
+];
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: pegados });
+const dibujo = lienzo.innerHTML;
+
+// El borrado de la línea sale del ORDEN: si todos los contornos van antes
+// que todos los rellenos, el relleno de un lote tapa el trazo del vecino
+// y en el cruce no queda raya negra.
+const ultimoTrazo = dibujo.lastIndexOf('stroke="#14171a"');
+const primerRelleno = dibujo.indexOf('fill="#e8b48a"/>');
+ok(primerRelleno > 0 && ultimoTrazo < primerRelleno,
+   'los rellenos van todos después de los contornos, no lote por lote');
+ok(dibujo.includes('stroke-width="4"'),
+   'el contorno se dibuja al doble: su propio relleno le come la mitad de adentro');
+ok((dibujo.match(/data-id="la"/g) || []).length === 2,
+   'cada lote sale en las dos capas, y las dos responden al dedo');
+ok((dibujo.match(/>PG1</g) || []).length === 1,
+   'pero el código se escribe una sola vez, encima de todo');
+
+// El filtro atenúa con opacidad, y la opacidad tiene que aplicarse UNA
+// vez al par de capas: puesta en cada lote se aplicaría dos veces y el
+// apagado se quedaría a medio camino.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+              lotes: pegados, destacados: new Set(['lb']) });
+const filtrado = lienzo.innerHTML;
+ok(!/class="g-lote[^"]*atenuado/.test(filtrado),
+   'el apagado del filtro no va lote por lote');
+ok((filtrado.match(/class="atenuado"/g) || []).length === 1,
+   'sino en un solo grupo que envuelve las dos capas de los apagados');
 
 cerrar();
