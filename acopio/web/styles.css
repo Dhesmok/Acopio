@@ -660,8 +660,19 @@ button:focus:not(:focus-visible) { outline: none; }
    Solo lo que se usa a cada rato vive aquí: acercar, alejar, encuadrar
    y agregar lote. Filtrar, editar y fondo viven en el menú, porque
    ocupar la pantalla con seis botones para usar uno es ruido. */
-.mapa-controles { position: absolute; inset: 0; pointer-events: none; }
-.mapa-controles > *, .ctrl, .btn-mapa, .chip-filtro { pointer-events: auto; }
+/* Los contenedores solo COLOCAN: el dedo tiene que atravesarlos.
+   Devolver el paso a los hijos directos de .mapa-controles era dárselo a
+   las dos columnas enteras, y una columna es mucho más que sus botones:
+   los huecos de 10 px entre ellos, y todo el ancho que toma cuando se
+   abre el buscador. Ahí el plano no se movía, no hacía zoom y no soltaba
+   un lote: eran zonas muertas invisibles alrededor de las herramientas.
+   Peor con el zoom de dos dedos, que se cae entero si uno de los dos
+   aterriza en el hueco. El paso se devuelve solo a lo que de verdad se
+   toca. */
+.mapa-controles, .mapa-controles * { pointer-events: none; }
+.mapa-controles button, .mapa-controles input, .mapa-controles .buscar-mapa {
+  pointer-events: auto;
+}
 
 .ctrl-esquina { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .ctrl-grupo { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; }
@@ -806,6 +817,10 @@ button:focus:not(:focus-visible) { outline: none; }
   pointer-events: none; user-select: none;
 }
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
+/* El cerco de la pila va en su propia capa enmascarada, y al doble de
+   grosor: la máscara le quita la mitad de dentro y a la vista queda el
+   de siempre. */
+.pila-trazo { stroke-width: 7; stroke-dasharray: 15 8; pointer-events: none; }
 .txt-pila {
   font-family: var(--mono); font-weight: 700;
   fill: #14171a; pointer-events: none; user-select: none;
@@ -827,6 +842,10 @@ button:focus:not(:focus-visible) { outline: none; }
 .manijas { animation: aparecer var(--t-medio) var(--curva); }
 .manijas .halo { fill: none; stroke: #2b5ca8; stroke-width: 3; stroke-dasharray: 7 5; opacity: 1; }
 .manija { fill: #2b5ca8; stroke: #fff; stroke-width: 3.5; cursor: pointer; transition: r var(--t-rapido) var(--curva); }
+/* El disco que atrapa el dedo es más grande que el que se dibuja: una
+   manija del tamaño de la yema taparía la figura que se está ajustando.
+   No se pinta, pero sí responde. */
+.manija-zona { fill: transparent; pointer-events: all; cursor: pointer; }
 .varilla { stroke: #2b5ca8; stroke-width: 2.5; }
 .manija-mas { fill: #ffffff; stroke: #2b5ca8; stroke-width: 3; cursor: pointer; }
 .manijas polygon.halo { fill: none; stroke: #2b5ca8; stroke-width: 2.5; stroke-dasharray: 7 5; }
