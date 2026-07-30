@@ -147,6 +147,32 @@ export async function historial(loteId) {
 // ¿Alcanzamos a traer la historia entera de este lote?
 export const historialCompleto = (evs) => evs.some((e) => e.tipo === 'recepcion');
 
+// Todas las observaciones, agrupadas por lote, para el informe.
+//
+// Se piden al servidor cuando hay señal. En el celular solo está el
+// historial de los lotes que alguien llegó a abrir, así que un informe
+// hecho con lo que hay guardado saldría con la mitad de las
+// observaciones y sin avisar de que faltan. `completo` dice si se
+// pudieron traer todas, para poder decirlo en pantalla en vez de
+// entregar un archivo cojo como si estuviera entero.
+export async function observaciones() {
+  const guardadas = (await idb.todos('eventos'))
+    .filter((e) => e.tipo === 'observacion' && e.nota);
+  let completo = false, evs = guardadas;
+  if (navigator.onLine) {
+    const { data, error } = await sb.from('eventos')
+      .select('lote_id,nota,ocurrido_en').eq('tipo', 'observacion');
+    if (!error && data) { evs = data.filter((e) => e.nota); completo = true; }
+  }
+  const notas = new Map();
+  for (const e of evs.sort((a, b) => (b.ocurrido_en || '').localeCompare(a.ocurrido_en || ''))) {
+    const dia = (e.ocurrido_en || '').slice(0, 10);
+    const linea = dia ? `${dia}: ${e.nota}` : e.nota;
+    notas.set(e.lote_id, notas.has(e.lote_id) ? `${notas.get(e.lote_id)} · ${linea}` : linea);
+  }
+  return { notas, completo };
+}
+
 // ------------------------------------------------------------ escrituras
 // modo: 'insertar' (idempotente) | 'guardar' (upsert) | 'borrar'
 // Los campos internos (los que empiezan por _) no existen en el servidor
