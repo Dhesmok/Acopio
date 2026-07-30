@@ -41,6 +41,10 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
+// El informe es para quien responde por el patio ante alguien de fuera:
+// el administrador y la empresa. El contratista trabaja lote a lote y no
+// tiene por qué sacar el listado entero.
+const puedeExportar = () => esAdmin() || soloLectura();
 
 // Iconos de trazo: se leen a cualquier tamaño y toman el color del botón,
 // a diferencia de un emoji, que cada teléfono dibuja distinto.
@@ -70,9 +74,16 @@ const fechaLocal = (t) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))) / 86_400_000);
-const vencido = (l) => !!l.fecha_recogida && l.fecha_recogida < hoyISO();
+// La recogida es un compromiso de la DEVOLUCIÓN: el proveedor tiene
+// hasta tal día para venir por su material. Si el lote pasó a otro
+// estado, la fecha que quedó guardada en la fila ya no compromete a
+// nadie, así que ni se muestra ni cuenta como vencida. Antes seguía
+// saliendo en la ficha, en la lista y como borde de alarma en el plano
+// mucho después de que el asunto se hubiera resuelto.
+const enDevolucion = (l) => l.estado === 'devolucion';
+const vencido = (l) => enDevolucion(l) && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
 function textoRecogida(l) {
-  if (!l.fecha_recogida) return null;
+  if (!enDevolucion(l) || !l.fecha_recogida) return null;
   const d = Math.round((new Date(hoyISO()) - new Date(l.fecha_recogida)) / 86_400_000);
   if (d > 0) return `sin recoger · ${d} d de retraso`;
   if (d === 0) return 'se recoge hoy';
@@ -569,9 +580,12 @@ const lotesQueCoinciden = () => {
   const f = S.mapaFiltro;
   if (!q && f.campo === 'ninguno') return null;
   return S.lotes.filter((l) => {
-    // se busca por código y por placa: "¿qué trajo la WGY308?" es una
-    // pregunta tan normal en el patio como "¿dónde está el PG1042?"
-    if (q && !`${l.codigo} ${l.placa || ''}`.toUpperCase().includes(q)) return false;
+    // Solo por código. La pregunta que responde este buscador es "¿dónde
+    // está el PG1042?"; buscar por volqueta ya lo hace el botón de
+    // filtros de al lado, y teniéndolo ahí, aceptar placas aquí solo
+    // servía para que un código tecleado a medias trajera lotes que no
+    // se estaban buscando.
+    if (q && !l.codigo.toUpperCase().includes(q)) return false;
     return f.campo === 'ninguno' ? true
       : f.campo === 'proveedor' ? l.proveedor_id === f.valor
       : f.campo === 'estado' ? l.estado === f.valor
@@ -677,7 +691,7 @@ function pintarBuscadorMapa() {
       ${ICO.lupa}
       <input id="q-mapa" data-mono inputmode="search" autocomplete="off"
              autocapitalize="characters" spellcheck="false"
-             placeholder="Código o placa" value="${esc(S.busquedaMapa)}">
+             placeholder="Código del lote" value="${esc(S.busquedaMapa)}">
       <span class="conteo" id="q-conteo"></span>
       <button class="cerrar-buscar" id="q-cerrar" aria-label="Cerrar la búsqueda">${ICO.cerrar}</button>
     </div>`;
@@ -1052,12 +1066,20 @@ function menuCuenta() {
     <h2>${esc(S.perfil.nombre)}</h2>
     <div class="sub">${S.perfil.rol === 'admin' ? 'Administrador'
       : S.perfil.rol === 'empresa' ? 'Solo lectura' : 'Contratista'}</div>
+    ${puedeExportar() ? `
+    <h3>Informe</h3>
+    <button class="btn btn-ancho" id="informe" style="width:100%">Listado de lotes para Excel</button>
+    <p class="pista">Todos los lotes del patio, con su estado, proveedor, volqueta,
+       material, pila y observaciones, en un archivo que abre en Excel.</p>` : ''}
     <h3>Sesión</h3>
     <div class="acciones">
       <button id="cerrar">Volver</button>
       <button id="salir" class="btn-peligro">Cerrar sesión</button>
     </div>`);
   $('#cerrar').onclick = cerrarHoja;
+  // Traer las observaciones del servidor tarda un momento; el botón lo
+  // dice en vez de quedarse mudo.
+  if (puedeExportar()) $('#informe').onclick = accion(panelInforme, { ocupado: 'Contando lotes…' });
   // Cerrar sesión borra TODO lo del celular, incluida la cola: es lo
   // correcto, porque lo que sigue pendiente es de esta persona y el
   // siguiente que entre no puede subirlo con su nombre. Pero antes de
@@ -1070,6 +1092,90 @@ function menuCuenta() {
     await Store.salir();
     location.reload();
   }, { ocupado: 'Subiendo lo pendiente…' });
+}
+
+// ------------------------------------------------------- informe a Excel
+// Las columnas del archivo. Están aquí y no dentro de la función que lo
+// arma para que se lea de un vistazo qué lleva el informe: es lo primero
+// que alguien va a querer cambiar.
+const COLUMNAS_INFORME = [
+  { clave: 'codigo',     titulo: 'Código',            ancho: 14 },
+  { clave: 'proveedor',  titulo: 'Proveedor',         ancho: 28 },
+  { clave: 'estado',     titulo: 'Estado',            ancho: 15 },
+  { clave: 'diasEstado', titulo: 'Días en el estado', ancho: 16 },
+  { clave: 'ingreso',    titulo: 'Fecha de ingreso',  ancho: 16 },
+  { clave: 'diasPatio',  titulo: 'Días en el patio',  ancho: 16 },
+  { clave: 'volqueta',   titulo: 'Volqueta',          ancho: 12 },
+  { clave: 'material',   titulo: 'Material',          ancho: 11 },
+  { clave: 'enPila',     titulo: '¿En pila?',         ancho: 11 },
+  { clave: 'pila',       titulo: 'Pila',              ancho: 14 },
+  { clave: 'recogida',   titulo: 'Fecha de recogida', ancho: 17 },
+  { clave: 'nota',       titulo: 'Observaciones',     ancho: 60 }
+];
+
+// Días entre dos fechas sueltas ("2026-07-28"). No se usa `dias()`: ese
+// espera una marca de tiempo y al pasarle una fecha a secas la corre un
+// día en nuestro huso, porque la lee como medianoche UTC.
+const diasEntreFechas = (desde) =>
+  desde ? Math.round((Date.parse(hoyISO()) - Date.parse(desde)) / 86_400_000) : '';
+
+function filasDelInforme(notas) {
+  const prov = Object.fromEntries(S.proveedores.map((p) => [p.id, p.nombre]));
+  const pilas = Object.fromEntries(S.pilas.map((p) => [p.id, p.codigo]));
+  return S.lotes
+    .slice()
+    .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }))
+    .map((l) => ({
+      codigo: l.codigo,
+      proveedor: prov[l.proveedor_id] || '',
+      estado: ESTADOS[l.estado] || l.estado,
+      diasEstado: l.estado_desde ? dias(l.estado_desde) : '',
+      ingreso: l.fecha_recepcion || '',
+      diasPatio: diasEntreFechas(l.fecha_recepcion),
+      volqueta: l.placa || '',
+      material: MATERIALES[l.material || 'granel'],
+      enPila: l.pila_id ? 'Sí' : 'No',
+      pila: l.pila_id ? (pilas[l.pila_id] || '') : '',
+      // la recogida solo compromete mientras el lote sea devolución
+      recogida: enDevolucion(l) ? (l.fecha_recogida || '') : '',
+      nota: notas.get(l.id) || ''
+    }));
+}
+
+async function panelInforme() {
+  const { notas, completo } = await Store.observaciones();
+  const filas = filasDelInforme(notas);
+  const porEstado = Object.entries(ESTADOS)
+    .map(([k, v]) => [v, S.lotes.filter((l) => l.estado === k).length])
+    .filter(([, n]) => n);
+
+  abrirHoja(`
+    <div class="sub">Todos los lotes del patio, tal como están en este momento.</div>
+    <h3>Lo que va en el archivo</h3>
+    <div class="resumen">
+      <div><strong>${filas.length}</strong><span>lote${filas.length === 1 ? '' : 's'}</span></div>
+      ${porEstado.map(([v, n]) => `<div><strong>${n}</strong><span>${esc(v)}</span></div>`).join('')}
+    </div>
+    <p class="pista">Una fila por lote y una columna por dato:
+       ${COLUMNAS_INFORME.map((c) => c.titulo.toLowerCase()).join(', ')}.</p>
+    ${completo ? '' : `<p class="aviso">Sin señal para traer las observaciones del servidor.
+       Las del archivo son solo las que ya estaban en este celular; el resto de columnas
+       sí van completas.</p>`}
+    <button class="btn btn-lleno btn-ancho" id="bajar" style="width:100%;margin-top:6px">
+      Descargar para Excel</button>
+    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Volver</button>`,
+    '<h2 class="pregunta">Listado de lotes</h2>');
+
+  $('#cerrar').onclick = cerrarHoja;
+  $('#bajar').onclick = accion(async () => {
+    // La carga se hace aquí y no al abrir la hoja: en un patio con 900
+    // lotes armar el archivo tarda lo suyo, y no hay por qué pagarlo
+    // quien solo entró a mirar el resumen.
+    const Excel = await import('./excel.js');
+    Excel.descargar(Excel.construir(COLUMNAS_INFORME, filas, 'Lotes'),
+      `acopio-lotes-${hoyISO()}.xlsx`);
+    cerrarHoja();
+  }, { ocupado: 'Armando el archivo…' });
 }
 
 // Un `confirm()` del navegador se acepta sin leerlo. Si de verdad se va a
@@ -1127,7 +1233,7 @@ async function fichaLote(id) {
         .map(([k, v]) => `<button data-estado="${k}">${v}</button>`).join('')}
     </div>
 
-    ${esAdmin() ? `
+    ${esAdmin() && enDevolucion(l) ? `
     <h3>${l.fecha_recogida ? 'Cambiar fecha de recogida' : 'Fecha de recogida'}</h3>
     <div class="acciones">
       <input type="date" id="f-recogida" value="${l.fecha_recogida || hoyISO(DIAS_RECOGIDA_SUGERIDOS)}">

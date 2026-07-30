@@ -219,9 +219,9 @@ export function pintar(d) {
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}
-    ${capasPila(pilasVivas, datos.lotes)}
-    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)))}</g>
-    ${capasLote(sueltos.filter((l) => !tenue(l.id)))}
+    ${capasPila(pilasVivas, datos.lotes, sueltos)}
+    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)), pilasVivas.length)}</g>
+    ${capasLote(sueltos.filter((l) => !tenue(l.id)), pilasVivas.length)}
     ${recorrido(datos.recorrido)}
     ${seleccion ? manijas() : ''}`;
 }
@@ -240,13 +240,20 @@ export function pintar(d) {
 // rótulo dentro de su lote, el relleno del vecino se comía el código a
 // medias y quedaba media palabra tapada. Ningún relleno se dibuja ya por
 // encima de un código.
-function capasLote(ls) {
+// El contorno además se pinta a través de la MISMA máscara que los cercos
+// de las pilas: un lote encima de una pila también es el mismo material,
+// y su raya negra cruzando el cerco era justo lo que quedaba por quitar.
+// El relleno viene después sin máscara, así que dentro de la pila el lote
+// se sigue viendo entero: lo único que la máscara le quita es el trazo.
+function capasLote(ls, hayPilas) {
   // El lote señalado va al final: su aro de "aquí está" tiene que quedar
   // por encima de los vecinos que lo toquen, no debajo.
   const orden = ls.filter((l) => l.id !== datos.resaltado)
     .concat(ls.filter((l) => l.id === datos.resaltado));
-  return ['trazo', 'relleno', 'rotulo']
-    .map((capa) => orden.map((l) => figuraLote(l, capa)).join('')).join('');
+  const contornos = orden.map((l) => figuraLote(l, 'trazo')).join('');
+  return (hayPilas ? `<g mask="url(#fuera-de-pilas)">${contornos}</g>` : contornos)
+    + orden.map((l) => figuraLote(l, 'relleno')).join('')
+    + orden.map((l) => figuraLote(l, 'rotulo')).join('');
 }
 
 // Las pilas no pueden usar el mismo truco: su relleno es casi
@@ -256,16 +263,22 @@ function capasLote(ls) {
 // así que donde dos se cruzan no queda raya y el par se lee como un
 // mismo cerco. El doble de grosor es por lo mismo de siempre: la
 // máscara le quita su propia mitad de dentro.
-function capasPila(ps, lotes) {
+// `enmascarados` son las demás figuras que van a pasar por esta misma
+// máscara —los contornos de los lotes—. Hacen falta aquí porque la región
+// de una máscara RECORTA: lo que cae fuera no es que salga sin enmascarar,
+// es que no sale. Ceñirla a las pilas dejó a los lotes de más allá sin
+// contorno ninguno.
+function capasPila(ps, lotes, enmascarados = []) {
   if (!ps.length) return '';
   const col = (p) => esc(paleta()[`pila_${p.tipo}`] || '#14171a');
   const puesta = (p, attrs, clase = '') =>
     `<g ${trazo(p)} class="${clase}">${cuerpo(p, attrs)}</g>`;
 
-  // La máscara se recorta al terreno que ocupan las pilas y no al plano
-  // entero: una región enorme es memoria de vídeo tirada en un teléfono.
+  // La región se ciñe al terreno de lo que pasa por la máscara y no al
+  // plano entero: una región enorme es memoria de vídeo tirada en un
+  // teléfono.
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-  for (const p of ps) {
+  for (const p of ps.concat(enmascarados)) {
     const r = radioDe(p);
     x1 = Math.min(x1, p.x - r.x); x2 = Math.max(x2, p.x + r.x);
     y1 = Math.min(y1, p.y - r.y); y2 = Math.max(y2, p.y + r.y);
@@ -427,7 +440,11 @@ function figuraPila(p, lotes) {
 // Las tres llevan data-id, así que el dedo da con el lote caiga donde
 // caiga, y arrastrarlo las mueve todas.
 function figuraLote(l, capa) {
-  const venc = !!l.fecha_recogida && l.fecha_recogida < hoyISO();
+  // El compromiso de recogida solo existe mientras el lote es devolución:
+  // si pasó a otro estado, la fecha que quedó guardada ya no compromete a
+  // nadie y el borde de alarma no tiene nada que avisar.
+  const venc = l.estado === 'devolucion'
+    && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
   const col = paleta()[l.estado] || '#5f6863';
   const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)}
     class="g-lote${datos.resaltado === l.id ? ' g-resaltado' : ''}"`;
