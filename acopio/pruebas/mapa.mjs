@@ -277,10 +277,17 @@ ok(primerRelleno > 0 && ultimoTrazo < primerRelleno,
    'los rellenos van todos después de los contornos, no lote por lote');
 ok(dibujo.includes('stroke-width="4"'),
    'el contorno se dibuja al doble: su propio relleno le come la mitad de adentro');
-ok((dibujo.match(/data-id="la"/g) || []).length === 2,
-   'cada lote sale en las dos capas, y las dos responden al dedo');
+ok((dibujo.match(/data-id="la"/g) || []).length === 3,
+   'cada lote sale en las tres capas, y las tres responden al dedo');
 ok((dibujo.match(/>PG1</g) || []).length === 1,
-   'pero el código se escribe una sola vez, encima de todo');
+   'pero el código se escribe una sola vez');
+
+// El rótulo tapado era el otro lado del mismo problema: con el código
+// dentro de su lote, el relleno del vecino se comía media palabra.
+const ultimoRelleno = dibujo.lastIndexOf('fill="#e8b48a"/>');
+const primerRotulo = dibujo.indexOf('class="txt-lote"');
+ok(primerRotulo > 0 && ultimoRelleno < primerRotulo,
+   'y va después de TODOS los rellenos: ningún vecino puede taparlo');
 
 // El filtro atenúa con opacidad, y la opacidad tiene que aplicarse UNA
 // vez al par de capas: puesta en cada lote se aplicaría dos veces y el
@@ -292,5 +299,80 @@ ok(!/class="g-lote[^"]*atenuado/.test(filtrado),
    'el apagado del filtro no va lote por lote');
 ok((filtrado.match(/class="atenuado"/g) || []).length === 1,
    'sino en un solo grupo que envuelve las dos capas de los apagados');
+
+// ---------------------------------------------------------------------
+titulo('El cerco de dos pilas que se cruzan tampoco se parte.');
+
+// La pila no puede usar el truco de las capas: su relleno es casi
+// transparente y no borra nada. Va con máscara.
+const dosPilas = [
+  { id: 'pa', codigo: 'A', tipo: 'otro', estado: 'abierta',
+    forma: 'elipse', x: 300, y: 300, rx: 90, ry: 60, rot: 0 },
+  { id: 'pb', codigo: 'B', tipo: 'otro', estado: 'abierta',
+    forma: 'elipse', x: 420, y: 300, rx: 90, ry: 60, rot: 0 }
+];
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: dosPilas });
+const conPilas = lienzo.innerHTML;
+ok(conPilas.includes('<mask id="fuera-de-pilas"'), 'el cerco se pinta a través de una máscara');
+ok((conPilas.match(/fill="#000"/g) || []).length === 2,
+   'que tapa las dos pilas: dentro de cualquiera de ellas no se dibuja cerco');
+ok(conPilas.includes('mask="url(#fuera-de-pilas)"'), 'y la capa de cercos la usa');
+ok(/class="pila-forma"[^>]*stroke="none"/.test(conPilas),
+   'el relleno ya no lleva cerco propio, o volvería a cruzar al vecino');
+// La máscara se recorta al terreno de las pilas: cubrir el plano entero
+// es memoria de vídeo tirada en un teléfono.
+const region = conPilas.match(/<mask id="fuera-de-pilas"[^>]*width="(\d+)"/);
+ok(region && +region[1] < 1000, `la máscara se ciñe a las pilas (${region?.[1]} de ancho)`);
+
+// ---------------------------------------------------------------------
+titulo('La manija de ajuste no mengua con la figura.');
+
+// Achicar un lote achicaba también la manija con la que se estaba
+// achicando: justo cuando más falta hace agarrar bien, se escapaba.
+const medirManija = (rx, ry) => {
+  const f = { id: 'lm', codigo: 'PG5', estado: 'muestreado', pila_id: null,
+              forma: 'elipse', x: 500, y: 350, rx, ry, rot: 0 };
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [f] });
+  Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
+  Mapa.editar(true);
+  Mapa.seleccionar('lote', f.id);
+  return +lienzo.innerHTML.match(/r="([\d.]+)" class="manija"/)[1];
+};
+const enGrande = medirManija(120, 90);
+const enChico = medirManija(18, 14);
+ok(enGrande === enChico,
+   `mide lo mismo en un lote grande y en uno diminuto (${enGrande} = ${enChico})`);
+ok(lienzo.innerHTML.includes('class="manija-zona"'),
+   'y lleva detrás un disco invisible más ancho, para que el dedo no tenga que apuntar');
+
+// ---------------------------------------------------------------------
+titulo('Levantar un dedo del pellizco no deja el plano trabado.');
+
+Mapa.editar(false);
+Mapa.limpiarSeleccion();
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [] });
+Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
+
+// Aquí se montó el mapa dos veces, así que cada gesto llega por
+// duplicado a mapa.js. No es un defecto de la prueba: en el navegador
+// pasa igual, porque la red de seguridad de la ventana escucha en
+// captura y corre antes que el oyente del lienzo. Cerrar el gesto dos
+// veces es justo lo que dejaba el plano trabado.
+const dedo = (id, x, y) => ({ ...evento(x, y), pointerId: id });
+disparar('pointerdown', dedo(1, 400, 300));
+disparar('pointerdown', dedo(2, 600, 300));
+disparar('pointermove', dedo(2, 800, 300));
+const trasPellizco = Mapa.obtenerVista();
+ok(trasPellizco.w < 1000, `el pellizco acercó el plano (${Math.round(trasPellizco.w)} de ancho)`);
+
+// se levanta uno de los dos y el que queda sigue arrastrando el plano
+disparar('pointerup', dedo(2, 800, 300));
+disparar('pointermove', dedo(1, 300, 300));
+const trasArrastre = Mapa.obtenerVista();
+ok(trasArrastre.x !== trasPellizco.x,
+   'el dedo que queda sigue moviendo el plano, no se queda muerto');
+ok(Math.abs(trasArrastre.w - trasPellizco.w) < 0.01,
+   'y arrastrar no cambia el acercamiento');
+disparar('pointerup', dedo(1, 300, 300));
 
 cerrar();

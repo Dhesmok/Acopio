@@ -219,29 +219,70 @@ export function pintar(d) {
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}
-    ${pilasVivas.map((p) => figuraPila(p, datos.lotes)).join('')}
+    ${capasPila(pilasVivas, datos.lotes)}
     <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)))}</g>
     ${capasLote(sueltos.filter((l) => !tenue(l.id)))}
     ${recorrido(datos.recorrido)}
     ${seleccion ? manijas() : ''}`;
 }
 
-// Los lotes se dibujan en DOS pasadas: primero todos los contornos, y
-// encima todos los rellenos con su rótulo. Así el relleno de cualquier
-// lote borra el trazo de los demás, y la línea negra desaparece justo
-// donde dos círculos se cruzan: dos lotes que se tocan se leen como un
-// solo montón de material, que es lo que son en el patio.
+// Los lotes se dibujan en TRES pasadas: todos los contornos, encima
+// todos los rellenos, y encima todos los rótulos.
 //
-// El trazo se dibuja al DOBLE de grueso a propósito: el trazo del SVG va
-// centrado en el borde, así que su propio relleno le come la mitad de
-// adentro. Lo que queda a la vista es el grosor de siempre.
+// Los contornos abajo son lo que borra la línea negra donde dos círculos
+// se cruzan: el relleno de cualquier lote tapa el trazo de los demás, y
+// dos lotes que se tocan se leen como un solo montón de material, que es
+// lo que son en el patio. El trazo va al DOBLE de grueso a propósito,
+// porque el trazo del SVG está centrado en el borde y su propio relleno
+// le come la mitad de adentro: a la vista queda el grosor de siempre.
+//
+// Los rótulos arriba del todo son la otra cara de lo mismo: con el
+// rótulo dentro de su lote, el relleno del vecino se comía el código a
+// medias y quedaba media palabra tapada. Ningún relleno se dibuja ya por
+// encima de un código.
 function capasLote(ls) {
   // El lote señalado va al final: su aro de "aquí está" tiene que quedar
   // por encima de los vecinos que lo toquen, no debajo.
   const orden = ls.filter((l) => l.id !== datos.resaltado)
     .concat(ls.filter((l) => l.id === datos.resaltado));
-  return orden.map((l) => figuraLote(l, 'trazo')).join('')
-       + orden.map((l) => figuraLote(l, 'relleno')).join('');
+  return ['trazo', 'relleno', 'rotulo']
+    .map((capa) => orden.map((l) => figuraLote(l, capa)).join('')).join('');
+}
+
+// Las pilas no pueden usar el mismo truco: su relleno es casi
+// transparente —hay que ver el patio y los lotes por debajo— y un
+// relleno transparente no borra nada. Se resuelve con una máscara: el
+// trazo de todas las pilas se pinta SOLO fuera del conjunto de pilas,
+// así que donde dos se cruzan no queda raya y el par se lee como un
+// mismo cerco. El doble de grosor es por lo mismo de siempre: la
+// máscara le quita su propia mitad de dentro.
+function capasPila(ps, lotes) {
+  if (!ps.length) return '';
+  const col = (p) => esc(paleta()[`pila_${p.tipo}`] || '#14171a');
+  const puesta = (p, attrs, clase = '') =>
+    `<g ${trazo(p)} class="${clase}">${cuerpo(p, attrs)}</g>`;
+
+  // La máscara se recorta al terreno que ocupan las pilas y no al plano
+  // entero: una región enorme es memoria de vídeo tirada en un teléfono.
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const p of ps) {
+    const r = radioDe(p);
+    x1 = Math.min(x1, p.x - r.x); x2 = Math.max(x2, p.x + r.x);
+    y1 = Math.min(y1, p.y - r.y); y2 = Math.max(y2, p.y + r.y);
+  }
+  const m = 40;
+  const caja = `x="${x1 - m}" y="${y1 - m}" width="${x2 - x1 + m * 2}" height="${y2 - y1 + m * 2}"`;
+
+  return `
+    <mask id="fuera-de-pilas" maskUnits="userSpaceOnUse" ${caja}>
+      <rect ${caja} fill="#fff"/>
+      ${ps.map((p) => puesta(p, 'fill="#000"')).join('')}
+    </mask>
+    <g mask="url(#fuera-de-pilas)">
+      ${ps.map((p) => puesta(p, `class="pila-trazo" fill="none" stroke="${col(p)}"`,
+        apagado(p.id).trim())).join('')}
+    </g>
+    ${ps.map((p) => figuraPila(p, lotes)).join('')}`;
 }
 
 const trazo = (o) => `transform="translate(${o.x} ${o.y}) rotate(${o.rot || 0})"`;
@@ -367,7 +408,9 @@ function figuraPila(p, lotes) {
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
-    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
+    ${/* el cerco lo pone capasPila en su capa con máscara; aquí solo el
+          relleno, que es además lo que responde al dedo */ ''}
+    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="none"`)}
     ${(() => {
       const rotulo = `Pila ${p.codigo}`, c = anclaTexto(p);
       const t = tamanoTexto(p, rotulo, { min: 8, max: 24, lineas: 2 });
@@ -380,10 +423,9 @@ function figuraPila(p, lotes) {
   </g>`;
 }
 
-// Un lote sale dos veces: en la capa de trazos (contorno + relleno, para
-// que el contorno no se vea por dentro) y en la de rellenos (relleno +
-// rótulo, que es lo que borra los contornos de los vecinos). Las dos
-// llevan data-id, así que tocar cualquiera sigue dando con el lote.
+// Un lote sale tres veces, una por capa: contorno, relleno y rótulo.
+// Las tres llevan data-id, así que el dedo da con el lote caiga donde
+// caiga, y arrastrarlo las mueve todas.
 function figuraLote(l, capa) {
   const venc = !!l.fecha_recogida && l.fecha_recogida < hoyISO();
   const col = paleta()[l.estado] || '#5f6863';
@@ -396,18 +438,21 @@ function figuraLote(l, capa) {
     return `<g ${marca}>${cuerpo(l, attrs)}</g>`;
   }
 
+  if (capa === 'relleno') {
+    return `<g ${marca}>
+      ${datos.resaltado === l.id ? halo(l) : ''}
+      ${cuerpo(l, `fill="${esc(col)}"`)}
+    </g>`;
+  }
+
+  const c = anclaTexto(l);
+  // El suelo son 11 px: por debajo de eso un código deja de leerse a un
+  // brazo de distancia. Un código absurdamente largo prefiere sobresalir
+  // dos o tres píxeles de su óvalo a volverse ilegible.
+  const t = tamanoTexto(l, l.codigo, { min: 11, max: 20 });
   return `<g ${marca}>
-    ${datos.resaltado === l.id ? halo(l) : ''}
-    ${cuerpo(l, `fill="${esc(col)}"`)}
-    ${(() => {
-      const c = anclaTexto(l);
-      // El suelo son 11 px: por debajo de eso un código deja de leerse a
-      // un brazo de distancia. Un código absurdamente largo prefiere
-      // sobresalir dos o tres píxeles de su óvalo a volverse ilegible.
-      const t = tamanoTexto(l, l.codigo, { min: 11, max: 20 });
-      return `<text x="${c.x}" y="${c.y + t * .35}" text-anchor="middle" class="txt-lote"
-        font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(l.codigo)}</text>`;
-    })()}
+    <text x="${c.x}" y="${c.y + t * .35}" text-anchor="middle" class="txt-lote"
+      font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(l.codigo)}</text>
   </g>`;
 }
 
@@ -439,40 +484,61 @@ function objeto(sel = seleccion) {
   return lista.find((o) => o.id === sel.id);
 }
 
-// Manijas: en polígono, un punto por vértice más los "+" para agregar
+// Manijas: en polígono, un punto por vértice más los "+" para agregar.
+//
+// Se miden en PÍXELES DE PANTALLA, no en unidades del plano. Antes el
+// tamaño salía de lo grande que fuera la figura, así que al achicar un
+// lote la manija se achicaba con él: justo en el momento en que más
+// falta hace agarrar bien, se volvía inagarrable y había que soltar y
+// volver a buscarla. El dedo no cambia de tamaño con el zoom ni con el
+// lote, y la manija tampoco.
 function manijas() {
   const o = objeto();
   if (!o) return '';
-  const escala = vista.w / 1000;
-  const ps0 = o.forma === 'poligono' ? listaPuntos(o) : null;
-  const menor = ps0
-    ? Math.min(...ps0.map((p) => Math.hypot(p.x, p.y)))
-    : Math.min(o.rx, o.ry);
-  // ni gigantes en una figura pequeña, ni invisibles en una grande
-  const r = Math.max(Math.min(13 * escala, menor * 0.34), 7 * escala);
+  const u = unidadesPorPixel();
+  const r = 13 * u;        // lo que se ve
+  const zona = 23 * u;     // lo que responde al dedo, sin dibujarse
+  const varilla = 40 * u;  // lo que sube la manija de girar sobre la figura
+
+  // Cada manija es un grupo: un disco invisible que atrapa el dedo con
+  // holgura y encima el que se ve. `closest('[data-handle]')` da con el
+  // grupo, así que el dedo puede caer en cualquiera de los dos.
+  const asa = (x, y, handle, { i, clase = 'manija', radio = r, holgura = zona } = {}) => `
+    <g data-handle="${handle}"${i === undefined ? '' : ` data-i="${i}"`}>
+      <circle cx="${x}" cy="${y}" r="${holgura}" class="manija-zona"/>
+      <circle cx="${x}" cy="${y}" r="${radio}" class="${clase}"/>
+    </g>`;
 
   if (o.forma === 'poligono') {
-    const ps = ps0;
+    const ps = listaPuntos(o);
+    // Los "+" van con menos holgura que los vértices: están a media
+    // arista, y con la misma zona se pisarían entre sí en un polígono
+    // apretado y acabarías agregando un punto al querer mover otro.
     const medios = ps.map((p, i) => {
       const q = ps[(i + 1) % ps.length];
-      return `<circle cx="${(p.x + q.x) / 2}" cy="${(p.y + q.y) / 2}" r="${r * .72}"
-                class="manija-mas" data-handle="agregar" data-i="${i}"/>`;
+      return asa((p.x + q.x) / 2, (p.y + q.y) / 2, 'agregar',
+        { i, clase: 'manija-mas', radio: r * .72, holgura: zona * .62 });
     }).join('');
+    const arriba = -alto(ps);
     return `<g ${trazo(o)} class="manijas">
       <path d="${rutaRedondeada(ps)}" class="halo"/>
       ${medios}
-      ${ps.map((p, i) => `<circle cx="${p.x}" cy="${p.y}" r="${r}"
-          class="manija" data-handle="vertice" data-i="${i}"/>`).join('')}
-      <circle cx="0" cy="${-alto(ps) - 38}" r="${r}" class="manija" data-handle="rotar"/>
-      <line x1="0" y1="${-alto(ps)}" x2="0" y2="${-alto(ps) - 38}" class="varilla"/>
+      ${ps.map((p, i) => asa(p.x, p.y, 'vertice', { i })).join('')}
+      <line x1="0" y1="${arriba}" x2="0" y2="${arriba - varilla}" class="varilla"/>
+      ${asa(0, arriba - varilla, 'rotar')}
     </g>`;
   }
 
+  // La manija de tamaño se aparta un poco de la esquina para no tapar la
+  // figura en un lote pequeño. Puede hacerlo porque el arrastre descuenta
+  // dónde se agarró: la esquina sigue al dedo a esa misma distancia, sin
+  // saltos.
+  const aparte = 7 * u;
   return `<g ${trazo(o)} class="manijas">
     ${cuerpo(o, 'class="halo"')}
-    <circle cx="${o.rx}" cy="${o.ry}" r="${r}" class="manija" data-handle="tamano"/>
-    <line x1="0" y1="${-o.ry}" x2="0" y2="${-o.ry - 38}" class="varilla"/>
-    <circle cx="0" cy="${-o.ry - 38}" r="${r}" class="manija" data-handle="rotar"/>
+    ${asa(o.rx + aparte, o.ry + aparte, 'tamano')}
+    <line x1="0" y1="${-o.ry}" x2="0" y2="${-o.ry - varilla}" class="varilla"/>
+    ${asa(0, -o.ry - varilla, 'rotar')}
   </g>`;
 }
 const alto = (ps) => Math.max(...ps.map((p) => Math.abs(p.y)));
@@ -578,18 +644,25 @@ export function movimientoReal(o, desde) {
 // mover todos sus nodos: mover solo uno dejaba el contorno atrás.
 const nodosDe = (id) => [...svg.querySelectorAll(`[data-id="${id}"]`)];
 
+// Arranca —o REARRANCA— el pellizco con los dos dedos que haya ahora.
+// Volver a medirlo cada vez que un dedo entra o sale es lo que evita el
+// salto: si un tercer dedo roza la pantalla, o si se levanta uno de los
+// dos, el encuadre se vuelve a medir desde donde están los dedos y no
+// desde donde estaban. Antes un tercer dedo cancelaba el zoom y hasta
+// podía arrancar un arrastre.
+function iniciarZoom() {
+  const [a, b] = [...punteros.values()];
+  const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
+  pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
+  modo = 'zoom';
+}
+
 function abajo(ev) {
   cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
   svg.setPointerCapture(ev.pointerId);
   punteros.set(ev.pointerId, ev);
 
-  if (punteros.size === 2) {
-    const [a, b] = [...punteros.values()];
-    const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
-    pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
-    modo = 'zoom';
-    return;
-  }
+  if (punteros.size >= 2) { iniciarZoom(); return; }
 
   movio = false;
   const manija = ev.target.closest('[data-handle]');
@@ -607,7 +680,26 @@ function abajo(ev) {
       return;
     }
     modo = 'ajustando';
-    arrastre = { handle: h, i: Number(manija.dataset.i), obj: o, inicio: aPlano(ev) };
+    const inicio = aPlano(ev);
+    const i = Number(manija.dataset.i);
+    // Dónde se agarró la manija respecto de dónde está de verdad. Sin
+    // esto la figura pegaba un salto al primer roce: el dedo casi nunca
+    // cae en el centro exacto del disco, y esa diferencia se aplicaba
+    // como si fuera un tirón. Con la holgura nueva el disco es más
+    // grande, así que el salto también lo era.
+    const l = aLocal(o, inicio);
+    const desde = h === 'vertice' ? listaPuntos(o)[i]
+                : h === 'tamano'  ? { x: o.rx, y: o.ry }
+                : null;
+    arrastre = {
+      handle: h, i, obj: o, inicio,
+      desfase: desde ? { x: l.x - desde.x, y: l.y - desde.y } : null,
+      // girar se mide en ángulos, no en distancias: se guarda el desvío
+      // entre el ángulo del dedo y el que ya tenía la figura
+      giro: h === 'rotar'
+        ? (o.rot || 0) - (Math.atan2(inicio.y - o.y, inicio.x - o.x) * 180) / Math.PI
+        : 0
+    };
     return;
   }
 
@@ -666,7 +758,7 @@ function movimiento(ev) {
   if (!punteros.has(ev.pointerId)) return;
   punteros.set(ev.pointerId, ev);
 
-  if (modo === 'zoom' && punteros.size === 2) {
+  if (modo === 'zoom' && punteros.size >= 2) {
     const [a, b] = [...punteros.values()];
     const f = pinchInicial.d / Math.max(dist(a, b), 1);
     const w = Math.min(Math.max(pinchInicial.w * f, 120), 5000);
@@ -704,16 +796,18 @@ function movimiento(ev) {
     if (arrastre.tipo === 'lote') resaltarBlanco(arrastre.obj);
   } else if (modo === 'ajustando') {
     const o = arrastre.obj;
+    const d = arrastre.desfase || { x: 0, y: 0 };
     const l = aLocal(o, p);
+    const lx = l.x - d.x, ly = l.y - d.y;   // descontando dónde se agarró
     if (arrastre.handle === 'rotar') {
-      o.rot = Math.round((Math.atan2(p.y - o.y, p.x - o.x) * 180) / Math.PI + 90);
+      o.rot = Math.round((Math.atan2(p.y - o.y, p.x - o.x) * 180) / Math.PI + arrastre.giro);
     } else if (arrastre.handle === 'vertice') {
       const ps = listaPuntos(o).slice();
-      ps[arrastre.i] = { x: +l.x.toFixed(1), y: +l.y.toFixed(1) };
+      ps[arrastre.i] = { x: +lx.toFixed(1), y: +ly.toFixed(1) };
       o.puntos = ps;
     } else {
-      o.rx = Math.min(Math.max(Math.abs(l.x), 14), 900);
-      o.ry = Math.min(Math.max(Math.abs(l.y), 12), 900);
+      o.rx = Math.min(Math.max(Math.abs(lx), 14), 900);
+      o.ry = Math.min(Math.max(Math.abs(ly), 12), 900);
     }
     pintarYa();
   }
@@ -730,11 +824,29 @@ function resaltarBlanco(lote) {
 }
 
 function arriba(ev) {
-  punteros.delete(ev.pointerId);
+  // El MISMO dedo se levanta dos y hasta tres veces: la red de seguridad
+  // de la ventana escucha en captura y corre ANTES que el oyente del
+  // lienzo, y encima `lostpointercapture` llega después. Cerrar el gesto
+  // una sola vez no era un lujo: la segunda pasada se llevaba por delante
+  // el paneo que el dedo que queda acababa de tomar del pellizco, y el
+  // plano se quedaba quieto hasta levantarlo también.
+  if (!punteros.delete(ev.pointerId)) return;
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
 
   if (modo === 'zoom') {
-    if (!punteros.size) {
+    if (punteros.size >= 2) {
+      iniciarZoom();               // sigue el pellizco con los que quedan
+    } else if (punteros.size === 1) {
+      // Queda un dedo. Antes el mapa se quedaba muerto hasta levantarlo:
+      // no hacía zoom (falta un dedo) ni paneaba (el modo seguía siendo
+      // zoom), y parecía que el plano se hubiera trabado. Ahora ese dedo
+      // se hace cargo y sigue arrastrando el plano desde donde está.
+      const [q] = [...punteros.values()];
+      modo = 'paneando';
+      movio = true;                // viene de un gesto: no es un toque
+      arrastre = { pantalla: { x: q.clientX, y: q.clientY },
+                   vista: { ...vista }, u: unidadesPorPixel() };
+    } else {
       modo = 'ninguno';
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
