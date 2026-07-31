@@ -222,9 +222,9 @@ export function pintar(d) {
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}
-    ${capasPila(pilasVivas, datos.lotes, sueltos, c)}
-    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)), pilasVivas.length)}</g>
-    ${capasLote(sueltos.filter((l) => !tenue(l.id)), pilasVivas.length)}
+    ${capasPila(pilasVivas, datos.lotes)}
+    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)))}</g>
+    ${capasLote(sueltos.filter((l) => !tenue(l.id)))}
     ${recorrido(datos.recorrido)}
     ${seleccion ? manijas() : ''}`;
 
@@ -264,68 +264,36 @@ let ultimoDibujo = '';
 // rótulo dentro de su lote, el relleno del vecino se comía el código a
 // medias y quedaba media palabra tapada. Ningún relleno se dibuja ya por
 // encima de un código.
-// El contorno además se pinta a través de la MISMA máscara que los cercos
-// de las pilas: un lote encima de una pila también es el mismo material,
-// y su raya negra cruzando el cerco era justo lo que quedaba por quitar.
-// El relleno viene después sin máscara, así que dentro de la pila el lote
-// se sigue viendo entero: lo único que la máscara le quita es el trazo.
-function capasLote(ls, hayPilas) {
+function capasLote(ls) {
   // El lote señalado va al final: su aro de "aquí está" tiene que quedar
   // por encima de los vecinos que lo toquen, no debajo.
   const orden = ls.filter((l) => l.id !== datos.resaltado)
     .concat(ls.filter((l) => l.id === datos.resaltado));
-  const contornos = orden.map((l) => figuraLote(l, 'trazo')).join('');
-  return (hayPilas ? `<g mask="url(#fuera-de-pilas)">${contornos}</g>` : contornos)
+  return orden.map((l) => figuraLote(l, 'trazo')).join('')
     + orden.map((l) => figuraLote(l, 'relleno')).join('')
     + orden.map((l) => figuraLote(l, 'rotulo')).join('');
 }
 
-// Las pilas no pueden usar el mismo truco: su relleno es casi
-// transparente —hay que ver el patio y los lotes por debajo— y un
-// relleno transparente no borra nada. Se resuelve con una máscara: el
-// trazo de todas las pilas se pinta SOLO fuera del conjunto de pilas,
-// así que donde dos se cruzan no queda raya y el par se lee como un
-// mismo cerco. El doble de grosor es por lo mismo de siempre: la
-// máscara le quita su propia mitad de dentro.
-// `enmascarados` son las demás figuras que van a pasar por esta misma
-// máscara —los contornos de los lotes—. Hacen falta aquí porque la región
-// de una máscara RECORTA: lo que cae fuera no es que salga sin enmascarar,
-// es que no sale. Ceñirla a las pilas dejó a los lotes de más allá sin
-// contorno ninguno.
-function capasPila(ps, lotes, enmascarados, c) {
-  if (!ps.length) return '';
-  const col = (p) => esc(paleta()[`pila_${p.tipo}`] || '#14171a');
-  const puesta = (p, attrs, clase = '') =>
-    `<g ${trazo(p)} class="${clase}">${cuerpo(p, attrs)}</g>`;
-
-  // La región abarca el patio entero y además todo lo que pase por la
-  // máscara, por si alguien dejó una figura fuera del plano. No se ciñe
-  // a las figuras y ya: arrastrar un lote NO repinta —se le mueve el nodo
-  // y punto, que es lo que hace que el arrastre vaya suave—, así que la
-  // región se queda con la que se calculó al pintar. Ceñida, un lote
-  // llevado a un rincón vacío se salía de ella y perdía el contorno
-  // entero a mitad del arrastre. La holgura es lo que se puede arrastrar
-  // hacia fuera antes de que vuelva a pasar; el patio ya está dentro.
-  let x1 = 0, y1 = 0;
-  let x2 = Number(c.ancho) || 1000, y2 = Number(c.alto) || 700;
-  for (const p of ps.concat(enmascarados)) {
-    const r = radioDe(p);
-    x1 = Math.min(x1, p.x - r.x); x2 = Math.max(x2, p.x + r.x);
-    y1 = Math.min(y1, p.y - r.y); y2 = Math.max(y2, p.y + r.y);
-  }
-  const m = 600;
-  const caja = `x="${x1 - m}" y="${y1 - m}" width="${x2 - x1 + m * 2}" height="${y2 - y1 + m * 2}"`;
-
-  return `
-    <mask id="fuera-de-pilas" maskUnits="userSpaceOnUse" ${caja}>
-      <rect ${caja} fill="#fff"/>
-      ${ps.map((p) => puesta(p, 'fill="#000"')).join('')}
-    </mask>
-    <g mask="url(#fuera-de-pilas)">
-      ${ps.map((p) => puesta(p, `class="pila-trazo" fill="none" stroke="${col(p)}"`,
-        apagado(p.id).trim())).join('')}
-    </g>
-    ${ps.map((p) => figuraPila(p, lotes)).join('')}`;
+// Las pilas se dibujan una a una, con su cerco. Hubo una versión que
+// las pasaba por una MÁSCARA para que dos pilas que se cruzan se leyeran
+// como un mismo cerco, y de paso para que el contorno de un lote no
+// cruzara por dentro de una pila.
+//
+// Se quitó: en un teléfono de verdad esa capa se quedaba en blanco de
+// vez en cuando durante el pellizco. En las capturas del patio se ve
+// clavado —un cuadro con contornos y cercos, el siguiente sin NINGUNO de
+// los dos, varias veces por segundo—, y esas dos cosas eran justo lo que
+// vivía dentro de la máscara. Una máscara obliga al navegador a dibujar
+// esa capa aparte y a rehacerla en cada cambio de escala; cuando no
+// llega a tiempo, la deja vacía. Aquí no se reproducía porque este
+// navegador dibuja por software.
+//
+// Lo que se pierde es que un lote se funda con la pila de debajo y que
+// dos pilas se fundan entre sí. Lo que NO se pierde es lo importante:
+// los lotes se siguen fundiendo entre ellos, que se hace con el orden de
+// las capas y no necesita máscara ninguna.
+function capasPila(ps, lotes) {
+  return ps.map((p) => figuraPila(p, lotes)).join('');
 }
 
 const trazo = (o) => `transform="translate(${o.x} ${o.y}) rotate(${o.rot || 0})"`;
@@ -451,9 +419,7 @@ function figuraPila(p, lotes) {
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
-    ${/* el cerco lo pone capasPila en su capa con máscara; aquí solo el
-          relleno, que es además lo que responde al dedo */ ''}
-    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="none"`)}
+    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
     ${(() => {
       const rotulo = `Pila ${p.codigo}`, c = anclaTexto(p);
       const t = tamanoTexto(p, rotulo, { min: 8, max: 24, lineas: 2 });

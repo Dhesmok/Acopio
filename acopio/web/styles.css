@@ -859,10 +859,6 @@ button:focus:not(:focus-visible) { outline: none; }
    pellizco los apaga, y solo mientras dura. Ver mapa.js, acercando(). */
 #lienzo.acercando .txt-lote { display: none; }
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
-/* El cerco de la pila va en su propia capa enmascarada, y al doble de
-   grosor: la máscara le quita la mitad de dentro y a la vista queda el
-   de siempre. */
-.pila-trazo { stroke-width: 7; stroke-dasharray: 15 8; pointer-events: none; }
 .txt-pila {
   font-family: var(--mono); font-weight: 700;
   fill: #14171a; pointer-events: none; user-select: none;
