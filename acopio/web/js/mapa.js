@@ -40,6 +40,7 @@ function reiniciarInteraccion() {
   pinchInicial = null;
   movio = false;
   caja = null;      // la caja guardada era la del gesto que se cortó
+  moviendo(false);
 }
 
 // Red de seguridad: si el dedo se levanta fuera del lienzo, o el
@@ -112,13 +113,14 @@ function deslizarHasta(destino, ms = 420) {
   cancelAnimationFrame(animacion);
   if (menosMovimiento()) { vista = destino; aplicarVista(); return; }
   const desde = { ...vista }, t0 = performance.now();
+  moviendo(true);
   const suave = (t) => 1 - (1 - t) ** 3;
   const paso = (ahora) => {
     const k = Math.min((ahora - t0) / ms, 1), e = suave(k);
     vista = { x: desde.x + (destino.x - desde.x) * e, y: desde.y + (destino.y - desde.y) * e,
               w: desde.w + (destino.w - desde.w) * e, h: desde.h + (destino.h - desde.h) * e };
     aplicarVista();
-    if (k < 1) animacion = requestAnimationFrame(paso);
+    if (k < 1) animacion = requestAnimationFrame(paso); else moviendo(false);
   };
   animacion = requestAnimationFrame(paso);
 }
@@ -632,21 +634,32 @@ function aPlanoPunto(cx, cy, v = vista) {
 // El interruptor va aquí y no en cada gesto a propósito: por aquí pasan
 // TODOS los cambios de encuadre —el dedo, la rueda, los botones y el
 // vuelo hasta un lote buscado—, así que ninguno se queda fuera.
-let quieto = 0, ultimoEncuadre = -1e9;
-function aplicarVista() {
-  svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
-  const t = performance.now();
-  // Un cambio SUELTO no apaga nada: tocar una vez el botón de acercar
-  // haría desaparecer los códigos y volver, que es justo el parpadeo que
-  // se quiere quitar. Se apagan cuando el encuadre se mueve de seguido
-  // —el dedo, la rueda, el vuelo hasta un lote—, que es cuando cuesta.
-  if (t - ultimoEncuadre < 120) {
-    svg.classList.add('moviendo');
-    clearTimeout(quieto);
-    quieto = setTimeout(() => svg?.classList.remove('moviendo'), 140);
-  }
-  ultimoEncuadre = t;
+// Se enciende y se apaga con el GESTO, no con un cronómetro.
+//
+// La primera versión lo decidía midiendo si dos cambios de encuadre
+// caían a menos de 120 ms. Eso se rompe justo donde más falta hacía: en
+// un teléfono lento un cuadro dura MÁS que el umbral, así que la marca
+// se caía a mitad del pellizco, los códigos volvían a dibujarse, el
+// cuadro tardaba todavía más y se realimentaba. Medido con la CPU
+// frenada 20 veces: 33 encendidos y apagados en un solo pellizco. El
+// remedio parpadeaba más que la enfermedad.
+//
+// Ahora la marca dura exactamente lo que dura el gesto: se pone al
+// empezar y se quita al soltar, sin depender de lo rápido que vaya el
+// teléfono.
+let quieto = 0;
+function moviendo(si) {
+  clearTimeout(quieto);
+  quieto = 0;
+  if (si) return void svg?.classList.add('moviendo');
+  // Al apagar se deja un respiro: la rueda y el vuelo hasta un lote
+  // llegan a ráfagas y no tienen un "soltar", así que quitar la marca
+  // entre una ráfaga y la siguiente sería el parpadeo otra vez.
+  quieto = setTimeout(() => svg?.classList.remove('moviendo'), 120);
 }
+
+const aplicarVista = () =>
+  svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
 
 // Unidades del plano que cubre un píxel de pantalla. Con
 // preserveAspectRatio "meet" la escala es la misma en ambos ejes: manda
@@ -753,6 +766,7 @@ function iniciarZoom() {
   const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
   pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
   modo = 'zoom';
+  moviendo(true);
 }
 
 function abajo(ev) {
@@ -818,6 +832,7 @@ function abajo(ev) {
     // aviso era que la figura había cambiado de lugar.
     if (!modoEdicion) {
       modo = 'paneando';
+      moviendo(true);
       arrastre = {
         pantalla: { x: ev.clientX, y: ev.clientY },
         vista: { ...vista }, u: unidadesPorPixel(),
@@ -849,6 +864,7 @@ function abajo(ev) {
     cb.alTocarVacio?.();
   }
   modo = 'paneando';
+  moviendo(true);
   arrastre = {
     pantalla: { x: ev.clientX, y: ev.clientY },
     vista: { ...vista },
@@ -950,6 +966,7 @@ function arriba(ev) {
                    vista: { ...vista }, u: unidadesPorPixel() };
     } else {
       modo = 'ninguno';
+      moviendo(false);
       caja = null;                 // se soltó todo: la caja puede cambiar
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
@@ -983,6 +1000,7 @@ function arriba(ev) {
   }
   modo = 'ninguno';
   arrastre = null;
+  moviendo(false);
   if (!punteros.size) caja = null;   // se soltó todo: la caja puede cambiar
   if (repintadoPendiente) pintar(repintadoPendiente);
 }
@@ -996,6 +1014,8 @@ function rueda(ev) {
   vista.h = w * (vista.h / vista.w);
   vista.w = w;
   anclarEn(ev.clientX, ev.clientY, ancla);
+  moviendo(true);
+  moviendo(false);   // la rueda no tiene "soltar": el respiro hace de final
 }
 
 export function acercar(f) {

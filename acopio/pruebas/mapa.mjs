@@ -408,21 +408,35 @@ titulo('Mientras el plano se mueve, los códigos se apagan.');
 // Un <text> lleva su tamaño en unidades del plano: al acercar cambia de
 // tamaño real en cada cuadro y hay que recomponer cada glifo. Con 200
 // lotes eso son 117 ms por cuadro; sin los códigos, 17.
+//
+// Lo que importa aquí no es que se apaguen, sino que se queden apagados
+// TODO el gesto. La primera versión lo decidía con un cronómetro —dos
+// cambios de encuadre a menos de 120 ms— y en un teléfono lento un
+// cuadro dura más que eso: la marca se caía a mitad del pellizco, los
+// códigos volvían a dibujarse, el cuadro tardaba todavía más y se
+// realimentaba. Con la CPU frenada 20 veces eran 33 encendidos y
+// apagados en un solo gesto: el remedio parpadeaba más que la
+// enfermedad.
 Mapa.pintar(mismos);
-await new Promise((r) => setTimeout(r, 220));
+unoAUno();
+await new Promise((r) => setTimeout(r, 200));
+ok(!lienzo.clases.has('moviendo'), 'con el plano quieto, los códigos se dibujan');
 
-// Un cambio suelto —el botón de acercar— no apaga nada: se vería el
-// parpadeo que se quiere quitar.
-Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
-ok(!lienzo.clases.has('moviendo'), 'un cambio de encuadre suelto no apaga los códigos');
+disparar('pointerdown', dedo(1, 500, 350));
+ok(lienzo.clases.has('moviendo'), 'al empezar a arrastrar se apagan');
 
-// dos seguidos sí son un gesto en curso
-Mapa.fijarVista({ x: 10, y: 0, w: 1000, h: 700 });
-ok(lienzo.clases.has('moviendo'), 'moverse de seguido sí los apaga');
+let seMantuvo = true;
+for (let i = 1; i <= 20; i++) {
+  disparar('pointermove', dedo(1, 500 - i * 7, 350 - i * 5));
+  if (!lienzo.clases.has('moviendo')) seMantuvo = false;
+}
+ok(seMantuvo, 'y NO se vuelven a encender ni una sola vez a mitad del gesto');
 ok(lienzo.innerHTML.includes('class="txt-lote"'),
    'el código sigue en el SVG: lo apaga el CSS, no hay que rehacer el plano');
-await new Promise((r) => setTimeout(r, 220));
-ok(!lienzo.clases.has('moviendo'), 'y en cuanto se queda quieto vuelven');
+
+disparar('pointerup', dedo(1, 360, 250));
+await new Promise((r) => setTimeout(r, 200));
+ok(!lienzo.clases.has('moviendo'), 'y al soltar el dedo vuelven');
 
 // ---------------------------------------------------------------------
 titulo('El pellizco deja quieto el punto que está entre los dos dedos.');
