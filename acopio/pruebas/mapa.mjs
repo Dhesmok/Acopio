@@ -2,6 +2,7 @@
 //  El mapa se dibuja metiendo texto en innerHTML. Un código de lote con
 //  un "<" dejaba el plano entero sin dibujar, y para todos.
 // =====================================================================
+import { readFile } from 'node:fs/promises';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 
 globalThis.addEventListener = () => {};
@@ -401,6 +402,22 @@ Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {});
 lienzo.innerHTML = '';
 Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] });
 ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el plano no haya cambiado');
+
+// ---------------------------------------------------------------------
+titulo('Los controles del mapa siguen flotando sobre el plano.');
+
+// Esta prueba mira el CSS a pelo, y no es por gusto: la capa de controles
+// se quedó sin `position: absolute` al reescribir la regla de al lado
+// —la que quita las zonas muertas— y los botones se fueron al flujo,
+// debajo del lienzo, con cero de alto y fuera de la pantalla. La app
+// quedó sin "Nuevo lote", sin buscar, sin filtrar y sin zoom, y ninguna
+// prueba se enteró porque aquí no hay navegador que dibuje.
+const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+const bloque = css.slice(css.indexOf('.mapa-controles {'),
+                         css.indexOf('}', css.indexOf('.mapa-controles {')));
+ok(/position:\s*absolute/.test(bloque),
+   'la capa de controles es absoluta: si no, los botones caen fuera de la pantalla');
+ok(/inset:\s*0/.test(bloque), 'y cubre el plano entero, que es donde se colocan');
 
 // ---------------------------------------------------------------------
 titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
