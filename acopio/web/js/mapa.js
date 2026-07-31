@@ -61,6 +61,7 @@ export function montar(contenedor, callbacks) {
   cb = callbacks;
   reiniciarInteraccion();
   repintadoPendiente = null;
+  ultimoDibujo = '';
   seleccion = null;
   contenedor.innerHTML = `<svg id="lienzo" xmlns="http://www.w3.org/2000/svg"
       preserveAspectRatio="xMidYMid meet" touch-action="none"></svg>`;
@@ -205,7 +206,7 @@ export function pintar(d) {
   const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l) && l.id !== datos.naciendo);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
 
-  svg.innerHTML = `
+  const dibujo = `
     <defs>
       <pattern id="reticula" width="50" height="50" patternUnits="userSpaceOnUse">
         <path d="M50 0H0V50" fill="none" stroke="#14171a" stroke-width="1" opacity=".07"/>
@@ -224,7 +225,28 @@ export function pintar(d) {
     ${capasLote(sueltos.filter((l) => !tenue(l.id)), pilasVivas.length)}
     ${recorrido(datos.recorrido)}
     ${seleccion ? manijas() : ''}`;
+
+  // Si sale exactamente el mismo plano, no se toca el SVG.
+  //
+  // La app se sincroniza cada 20 segundos y casi siempre no ha cambiado
+  // nada, pero el repintado rearmaba igual el plano entero: cientos de
+  // figuras destruidas y vueltas a crear, con su parpadeo. Y si caía
+  // mientras alguien arrastraba el plano, se quedaba esperando y el
+  // parpadeo saltaba justo al levantar el dedo, que es donde más se nota.
+  //
+  // Se compara el TEXTO ya armado y no los datos: armarlo cuesta unos
+  // milisegundos y no puede equivocarse: si el dibujo es idéntico, la
+  // pantalla ya lo está mostrando. Con una firma de los datos habría que
+  // acertar qué campos entran, y olvidar uno significa cambios que se
+  // guardan pero no se ven nunca.
+  if (dibujo === ultimoDibujo) return;
+  ultimoDibujo = dibujo;
+  svg.innerHTML = dibujo;
 }
+// Qué está pintado ahora mismo. Se vacía al montar: el lienzo es otro y
+// está en blanco, así que hay que volver a dibujarlo aunque toque lo
+// mismo que había en el anterior.
+let ultimoDibujo = '';
 
 // Los lotes se dibujan en TRES pasadas: todos los contornos, encima
 // todos los rellenos, y encima todos los rótulos.
@@ -574,7 +596,38 @@ function aPlanoPunto(cx, cy) {
   p.x = cx; p.y = cy;
   return p.matrixTransform(svg.getScreenCTM().inverse());
 }
-const aplicarVista = () => svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
+// Mientras el plano se MUEVE, los códigos de los lotes no se dibujan.
+//
+// Un <text> lleva su font-size en unidades del plano, así que al acercar
+// cambia de tamaño real en cada cuadro y el navegador tiene que volver a
+// componer cada glifo de cada código, sin poder reaprovechar nada.
+// Medido en un teléfono de gama media con 200 lotes: 117 ms por cuadro
+// con los códigos puestos y 17 ms sin ellos. Siete veces. Desplazando sin
+// acercar, donde el tamaño no cambia, sigue costando el doble.
+//
+// Nadie lee un código mientras arrastra el plano, así que se apagan
+// mientras dura el movimiento y vuelven en cuanto se queda quieto. Los
+// rótulos de las pilas y del fondo se quedan: son cuatro, no cuestan, y
+// son justo lo que dice por dónde va uno mientras se mueve.
+//
+// El interruptor va aquí y no en cada gesto a propósito: por aquí pasan
+// TODOS los cambios de encuadre —el dedo, la rueda, los botones y el
+// vuelo hasta un lote buscado—, así que ninguno se queda fuera.
+let quieto = 0, ultimoEncuadre = -1e9;
+function aplicarVista() {
+  svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
+  const t = performance.now();
+  // Un cambio SUELTO no apaga nada: tocar una vez el botón de acercar
+  // haría desaparecer los códigos y volver, que es justo el parpadeo que
+  // se quiere quitar. Se apagan cuando el encuadre se mueve de seguido
+  // —el dedo, la rueda, el vuelo hasta un lote—, que es cuando cuesta.
+  if (t - ultimoEncuadre < 120) {
+    svg.classList.add('moviendo');
+    clearTimeout(quieto);
+    quieto = setTimeout(() => svg?.classList.remove('moviendo'), 140);
+  }
+  ultimoEncuadre = t;
+}
 
 // Unidades del plano que cubre un píxel de pantalla. Con
 // preserveAspectRatio "meet" la escala es la misma en ambos ejes: manda
