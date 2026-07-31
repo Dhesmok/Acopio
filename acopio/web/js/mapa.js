@@ -40,6 +40,7 @@ function reiniciarInteraccion() {
   pinchInicial = null;
   movio = false;
   caja = null;      // la caja guardada era la del gesto que se cortó
+  acercando(false);
 }
 
 // Red de seguridad: si el dedo se levanta fuera del lienzo, o el
@@ -732,6 +733,28 @@ function iniciarZoom() {
   const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
   pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
   modo = 'zoom';
+  acercando(true);
+}
+
+// Mientras dura el PELLIZCO —y solo entonces— los códigos de los lotes no
+// se dibujan.
+//
+// Desplazar y acercar no cuestan lo mismo. Al desplazar, el texto solo se
+// vuelve a pintar; al acercar cambia de TAMAÑO en cada cuadro, y hay que
+// recomponer cada glifo de cada código sin poder reaprovechar nada.
+// Medido con 149 lotes: desplazar cuesta el doble con los códigos
+// puestos, acercar cuesta siete veces más. Por eso el paneo se dejó
+// intacto —ahí una escena estable vale más que el ahorro— y el pellizco
+// no.
+//
+// La marca la pone y la quita el GESTO, nunca un cronómetro. Una versión
+// anterior lo decidía midiendo si dos cuadros caían a menos de 120 ms, y
+// en un teléfono lento un cuadro dura más que eso: la marca se caía a
+// mitad del pellizco, los códigos volvían, el cuadro tardaba todavía más
+// y se realimentaba. Con la CPU frenada 20 veces eran 33 encendidos y
+// apagados en un solo gesto.
+function acercando(si) {
+  svg?.classList[si ? 'add' : 'remove']('acercando');
 }
 
 function abajo(ev) {
@@ -918,6 +941,7 @@ function arriba(ev) {
     if (punteros.size >= 2) {
       iniciarZoom();               // sigue el pellizco con los que quedan
     } else if (punteros.size === 1) {
+      acercando(false);          // queda un dedo: esto ya es paneo
       // Queda un dedo. Antes el mapa se quedaba muerto hasta levantarlo:
       // no hacía zoom (falta un dedo) ni paneaba (el modo seguía siendo
       // zoom), y parecía que el plano se hubiera trabado. Ahora ese dedo
@@ -929,6 +953,7 @@ function arriba(ev) {
                    vista: { ...vista }, u: unidadesPorPixel() };
     } else {
       modo = 'ninguno';
+      acercando(false);
       caja = null;                 // se soltó todo: la caja puede cambiar
       if (repintadoPendiente) pintar(repintadoPendiente);
     }

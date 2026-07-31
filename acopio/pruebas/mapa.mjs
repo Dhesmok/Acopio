@@ -2,6 +2,7 @@
 //  El mapa se dibuja metiendo texto en innerHTML. Un código de lote con
 //  un "<" dejaba el plano entero sin dibujar, y para todos.
 // =====================================================================
+import { readFile } from 'node:fs/promises';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 
 globalThis.addEventListener = () => {};
@@ -403,6 +404,22 @@ Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] }
 ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el plano no haya cambiado');
 
 // ---------------------------------------------------------------------
+titulo('Los controles del mapa siguen flotando sobre el plano.');
+
+// Esta prueba mira el CSS a pelo, y no es por gusto: la capa de controles
+// se quedó sin `position: absolute` al reescribir la regla de al lado
+// —la que quita las zonas muertas— y los botones se fueron al flujo,
+// debajo del lienzo, con cero de alto y fuera de la pantalla. La app
+// quedó sin "Nuevo lote", sin buscar, sin filtrar y sin zoom, y ninguna
+// prueba se enteró porque aquí no hay navegador que dibuje.
+const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+const bloque = css.slice(css.indexOf('.mapa-controles {'),
+                         css.indexOf('}', css.indexOf('.mapa-controles {')));
+ok(/position:\s*absolute/.test(bloque),
+   'la capa de controles es absoluta: si no, los botones caen fuera de la pantalla');
+ok(/inset:\s*0/.test(bloque), 'y cubre el plano entero, que es donde se colocan');
+
+// ---------------------------------------------------------------------
 titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
 
 // Esto es una DECISIÓN, no un detalle, y por eso está aquí: que se rompa
@@ -433,6 +450,41 @@ ok(enc[0] !== 0 || enc[1] !== 0, `el encuadre sí se movió (${lienzo.attrs.view
 
 disparar('pointerup', dedo(1, 360, 250));
 ok(lienzo.clases.size === 0, 'y al soltar tampoco queda ninguna puesta');
+
+// ---------------------------------------------------------------------
+titulo('El pellizco apaga los códigos; el paneo no.');
+
+// Desplazar y acercar no cuestan lo mismo. Al desplazar el texto solo se
+// vuelve a pintar; al acercar cambia de TAMAÑO en cada cuadro y hay que
+// recomponer cada glifo. Medido con 149 lotes y 3 pilas, en un pellizco
+// de 30 movimientos con la CPU frenada 10 veces: con los códigos
+// puestos, el 10% de los cuadros pasa de 367 ms y el peor llega a 417;
+// apagándolos, 50 y 100. A 20 veces, 783 ms contra 100.
+//
+// Y la marca la pone el GESTO, no un cronómetro: si parpadea a mitad del
+// pellizco, el remedio es peor que la enfermedad.
+Mapa.pintar(mismos);
+unoAUno();
+
+disparar('pointerdown', dedo(1, 400, 300));
+ok(!lienzo.clases.has('acercando'), 'un solo dedo es paneo: los códigos se quedan');
+
+disparar('pointerdown', dedo(2, 600, 300));
+ok(lienzo.clases.has('acercando'), 'con el segundo dedo empieza el pellizco y se apagan');
+
+let siempreApagados = true;
+for (let i = 1; i <= 20; i++) {
+  disparar('pointermove', dedo(1, 400 - i * 4, 300));
+  disparar('pointermove', dedo(2, 600 + i * 4, 300));
+  if (!lienzo.clases.has('acercando')) siempreApagados = false;
+}
+ok(siempreApagados, 'y siguen apagados TODO el pellizco, sin encenderse ni una vez');
+
+// al levantar un dedo esto pasa a ser paneo, y el paneo no los apaga
+disparar('pointerup', dedo(2, 680, 300));
+ok(!lienzo.clases.has('acercando'), 'al quedar un dedo vuelven, porque ya es paneo');
+disparar('pointerup', dedo(1, 320, 300));
+ok(!lienzo.clases.has('acercando'), 'y al soltar del todo tampoco queda la marca puesta');
 
 // ---------------------------------------------------------------------
 titulo('El pellizco deja quieto el punto que está entre los dos dedos.');
