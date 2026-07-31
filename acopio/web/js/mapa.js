@@ -40,7 +40,6 @@ function reiniciarInteraccion() {
   pinchInicial = null;
   movio = false;
   caja = null;      // la caja guardada era la del gesto que se cortó
-  moviendo(false);
 }
 
 // Red de seguridad: si el dedo se levanta fuera del lienzo, o el
@@ -113,14 +112,13 @@ function deslizarHasta(destino, ms = 420) {
   cancelAnimationFrame(animacion);
   if (menosMovimiento()) { vista = destino; aplicarVista(); return; }
   const desde = { ...vista }, t0 = performance.now();
-  moviendo(true);
   const suave = (t) => 1 - (1 - t) ** 3;
   const paso = (ahora) => {
     const k = Math.min((ahora - t0) / ms, 1), e = suave(k);
     vista = { x: desde.x + (destino.x - desde.x) * e, y: desde.y + (destino.y - desde.y) * e,
               w: desde.w + (destino.w - desde.w) * e, h: desde.h + (destino.h - desde.h) * e };
     aplicarVista();
-    if (k < 1) animacion = requestAnimationFrame(paso); else moviendo(false);
+    if (k < 1) animacion = requestAnimationFrame(paso);
   };
   animacion = requestAnimationFrame(paso);
 }
@@ -617,49 +615,17 @@ function aPlanoPunto(cx, cy, v = vista) {
   return { x: v.x + (cx - r.left - (r.width - v.w * s) / 2) / s,
            y: v.y + (cy - r.top - (r.height - v.h * s) / 2) / s };
 }
-// Mientras el plano se MUEVE, los códigos de los lotes no se dibujan.
-//
-// Un <text> lleva su font-size en unidades del plano, así que al acercar
-// cambia de tamaño real en cada cuadro y el navegador tiene que volver a
-// componer cada glifo de cada código, sin poder reaprovechar nada.
-// Medido en un teléfono de gama media con 200 lotes: 117 ms por cuadro
-// con los códigos puestos y 17 ms sin ellos. Siete veces. Desplazando sin
-// acercar, donde el tamaño no cambia, sigue costando el doble.
-//
-// Nadie lee un código mientras arrastra el plano, así que se apagan
-// mientras dura el movimiento y vuelven en cuanto se queda quieto. Los
-// rótulos de las pilas y del fondo se quedan: son cuatro, no cuestan, y
-// son justo lo que dice por dónde va uno mientras se mueve.
-//
-// El interruptor va aquí y no en cada gesto a propósito: por aquí pasan
-// TODOS los cambios de encuadre —el dedo, la rueda, los botones y el
-// vuelo hasta un lote buscado—, así que ninguno se queda fuera.
-// Se enciende y se apaga con el GESTO, no con un cronómetro.
-//
-// La primera versión lo decidía midiendo si dos cambios de encuadre
-// caían a menos de 120 ms. Eso se rompe justo donde más falta hacía: en
-// un teléfono lento un cuadro dura MÁS que el umbral, así que la marca
-// se caía a mitad del pellizco, los códigos volvían a dibujarse, el
-// cuadro tardaba todavía más y se realimentaba. Medido con la CPU
-// frenada 20 veces: 33 encendidos y apagados en un solo pellizco. El
-// remedio parpadeaba más que la enfermedad.
-//
-// Ahora la marca dura exactamente lo que dura el gesto: se pone al
-// empezar y se quita al soltar, sin depender de lo rápido que vaya el
-// teléfono.
-let quieto = 0;
-function moviendo(si) {
-  clearTimeout(quieto);
-  quieto = 0;
-  if (si) return void svg?.classList.add('moviendo');
-  // Al apagar se deja un respiro: la rueda y el vuelo hasta un lote
-  // llegan a ráfagas y no tienen un "soltar", así que quitar la marca
-  // entre una ráfaga y la siguiente sería el parpadeo otra vez.
-  quieto = setTimeout(() => svg?.classList.remove('moviendo'), 120);
-}
-
-const aplicarVista = () =>
+// Mover el plano SOLO cambia el viewBox. Antes, durante movimientos
+// seguidos, se agregaba una clase que escondía y volvía a mostrar los
+// códigos de los lotes para ahorrar composición de texto. En teléfonos
+// reales ese cambio de `display` era peor: los rótulos, algunos bordes y
+// hasta los controles flotantes parpadeaban como si el mapa prendiera y
+// apagara una capa blanca. El mapa debe ser estable mientras se desplaza,
+// así que no se toca ninguna clase: el navegador conserva la misma escena
+// y solo recalcula el encuadre.
+function aplicarVista() {
   svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
+}
 
 // Unidades del plano que cubre un píxel de pantalla. Con
 // preserveAspectRatio "meet" la escala es la misma en ambos ejes: manda
@@ -766,7 +732,6 @@ function iniciarZoom() {
   const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
   pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
   modo = 'zoom';
-  moviendo(true);
 }
 
 function abajo(ev) {
@@ -832,7 +797,6 @@ function abajo(ev) {
     // aviso era que la figura había cambiado de lugar.
     if (!modoEdicion) {
       modo = 'paneando';
-      moviendo(true);
       arrastre = {
         pantalla: { x: ev.clientX, y: ev.clientY },
         vista: { ...vista }, u: unidadesPorPixel(),
@@ -864,7 +828,6 @@ function abajo(ev) {
     cb.alTocarVacio?.();
   }
   modo = 'paneando';
-  moviendo(true);
   arrastre = {
     pantalla: { x: ev.clientX, y: ev.clientY },
     vista: { ...vista },
@@ -966,7 +929,6 @@ function arriba(ev) {
                    vista: { ...vista }, u: unidadesPorPixel() };
     } else {
       modo = 'ninguno';
-      moviendo(false);
       caja = null;                 // se soltó todo: la caja puede cambiar
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
@@ -1000,7 +962,6 @@ function arriba(ev) {
   }
   modo = 'ninguno';
   arrastre = null;
-  moviendo(false);
   if (!punteros.size) caja = null;   // se soltó todo: la caja puede cambiar
   if (repintadoPendiente) pintar(repintadoPendiente);
 }
@@ -1014,8 +975,6 @@ function rueda(ev) {
   vista.h = w * (vista.h / vista.w);
   vista.w = w;
   anclarEn(ev.clientX, ev.clientY, ancla);
-  moviendo(true);
-  moviendo(false);   // la rueda no tiene "soltar": el respiro hace de final
 }
 
 export function acercar(f) {
