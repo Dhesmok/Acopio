@@ -219,7 +219,7 @@ export function pintar(d) {
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}
-    ${capasPila(pilasVivas, datos.lotes, sueltos)}
+    ${capasPila(pilasVivas, datos.lotes, sueltos, c)}
     <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)), pilasVivas.length)}</g>
     ${capasLote(sueltos.filter((l) => !tenue(l.id)), pilasVivas.length)}
     ${recorrido(datos.recorrido)}
@@ -268,22 +268,28 @@ function capasLote(ls, hayPilas) {
 // de una máscara RECORTA: lo que cae fuera no es que salga sin enmascarar,
 // es que no sale. Ceñirla a las pilas dejó a los lotes de más allá sin
 // contorno ninguno.
-function capasPila(ps, lotes, enmascarados = []) {
+function capasPila(ps, lotes, enmascarados, c) {
   if (!ps.length) return '';
   const col = (p) => esc(paleta()[`pila_${p.tipo}`] || '#14171a');
   const puesta = (p, attrs, clase = '') =>
     `<g ${trazo(p)} class="${clase}">${cuerpo(p, attrs)}</g>`;
 
-  // La región se ciñe al terreno de lo que pasa por la máscara y no al
-  // plano entero: una región enorme es memoria de vídeo tirada en un
-  // teléfono.
-  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  // La región abarca el patio entero y además todo lo que pase por la
+  // máscara, por si alguien dejó una figura fuera del plano. No se ciñe
+  // a las figuras y ya: arrastrar un lote NO repinta —se le mueve el nodo
+  // y punto, que es lo que hace que el arrastre vaya suave—, así que la
+  // región se queda con la que se calculó al pintar. Ceñida, un lote
+  // llevado a un rincón vacío se salía de ella y perdía el contorno
+  // entero a mitad del arrastre. La holgura es lo que se puede arrastrar
+  // hacia fuera antes de que vuelva a pasar; el patio ya está dentro.
+  let x1 = 0, y1 = 0;
+  let x2 = Number(c.ancho) || 1000, y2 = Number(c.alto) || 700;
   for (const p of ps.concat(enmascarados)) {
     const r = radioDe(p);
     x1 = Math.min(x1, p.x - r.x); x2 = Math.max(x2, p.x + r.x);
     y1 = Math.min(y1, p.y - r.y); y2 = Math.max(y2, p.y + r.y);
   }
-  const m = 40;
+  const m = 600;
   const caja = `x="${x1 - m}" y="${y1 - m}" width="${x2 - x1 + m * 2}" height="${y2 - y1 + m * 2}"`;
 
   return `

@@ -1124,7 +1124,7 @@ function filasDelInforme(notas) {
   const pilas = Object.fromEntries(S.pilas.map((p) => [p.id, p.codigo]));
   return S.lotes
     .slice()
-    .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }))
+    .sort((a, b) => (a.codigo || '').localeCompare(b.codigo || '', 'es', { numeric: true }))
     .map((l) => ({
       codigo: l.codigo,
       proveedor: prov[l.proveedor_id] || '',
@@ -1166,7 +1166,8 @@ async function panelInforme() {
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Volver</button>`,
     '<h2 class="pregunta">Listado de lotes</h2>');
 
-  $('#cerrar').onclick = cerrarHoja;
+  // "Volver" vuelve al menú, no cierra: se entró desde ahí.
+  $('#cerrar').onclick = menuCuenta;
   $('#bajar').onclick = accion(async () => {
     // La carga se hace aquí y no al abrir la hoja: en un patio con 900
     // lotes armar el archivo tarda lo suyo, y no hay por qué pagarlo
@@ -1278,11 +1279,11 @@ async function fichaLote(id) {
           >${esc(p.abreviatura)} · ${esc(p.nombre)}</option>`).join('')}
       </select>
     </div>
-    <button class="btn btn-ancho" id="a-guardar" style="width:100%">Guardar corrección</button>` : ''}
+    <button class="btn btn-guardar btn-ancho" id="a-guardar" style="width:100%">Guardar corrección</button>` : ''}
 
     <h3>Observación</h3>
     <div class="campo"><textarea id="nota" rows="2" placeholder="Qué se observó en el lote"></textarea></div>
-    <button class="btn btn-ancho" id="guardar-nota" style="width:100%">Guardar observación</button>`}
+    <button class="btn btn-guardar btn-ancho" id="guardar-nota" style="width:100%">Guardar observación</button>`}
 
     <h3>Historial</h3>
     ${Store.historialCompleto(eventos) ? '' : `<p class="aviso">Falta señal para traer la parte
@@ -1496,7 +1497,7 @@ async function fichaPila(id) {
           `<option value="${k}" ${k === p.tipo ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
     </div>
-    <button class="btn btn-ancho" id="guardar-pila" style="width:100%">Guardar</button>`}
+    <button class="btn btn-guardar btn-ancho" id="guardar-pila" style="width:100%">Guardar</button>`}
 
     ${lectura ? '' : `
     <h3>Forma en el mapa</h3>
@@ -1747,7 +1748,7 @@ function panelFondo() {
 
     <div class="acciones" style="margin-top:18px">
       <button id="cerrar">Cerrar</button>
-      <button id="guardar-fondo" class="btn-lleno">Guardar</button>
+      <button id="guardar-fondo" class="btn-guardar">Guardar</button>
     </div>
     <p id="fondo-error" class="aviso" hidden></p>`);
 
@@ -1830,7 +1831,7 @@ function fichaFigura(id) {
 
     <div class="acciones" style="margin-top:16px">
       <button id="g-borrar" class="btn-peligro">Borrar</button>
-      <button id="g-guardar" class="btn-lleno">Guardar</button>
+      <button id="g-guardar" class="btn-guardar">Guardar</button>
     </div>
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:8px">Cancelar</button>`);
   $('#cerrar').onclick = cerrarHoja;
