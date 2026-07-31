@@ -39,6 +39,7 @@ function reiniciarInteraccion() {
   arrastre = null;
   pinchInicial = null;
   movio = false;
+  caja = null;      // la caja guardada era la del gesto que se cortó
 }
 
 // Red de seguridad: si el dedo se levanta fuera del lienzo, o el
@@ -591,10 +592,28 @@ const alto = (ps) => Math.max(...ps.map((p) => Math.abs(p.y)));
 // ------------------------------------------------------------ geometría
 function aPlano(ev) { return aPlanoPunto(ev.clientX, ev.clientY); }
 
-function aPlanoPunto(cx, cy) {
-  const p = svg.createSVGPoint();
-  p.x = cx; p.y = cy;
-  return p.matrixTransform(svg.getScreenCTM().inverse());
+// Dónde está el lienzo en la pantalla. Preguntarlo NO es gratis: obliga
+// al navegador a recalcular la disposición en ese instante, con el plano
+// entero por delante. Durante un gesto no se mueve, así que se pregunta
+// una vez al apoyar el dedo y se guarda hasta soltarlo. Fuera de un gesto
+// se pregunta cada vez, que es lo seguro: la caja cambia al girar el
+// teléfono, al abrir el buscador o al cambiar de pestaña.
+let caja = null;
+const cajaLienzo = () => caja || svg.getBoundingClientRect();
+
+// De un punto de la PANTALLA a uno del PLANO, a mano.
+//
+// Antes se le pedía la matriz al navegador con getScreenCTM(), que
+// también fuerza el recálculo. En mitad de un pellizco eso pasaba una vez
+// por cada movimiento del dedo, y es de lo que más pesa cuando hay
+// cientos de figuras. La cuenta es corta y no toca el DOM: con
+// preserveAspectRatio "meet" la escala es la misma en los dos ejes y lo
+// que sobra se reparte a los lados.
+function aPlanoPunto(cx, cy, v = vista) {
+  const r = cajaLienzo();
+  const s = Math.min(r.width / v.w, r.height / v.h) || 1;
+  return { x: v.x + (cx - r.left - (r.width - v.w * s) / 2) / s,
+           y: v.y + (cy - r.top - (r.height - v.h * s) / 2) / s };
 }
 // Mientras el plano se MUEVE, los códigos de los lotes no se dibujan.
 //
@@ -633,7 +652,7 @@ function aplicarVista() {
 // preserveAspectRatio "meet" la escala es la misma en ambos ejes: manda
 // el lado que primero se queda sin espacio.
 function unidadesPorPixel(v = vista) {
-  const r = svg.getBoundingClientRect();
+  const r = cajaLienzo();
   const escala = Math.min(r.width / v.w, r.height / v.h);
   return escala > 0 ? 1 / escala : 1;
 }
@@ -641,8 +660,11 @@ function unidadesPorPixel(v = vista) {
 // Deja quieto el punto del plano que está bajo (cx, cy) de la pantalla.
 // Sin esto el zoom siempre tira hacia el centro y se siente que el mapa
 // se escapa de donde uno está mirando.
+//
+// Ya no hace falta escribir el encuadre antes de medir: la cuenta usa el
+// `vista` que hay en memoria —que el pellizco acaba de actualizar— en vez
+// de preguntarle al navegador dónde quedó dibujado.
 function anclarEn(cx, cy, ancla) {
-  aplicarVista();
   const ahora = aPlanoPunto(cx, cy);
   vista.x += ancla.x - ahora.x;
   vista.y += ancla.y - ahora.y;
@@ -736,6 +758,10 @@ function iniciarZoom() {
 function abajo(ev) {
   cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
   svg.setPointerCapture(ev.pointerId);
+  // La caja del lienzo, una sola vez para todo el gesto. Mientras el dedo
+  // esté abajo no puede cambiar, y preguntarla en cada movimiento era
+  // obligar al navegador a recalcular la disposición del plano entero.
+  if (!punteros.size) caja = svg.getBoundingClientRect();
   punteros.set(ev.pointerId, ev);
 
   if (punteros.size >= 2) { iniciarZoom(); return; }
@@ -924,6 +950,7 @@ function arriba(ev) {
                    vista: { ...vista }, u: unidadesPorPixel() };
     } else {
       modo = 'ninguno';
+      caja = null;                 // se soltó todo: la caja puede cambiar
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
     return;
@@ -956,6 +983,7 @@ function arriba(ev) {
   }
   modo = 'ninguno';
   arrastre = null;
+  if (!punteros.size) caja = null;   // se soltó todo: la caja puede cambiar
   if (repintadoPendiente) pintar(repintadoPendiente);
 }
 
