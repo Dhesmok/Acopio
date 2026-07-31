@@ -403,26 +403,36 @@ Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] }
 ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el plano no haya cambiado');
 
 // ---------------------------------------------------------------------
-titulo('Mientras el plano se mueve, los códigos se apagan.');
+titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
 
-// Un <text> lleva su tamaño en unidades del plano: al acercar cambia de
-// tamaño real en cada cuadro y hay que recomponer cada glifo. Con 200
-// lotes eso son 117 ms por cuadro; sin los códigos, 17.
+// Esto es una DECISIÓN, no un detalle, y por eso está aquí: que se rompa
+// la prueba si alguien vuelve a intentarlo sin probarlo en un teléfono.
+//
+// Se probó apagar los códigos de los lotes mientras el plano se movía,
+// porque un <text> lleva su tamaño en unidades del plano y al acercar hay
+// que recomponer cada glifo en cada cuadro. En el banco de pruebas
+// ganaba mucho —117 ms por cuadro contra 17 con 200 lotes—, pero en
+// teléfonos de verdad salió peor: encender y apagar el `display` de
+// doscientos textos hacía parpadear los rótulos, algunos bordes y hasta
+// los controles que flotan FUERA del SVG, como si el mapa prendiera y
+// apagara una capa blanca.
+//
+// Vale más una escena estable que un cuadro más rápido: mientras el dedo
+// arrastra, lo único que cambia es el viewBox.
 Mapa.pintar(mismos);
-await new Promise((r) => setTimeout(r, 220));
+unoAUno();
+const antesDelGesto = lienzo.innerHTML;
 
-// Un cambio suelto —el botón de acercar— no apaga nada: se vería el
-// parpadeo que se quiere quitar.
-Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
-ok(!lienzo.clases.has('moviendo'), 'un cambio de encuadre suelto no apaga los códigos');
+disparar('pointerdown', dedo(1, 500, 350));
+for (let i = 1; i <= 20; i++) disparar('pointermove', dedo(1, 500 - i * 7, 350 - i * 5));
 
-// dos seguidos sí son un gesto en curso
-Mapa.fijarVista({ x: 10, y: 0, w: 1000, h: 700 });
-ok(lienzo.clases.has('moviendo'), 'moverse de seguido sí los apaga');
-ok(lienzo.innerHTML.includes('class="txt-lote"'),
-   'el código sigue en el SVG: lo apaga el CSS, no hay que rehacer el plano');
-await new Promise((r) => setTimeout(r, 220));
-ok(!lienzo.clases.has('moviendo'), 'y en cuanto se queda quieto vuelven');
+ok(lienzo.clases.size === 0, 'arrastrando no se le pone ninguna clase al lienzo');
+ok(lienzo.innerHTML === antesDelGesto, 'y el SVG no se toca: lo que cambia es el encuadre');
+const enc = lienzo.attrs.viewBox.split(' ').map(Number);
+ok(enc[0] !== 0 || enc[1] !== 0, `el encuadre sí se movió (${lienzo.attrs.viewBox})`);
+
+disparar('pointerup', dedo(1, 360, 250));
+ok(lienzo.clases.size === 0, 'y al soltar tampoco queda ninguna puesta');
 
 // ---------------------------------------------------------------------
 titulo('El pellizco deja quieto el punto que está entre los dos dedos.');
