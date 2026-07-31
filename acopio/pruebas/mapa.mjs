@@ -319,10 +319,25 @@ ok((conPilas.match(/fill="#000"/g) || []).length === 2,
 ok(conPilas.includes('mask="url(#fuera-de-pilas)"'), 'y la capa de cercos la usa');
 ok(/class="pila-forma"[^>]*stroke="none"/.test(conPilas),
    'el relleno ya no lleva cerco propio, o volvería a cruzar al vecino');
-// La máscara se recorta al terreno de las pilas: cubrir el plano entero
-// es memoria de vídeo tirada en un teléfono.
-const region = conPilas.match(/<mask id="fuera-de-pilas"[^>]*width="(\d+)"/);
-ok(region && +region[1] < 1000, `la máscara se ciñe a las pilas (${region?.[1]} de ancho)`);
+// El contorno del lote pasa por la MISMA máscara: un lote encima de una
+// pila también es el mismo material.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: dosPilas,
+              lotes: [{ id: 'lx', codigo: 'PG1', estado: 'muestreado', pila_id: null,
+                        forma: 'elipse', x: 320, y: 300, rx: 60, ry: 45, rot: 0 }] });
+ok(lienzo.innerHTML.includes('<g mask="url(#fuera-de-pilas)">'),
+   'los contornos de los lotes van por la máscara de las pilas');
+
+// La región de una máscara RECORTA: lo que cae fuera no sale. Y arrastrar
+// un lote no repinta, así que la región tiene que aguantar el arrastre sin
+// quedarse corta, o el lote pierde el contorno a mitad de camino.
+const region = lienzo.innerHTML.match(
+  /<mask id="fuera-de-pilas"[^>]*x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+ok(region, 'la máscara declara su región');
+const [, mx, my, mw, mh] = region.map(Number);
+ok(mx <= 0 && my <= 0 && mx + mw >= 1000 && my + mh >= 700,
+   `la región cubre el patio entero (${mx}, ${my}, ${mw} × ${mh})`);
+ok(mx < -300 && mx + mw > 1300,
+   'y sobra sitio para arrastrar un lote fuera del patio sin que pierda el contorno');
 
 // ---------------------------------------------------------------------
 titulo('La manija de ajuste no mengua con la figura.');

@@ -62,6 +62,13 @@
   --rojo:          #c0281a;
   --rojo-fuerte:   #94190e;
 
+  /* Verde de "esto queda guardado". Aparte de `--pila_alimentacion` por
+     lo mismo que el rojo: los colores de estado los repinta el admin y
+     un botón de guardar no puede cambiar de color por eso. Da 5.3:1 en
+     blanco sobre él, así que se lee a pleno sol. */
+  --verde:         #1f7a54;
+  --verde-fuerte:  #175c3f;
+
   --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -524,6 +531,15 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   background: var(--devolucion); border-color: var(--tinta); color: #fff;
   box-shadow: none;
 }
+/* Guardar es la acción que deja algo escrito, y va en verde para que se
+   distinga de un vistazo del negro —que es "sigue adelante"— y del rojo
+   —que es "esto no tiene vuelta atrás"—. Antes unos guardaban desde un
+   botón negro y otros desde uno de contorno, según la hoja. */
+.btn-guardar {
+  background: var(--verde); border-color: var(--tinta); color: #fff;
+  box-shadow: none;
+}
+.btn-guardar:hover { background: var(--verde-fuerte); }
 .btn-ancho  { grid-column: 1 / -1; }
 :where(.acciones) button:disabled, .btn:disabled {
   opacity: .42; cursor: default; box-shadow: none; transform: none;
@@ -532,8 +548,8 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
   transform: translate(2px, 2px); box-shadow: none;
   transition-duration: 60ms;
 }
-:where(.acciones) button:not(.btn-lleno):not(.btn-peligro):hover,
-.btn:not(.btn-lleno):not(.btn-peligro):hover { background: var(--piso); }
+:where(.acciones) button:not(.btn-lleno):not(.btn-peligro):not(.btn-guardar):hover,
+.btn:not(.btn-lleno):not(.btn-peligro):not(.btn-guardar):hover { background: var(--piso); }
 .btn-lleno:hover { background: var(--tinta-2); }
 
 .campo { margin-bottom: 13px; }

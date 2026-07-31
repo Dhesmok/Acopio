@@ -37,8 +37,12 @@ function columna(n) {
 // media complicación del formato.
 function celda(valor, ref, estilo) {
   const s = estilo ? ` s="${estilo}"` : '';
-  if (typeof valor === 'number' && Number.isFinite(valor))
-    return `<c r="${ref}"${s}><v>${valor}</v></c>`;
+  if (typeof valor === 'number') {
+    // Un número que no es un número deja la celda vacía. Escribirlo como
+    // texto ponía "NaN" en el informe, y un "NaN" en una columna de días
+    // parece un dato cuando lo que dice es que la fecha estaba mal.
+    return Number.isFinite(valor) ? `<c r="${ref}"${s}><v>${valor}</v></c>` : '';
+  }
   const t = limpio(valor);
   if (!t) return '';                       // una celda vacía no se escribe
   return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(t)}</t></is></c>`;

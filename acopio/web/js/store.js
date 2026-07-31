@@ -160,9 +160,25 @@ export async function observaciones() {
     .filter((e) => e.tipo === 'observacion' && e.nota);
   let completo = false, evs = guardadas;
   if (navigator.onLine) {
-    const { data, error } = await sb.from('eventos')
-      .select('lote_id,nota,ocurrido_en').eq('tipo', 'observacion');
-    if (!error && data) { evs = data.filter((e) => e.nota); completo = true; }
+    // De página en página. Una consulta suelta la corta el servidor a su
+    // tope de filas SIN AVISAR, y ese es el peor de los casos: el informe
+    // saldría con observaciones de menos diciendo que está completo. Se
+    // pide por trozos hasta que uno vuelve corto, que es la única señal
+    // fiable de que ya no queda nada.
+    const trozo = 1000, TOPE = 50;      // 50 000 observaciones y paramos
+    const traidas = [];
+    let entero = false;
+    for (let i = 0; i < TOPE; i++) {
+      const { data, error } = await sb.from('eventos')
+        .select('lote_id,nota,ocurrido_en')
+        .eq('tipo', 'observacion')
+        .order('ocurrido_en', { ascending: false })
+        .range(traidas.length, traidas.length + trozo - 1);
+      if (error || !data) break;
+      traidas.push(...data);
+      if (data.length < trozo) { entero = true; break; }
+    }
+    if (entero) { evs = traidas.filter((e) => e.nota); completo = true; }
   }
   const notas = new Map();
   for (const e of evs.sort((a, b) => (b.ocurrido_en || '').localeCompare(a.ocurrido_en || ''))) {
