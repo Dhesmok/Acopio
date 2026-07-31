@@ -850,9 +850,14 @@ button:focus:not(:focus-visible) { outline: none; }
   font-family: var(--mono); font-weight: 700;
   pointer-events: none; user-select: none;
 }
-/* Los códigos permanecen visibles mientras el plano se mueve. Es más
-   importante conservar una escena estable que ahorrar el repintado del
-   texto: esconderlos y mostrarlos durante el paneo producía parpadeos. */
+/* Al DESPLAZAR los códigos se quedan puestos: ahí el texto solo se
+   vuelve a pintar, y una escena estable vale más que el ahorro.
+   Al ACERCAR es otra cosa: el texto lleva su tamaño en unidades del
+   plano, así que cambia de tamaño en cada cuadro y hay que recomponer
+   cada glifo de cada código. Medido con 149 lotes, desplazar cuesta el
+   doble con los códigos y acercar cuesta siete veces más. Solo el
+   pellizco los apaga, y solo mientras dura. Ver mapa.js, acercando(). */
+#lienzo.acercando .txt-lote { display: none; }
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
 /* El cerco de la pila va en su propia capa enmascarada, y al doble de
    grosor: la máscara le quita la mitad de dentro y a la vista queda el
