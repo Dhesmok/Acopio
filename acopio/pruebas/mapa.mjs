@@ -16,6 +16,12 @@ const nodoFalso = () => ({ setAttribute() {}, classList: { add() {}, remove() {}
 
 const lienzo = {
   attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
+  // el lienzo se marca mientras el plano se mueve, para apagar los códigos
+  clases: new Set(),
+  get classList() {
+    return { add: (c) => lienzo.clases.add(c), remove: (c) => lienzo.clases.delete(c),
+             contains: (c) => lienzo.clases.has(c) };
+  },
   getAttribute: (k) => lienzo.attrs[k],
   setAttribute: (k, v) => { lienzo.attrs[k] = v; },
   addEventListener(tipo, fn) { (lienzo.oyentes[tipo] ||= []).push(fn); },
@@ -359,6 +365,55 @@ ok(enGrande === enChico,
    `mide lo mismo en un lote grande y en uno diminuto (${enGrande} = ${enChico})`);
 ok(lienzo.innerHTML.includes('class="manija-zona"'),
    'y lleva detrás un disco invisible más ancho, para que el dedo no tenga que apuntar');
+
+// ---------------------------------------------------------------------
+titulo('Un repintado que no cambia nada no toca el plano.');
+
+// La app se sincroniza cada 20 segundos y casi siempre no cambió nada.
+// Rearmar el SVG entero por eso es el parpadeo: cientos de figuras
+// destruidas y vueltas a crear, y encima esperando a que se levante el
+// dedo si estaba arrastrando.
+const mismos = { config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+  lotes: [{ id: 'lq', codigo: 'PG1', estado: 'muestreado', pila_id: null,
+            forma: 'elipse', x: 300, y: 300, rx: 46, ry: 34, rot: 0 }] };
+Mapa.editar(false);
+Mapa.limpiarSeleccion();
+Mapa.pintar(mismos);
+lienzo.innerHTML = 'NO SE TOCÓ';
+Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0] }] });   // datos nuevos, dibujo igual
+ok(lienzo.innerHTML === 'NO SE TOCÓ', 'con el mismo plano no se vuelve a escribir el SVG');
+
+Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] });
+ok(lienzo.innerHTML !== 'NO SE TOCÓ', 'pero un cambio de verdad sí entra');
+
+// Al montar, el lienzo es OTRO y está en blanco: aunque toque dibujar lo
+// mismo que había, hay que volver a escribirlo o el mapa sale vacío.
+Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {});
+lienzo.innerHTML = '';
+Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] });
+ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el plano no haya cambiado');
+
+// ---------------------------------------------------------------------
+titulo('Mientras el plano se mueve, los códigos se apagan.');
+
+// Un <text> lleva su tamaño en unidades del plano: al acercar cambia de
+// tamaño real en cada cuadro y hay que recomponer cada glifo. Con 200
+// lotes eso son 117 ms por cuadro; sin los códigos, 17.
+Mapa.pintar(mismos);
+await new Promise((r) => setTimeout(r, 220));
+
+// Un cambio suelto —el botón de acercar— no apaga nada: se vería el
+// parpadeo que se quiere quitar.
+Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
+ok(!lienzo.clases.has('moviendo'), 'un cambio de encuadre suelto no apaga los códigos');
+
+// dos seguidos sí son un gesto en curso
+Mapa.fijarVista({ x: 10, y: 0, w: 1000, h: 700 });
+ok(lienzo.clases.has('moviendo'), 'moverse de seguido sí los apaga');
+ok(lienzo.innerHTML.includes('class="txt-lote"'),
+   'el código sigue en el SVG: lo apaga el CSS, no hay que rehacer el plano');
+await new Promise((r) => setTimeout(r, 220));
+ok(!lienzo.clases.has('moviendo'), 'y en cuanto se queda quieto vuelven');
 
 // ---------------------------------------------------------------------
 titulo('Levantar un dedo del pellizco no deja el plano trabado.');

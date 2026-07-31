@@ -832,6 +832,10 @@ button:focus:not(:focus-visible) { outline: none; }
   font-family: var(--mono); font-weight: 700;
   pointer-events: none; user-select: none;
 }
+/* Los códigos se apagan mientras el plano se mueve: componer doscientos
+   códigos a un tamaño nuevo en cada cuadro es lo que hacía que el zoom
+   fuera a tirones. Ver mapa.js, en aplicarVista(). */
+#lienzo.moviendo .txt-lote { display: none; }
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
 /* El cerco de la pila va en su propia capa enmascarada, y al doble de
    grosor: la máscara le quita la mitad de dentro y a la vista queda el
