@@ -31,13 +31,19 @@ const lienzo = {
   querySelector: () => nodoFalso(),
   querySelectorAll: () => [nodoFalso(), nodoFalso()],
   setPointerCapture() {},
-  getBoundingClientRect: () => ({ width: 1000, height: 700 }),
-  // el plano y la pantalla coinciden uno a uno: así las cuentas de la
-  // prueba se leen sin tener que deshacer una transformación
-  createSVGPoint: () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } }),
-  getScreenCTM: () => ({ inverse: () => null })
+  // como la del navegador: además del tamaño, dónde empieza en pantalla
+  getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 700 }),
 };
+
+// El plano y la pantalla coinciden uno a uno mientras el encuadre sea
+// EXACTAMENTE la caja del lienzo: así las cuentas de las pruebas de
+// gestos se leen sin deshacer ninguna transformación. Antes esto se
+// fingía desde el falso getScreenCTM del lienzo; ahora mapa.js hace la
+// cuenta de verdad, así que hay que dársela de verdad.
+const unoAUno = () => Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
 const disparar = (tipo, ev) => lienzo.oyentes[tipo]?.forEach((fn) => fn(ev));
+// un dedo concreto, para los gestos de dos
+const dedo = (id, x, y) => ({ ...evento(x, y), pointerId: id });
 // `manija` = el dedo cayó sobre una manija de ajuste;
 // `figura`  = cayó sobre un lote o una pila del plano.
 const evento = (x, y, { manija, figura } = {}) => ({
@@ -95,6 +101,7 @@ titulo('Ajustar una forma se ve MIENTRAS se ajusta, no al soltar.');
 const lote = { id: 'l1', codigo: 'PG1', estado: 'por_muestrear', pila_id: null,
                forma: 'elipse', x: 200, y: 200, rx: 46, ry: 34, rot: 0 };
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [lote] });
+unoAUno();
 Mapa.editar(true);
 Mapa.seleccionar('lote', lote.id);
 ok(lienzo.innerHTML.includes('data-handle="tamano"'), 'al seleccionar aparecen las manijas');
@@ -125,6 +132,7 @@ Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {
   alTocar: (tipo, id) => { tocado = { tipo, id }; },
   alSeleccionar() {}, alTocarVacio() {}, puedeEditarFondo: () => true
 });
+unoAUno();
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [suelto] });
 Mapa.editar(false);
 
@@ -145,6 +153,7 @@ ok(suelto.x === 300 && suelto.y === 300, 'y sigue sin moverse');
 
 // ---------------------------------------------------------------------
 titulo('En modo edición sí se mueve, y avisa de dónde venía.');
+unoAUno();
 Mapa.editar(true);
 disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
 disparar('pointermove', evento(suelto.x + 220, suelto.y + 160, { figura: dedoSobre }));
@@ -416,6 +425,35 @@ await new Promise((r) => setTimeout(r, 220));
 ok(!lienzo.clases.has('moviendo'), 'y en cuanto se queda quieto vuelven');
 
 // ---------------------------------------------------------------------
+titulo('El pellizco deja quieto el punto que está entre los dos dedos.');
+
+// La conversión de pantalla a plano se hace a mano, sin preguntarle la
+// matriz al navegador: preguntarla obliga a recalcular la disposición en
+// ese instante, y en un pellizco eso pasaba una vez por CADA movimiento
+// del dedo (medido: 90 recálculos contra 30, y 725 ms contra 227). La
+// cuenta tiene que salir clavada o los toques caen donde no es.
+Mapa.pintar(mismos);
+unoAUno();                                   // lienzo 1000 × 700, escala 1
+
+// dos dedos a 200 px, con el punto medio en (500, 300) → plano (500, 300)
+disparar('pointerdown', dedo(1, 400, 300));
+disparar('pointerdown', dedo(2, 600, 300));
+// se separan hasta 400 px: acerca al doble, así que el encuadre se parte
+// por la mitad (500 × 350) y la escala pasa a 2
+disparar('pointermove', dedo(1, 300, 300));
+disparar('pointermove', dedo(2, 700, 300));
+
+const v = Mapa.obtenerVista();
+ok(Math.abs(v.w - 500) < 0.01 && Math.abs(v.h - 350) < 0.01,
+   `separar los dedos al doble acerca al doble (${v.w.toFixed(0)} × ${v.h.toFixed(0)})`);
+// para que el plano (500, 300) siga cayendo en la pantalla (500, 300) con
+// escala 2, el encuadre tiene que empezar en (250, 150)
+ok(Math.abs(v.x - 250) < 0.01 && Math.abs(v.y - 150) < 0.01,
+   `y el punto entre los dedos no se movió (encuadre en ${v.x.toFixed(0)}, ${v.y.toFixed(0)})`);
+disparar('pointerup', dedo(1, 300, 300));
+disparar('pointerup', dedo(2, 700, 300));
+
+// ---------------------------------------------------------------------
 titulo('Levantar un dedo del pellizco no deja el plano trabado.');
 
 Mapa.editar(false);
@@ -428,7 +466,6 @@ Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
 // pasa igual, porque la red de seguridad de la ventana escucha en
 // captura y corre antes que el oyente del lienzo. Cerrar el gesto dos
 // veces es justo lo que dejaba el plano trabado.
-const dedo = (id, x, y) => ({ ...evento(x, y), pointerId: id });
 disparar('pointerdown', dedo(1, 400, 300));
 disparar('pointerdown', dedo(2, 600, 300));
 disparar('pointermove', dedo(2, 800, 300));
