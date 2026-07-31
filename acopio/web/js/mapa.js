@@ -615,37 +615,16 @@ function aPlanoPunto(cx, cy, v = vista) {
   return { x: v.x + (cx - r.left - (r.width - v.w * s) / 2) / s,
            y: v.y + (cy - r.top - (r.height - v.h * s) / 2) / s };
 }
-// Mientras el plano se MUEVE, los códigos de los lotes no se dibujan.
-//
-// Un <text> lleva su font-size en unidades del plano, así que al acercar
-// cambia de tamaño real en cada cuadro y el navegador tiene que volver a
-// componer cada glifo de cada código, sin poder reaprovechar nada.
-// Medido en un teléfono de gama media con 200 lotes: 117 ms por cuadro
-// con los códigos puestos y 17 ms sin ellos. Siete veces. Desplazando sin
-// acercar, donde el tamaño no cambia, sigue costando el doble.
-//
-// Nadie lee un código mientras arrastra el plano, así que se apagan
-// mientras dura el movimiento y vuelven en cuanto se queda quieto. Los
-// rótulos de las pilas y del fondo se quedan: son cuatro, no cuestan, y
-// son justo lo que dice por dónde va uno mientras se mueve.
-//
-// El interruptor va aquí y no en cada gesto a propósito: por aquí pasan
-// TODOS los cambios de encuadre —el dedo, la rueda, los botones y el
-// vuelo hasta un lote buscado—, así que ninguno se queda fuera.
-let quieto = 0, ultimoEncuadre = -1e9;
+// Mover el plano SOLO cambia el viewBox. Antes, durante movimientos
+// seguidos, se agregaba una clase que escondía y volvía a mostrar los
+// códigos de los lotes para ahorrar composición de texto. En teléfonos
+// reales ese cambio de `display` era peor: los rótulos, algunos bordes y
+// hasta los controles flotantes parpadeaban como si el mapa prendiera y
+// apagara una capa blanca. El mapa debe ser estable mientras se desplaza,
+// así que no se toca ninguna clase: el navegador conserva la misma escena
+// y solo recalcula el encuadre.
 function aplicarVista() {
   svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
-  const t = performance.now();
-  // Un cambio SUELTO no apaga nada: tocar una vez el botón de acercar
-  // haría desaparecer los códigos y volver, que es justo el parpadeo que
-  // se quiere quitar. Se apagan cuando el encuadre se mueve de seguido
-  // —el dedo, la rueda, el vuelo hasta un lote—, que es cuando cuesta.
-  if (t - ultimoEncuadre < 120) {
-    svg.classList.add('moviendo');
-    clearTimeout(quieto);
-    quieto = setTimeout(() => svg?.classList.remove('moviendo'), 140);
-  }
-  ultimoEncuadre = t;
 }
 
 // Unidades del plano que cubre un píxel de pantalla. Con
