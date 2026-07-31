@@ -317,43 +317,42 @@ ok((filtrado.match(/class="atenuado"/g) || []).length === 1,
    'sino en un solo grupo que envuelve las dos capas de los apagados');
 
 // ---------------------------------------------------------------------
-titulo('El cerco de dos pilas que se cruzan tampoco se parte.');
+titulo('El plano no dibuja ninguna capa con máscara.');
 
-// La pila no puede usar el truco de las capas: su relleno es casi
-// transparente y no borra nada. Va con máscara.
+// Hubo una versión que pasaba los cercos de las pilas y los contornos de
+// los lotes por una MÁSCARA, para que un lote encima de una pila se
+// fundiera con ella y dos pilas se leyeran como un mismo cerco.
+//
+// En un teléfono de verdad esa capa se quedaba en blanco de vez en
+// cuando durante el pellizco. Las capturas del patio lo mostraron
+// clavado: un cuadro con contornos y cercos, el siguiente sin NINGUNO de
+// los dos, varias veces por segundo. Y esas dos cosas —los contornos y
+// los cercos— eran exactamente lo que vivía dentro de la máscara.
+//
+// Aquí no se reproducía porque este navegador dibuja por software. La
+// prueba está para que no vuelva a entrar sin probarlo en un teléfono.
 const dosPilas = [
   { id: 'pa', codigo: 'A', tipo: 'otro', estado: 'abierta',
     forma: 'elipse', x: 300, y: 300, rx: 90, ry: 60, rot: 0 },
   { id: 'pb', codigo: 'B', tipo: 'otro', estado: 'abierta',
     forma: 'elipse', x: 420, y: 300, rx: 90, ry: 60, rot: 0 }
 ];
-Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: dosPilas });
-const conPilas = lienzo.innerHTML;
-ok(conPilas.includes('<mask id="fuera-de-pilas"'), 'el cerco se pinta a través de una máscara');
-ok((conPilas.match(/fill="#000"/g) || []).length === 2,
-   'que tapa las dos pilas: dentro de cualquiera de ellas no se dibuja cerco');
-ok(conPilas.includes('mask="url(#fuera-de-pilas)"'), 'y la capa de cercos la usa');
-ok(/class="pila-forma"[^>]*stroke="none"/.test(conPilas),
-   'el relleno ya no lleva cerco propio, o volvería a cruzar al vecino');
-// El contorno del lote pasa por la MISMA máscara: un lote encima de una
-// pila también es el mismo material.
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: dosPilas,
               lotes: [{ id: 'lx', codigo: 'PG1', estado: 'muestreado', pila_id: null,
                         forma: 'elipse', x: 320, y: 300, rx: 60, ry: 45, rot: 0 }] });
-ok(lienzo.innerHTML.includes('<g mask="url(#fuera-de-pilas)">'),
-   'los contornos de los lotes van por la máscara de las pilas');
+const conPilas = lienzo.innerHTML;
+ok(!conPilas.includes('<mask'), 'no se declara ninguna máscara');
+ok(!conPilas.includes('mask="url('), 'y ninguna capa la usa');
 
-// La región de una máscara RECORTA: lo que cae fuera no sale. Y arrastrar
-// un lote no repinta, así que la región tiene que aguantar el arrastre sin
-// quedarse corta, o el lote pierde el contorno a mitad de camino.
-const region = lienzo.innerHTML.match(
-  /<mask id="fuera-de-pilas"[^>]*x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
-ok(region, 'la máscara declara su región');
-const [, mx, my, mw, mh] = region.map(Number);
-ok(mx <= 0 && my <= 0 && mx + mw >= 1000 && my + mh >= 700,
-   `la región cubre el patio entero (${mx}, ${my}, ${mw} × ${mh})`);
-ok(mx < -300 && mx + mw > 1300,
-   'y sobra sitio para arrastrar un lote fuera del patio sin que pierda el contorno');
+// Lo importante NO se pierde: los lotes se siguen fundiendo entre ellos,
+// que se hace con el orden de las capas y no necesita máscara.
+const trazos = conPilas.lastIndexOf('stroke="#14171a"');
+const rellenos = conPilas.indexOf('fill="#e8b48a"/>');
+ok(trazos < rellenos, 'los rellenos siguen yendo después de los contornos');
+
+// Y la pila vuelve a llevar su cerco encima, no en una capa aparte
+ok(/class="pila-forma"[^>]*stroke="#[0-9a-f]{6}"/.test(conPilas),
+   'cada pila dibuja su propio cerco');
 
 // ---------------------------------------------------------------------
 titulo('La manija de ajuste no mengua con la figura.');
