@@ -80,6 +80,16 @@ const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))
 // nadie, así que ni se muestra ni cuenta como vencida. Antes seguía
 // saliendo en la ficha, en la lista y como borde de alarma en el plano
 // mucho después de que el asunto se hubiera resuelto.
+// Cómo se escribe un código en pantalla. La volqueta va pequeña y
+// arriba, como un exponente: ABG40.2 se lee "ABG40" con un 2 al lado.
+// Lo hace `Mapa.partesCodigo`, que es quien conoce el formato; aquí solo
+// se le pone el HTML. El dato guardado no se toca: en el buscador, en la
+// corrección de datos y en el informe sigue saliendo entero.
+function codigoHTML(codigo) {
+  const { base, volqueta } = Mapa.partesCodigo(codigo);
+  return esc(base) + (volqueta ? `<sup class="volqueta">${esc(volqueta)}</sup>` : '');
+}
+
 const enDevolucion = (l) => l.estado === 'devolucion';
 const vencido = (l) => enDevolucion(l) && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
 function textoRecogida(l) {
@@ -979,7 +989,7 @@ function tarjeta(l, prov, pilas) {
   return `<button class="lote" data-id="${l.id}" data-estado="${l.estado}" data-vencida="${v ? 'si' : 'no'}">
     <span class="barra"></span>
     <span class="cuerpo">
-      <span class="codigo">${esc(l.codigo)}</span>
+      <span class="codigo">${codigoHTML(l.codigo)}</span>
       <span class="meta">
         <span>${esc(prov[l.proveedor_id] || '—')}</span>
         ${l.placa ? `<span>${esc(l.placa)}</span>` : ''}
@@ -1212,7 +1222,7 @@ async function fichaLote(id) {
   // De quién es la ficha, en qué estado está y para cuándo se recoge: eso
   // se queda arriba, y todo lo demás pasa por debajo.
   const encabezado = `
-    <h2>${esc(l.codigo)}</h2>
+    <h2>${codigoHTML(l.codigo)}</h2>
     <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}
       · volqueta ${esc(l.placa || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
     <div class="fila-chips">
@@ -1429,7 +1439,7 @@ async function revisarPila(pila) {
 
 function pedirRecogida(l) {
   abrirHoja(`
-    <h2>${esc(l.codigo)} · devolución</h2>
+    <h2>${codigoHTML(l.codigo)} · devolución</h2>
     <div class="sub">¿Hasta qué día tiene el proveedor para recoger el material?</div>
     <div class="campo" style="margin-top:14px">
       <label for="r-fecha">Fecha de recogida</label>
@@ -1520,7 +1530,7 @@ async function fichaPila(id) {
         <div class="fila-pila">
           <button class="lote" data-id="${l.id}" data-estado="${l.estado}" data-vencida="${vencido(l) ? 'si' : 'no'}">
             <span class="barra"></span>
-            <span class="cuerpo"><span class="codigo">${esc(l.codigo)}</span>
+            <span class="cuerpo"><span class="codigo">${codigoHTML(l.codigo)}</span>
               <span class="meta"><span>${esc(prov[l.proveedor_id] || '—')}</span>
               <span>${esc(l.placa || '')}</span></span></span>
             <span class="lado"><span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span></span>

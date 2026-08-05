@@ -20,6 +20,24 @@ let pinchInicial = null, movio = false;
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Un mismo lote puede llegar en varias volquetas, y como el código no se
+// puede repetir, en el patio se apunta la volqueta pegada al código:
+// ABG40(2) y ABG40.2 son los dos la SEGUNDA volqueta del lote ABG40.
+//
+// Se separa para poder mostrar el código a secas y el número pequeño
+// arriba, como un exponente: dentro de un óvalo no sobra sitio, y así lo
+// que se lee de un vistazo es el lote, con la volqueta al lado sin
+// estorbar. El dato guardado NO se toca: en la base, en el buscador y en
+// el informe el código sigue siendo el que escribió quien lo registró.
+//
+// Solo se reconoce con NÚMERO. Un "PG213()" con el paréntesis vacío se
+// deja tal cual: no sabemos qué quiso decir, y adivinar sería peor.
+export function partesCodigo(codigo) {
+  const t = String(codigo ?? '');
+  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+))$/);
+  return m ? { base: m[1], volqueta: m[2] || m[3] } : { base: t, volqueta: '' };
+}
+
 export const COLORES_BASE = {
   por_muestrear: '#d99a06', muestreado: '#e8b48a', remuestreo: '#8a5cd6',
   facturado: '#2b5ca8', devolucion: '#b8352a', plataforma: '#0f6d78', despachado: '#5f6863',
@@ -438,18 +456,19 @@ function figuraPila(p, lotes) {
 function figuraLote(l, capa) {
   // El compromiso de recogida solo existe mientras el lote es devolución:
   // si pasó a otro estado, la fecha que quedó guardada ya no compromete a
-  // nadie y el borde de alarma no tiene nada que avisar.
+  // nadie y no hay nada que avisar.
   const venc = l.estado === 'devolucion'
     && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
-  const col = paleta()[l.estado] || '#5f6863';
+  // Una devolución sin recoger se pinta NEGRA, entera. Antes llevaba un
+  // borde rojo a rayas, y un borde hay que buscarlo: en un patio de
+  // ciento y pico lotes de colores parecidos, el negro salta a la vista
+  // desde el otro lado del plano sin tener que mirar figura por figura.
+  const col = venc ? '#14171a' : (paleta()[l.estado] || '#5f6863');
   const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)}
     class="g-lote${datos.resaltado === l.id ? ' g-resaltado' : ''}"`;
 
-  if (capa === 'trazo') {
-    const attrs = `fill="${esc(col)}" stroke="${venc ? '#7a1f16' : '#14171a'}"
-     stroke-width="${venc ? 10 : 4}" ${venc ? 'stroke-dasharray="8 5"' : ''}`;
-    return `<g ${marca}>${cuerpo(l, attrs)}</g>`;
-  }
+  if (capa === 'trazo')
+    return `<g ${marca}>${cuerpo(l, `fill="${esc(col)}" stroke="#14171a" stroke-width="4"`)}</g>`;
 
   if (capa === 'relleno') {
     return `<g ${marca}>
@@ -459,13 +478,21 @@ function figuraLote(l, capa) {
   }
 
   const c = anclaTexto(l);
+  const { base, volqueta } = partesCodigo(l.codigo);
   // El suelo son 11 px: por debajo de eso un código deja de leerse a un
   // brazo de distancia. Un código absurdamente largo prefiere sobresalir
   // dos o tres píxeles de su óvalo a volverse ilegible.
-  const t = tamanoTexto(l, l.codigo, { min: 11, max: 20 });
+  //
+  // Para medir se cuentan las dos partes juntas —el exponente ocupa
+  // menos, así que sobra sitio antes que faltar—, pero el punto o los
+  // paréntesis ya no cuentan: por eso el código queda algo más grande
+  // que antes.
+  const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
   return `<g ${marca}>
     <text x="${c.x}" y="${c.y + t * .35}" text-anchor="middle" class="txt-lote"
-      font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(l.codigo)}</text>
+      font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(base)}${
+      volqueta ? `<tspan font-size="62%" dy="${(-t * .38).toFixed(1)}"
+        >${esc(volqueta)}</tspan>` : ''}</text>
   </g>`;
 }
 

@@ -186,13 +186,13 @@ const tamRotulo = (figura, texto) => {
 };
 
 const corto = tamRotulo({ lotes: [conCodigo('PG1')] }, 'PG1');
-const largo = tamRotulo({ lotes: [conCodigo('SJ1015.2')] }, 'SJ1015.2');
+const largo = tamRotulo({ lotes: [conCodigo('SJ1015-B')] }, 'SJ1015-B');
 const larguisimo = tamRotulo({ lotes: [conCodigo('ABG-2026-000117')] }, 'ABG-2026-000117');
 ok(corto > largo && largo > larguisimo,
    `a más caracteres, menos tamaño (${corto} > ${largo} > ${larguisimo})`);
 // el `largo > 0` no sobra: sin la corrección no hay `font-size` en el
 // SVG, `largo` vale null y la comparación pasaba sola sin probar nada
-ok(largo > 0 && largo * 0.6 * 'SJ1015.2'.length <= 46 * 2,
+ok(largo > 0 && largo * 0.6 * 'SJ1015-B'.length <= 46 * 2,
    'un código de ocho caracteres cabe en el ancho de su óvalo');
 ok(larguisimo >= 11,
    `y uno absurdamente largo se planta en el suelo legible, no se hace invisible (${larguisimo})`);
@@ -401,6 +401,57 @@ Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {});
 lienzo.innerHTML = '';
 Mapa.pintar({ ...mismos, lotes: [{ ...mismos.lotes[0], estado: 'devolucion' }] });
 ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el plano no haya cambiado');
+
+// ---------------------------------------------------------------------
+titulo('El número de volqueta se separa del código.');
+
+// Un mismo lote llega en varias volquetas y el código no se puede
+// repetir, así que en el patio se apunta pegado: ABG40(2) y ABG40.2 son
+// los dos la segunda volqueta del lote ABG40.
+const parte = (c) => `${Mapa.partesCodigo(c).base}|${Mapa.partesCodigo(c).volqueta}`;
+ok(parte('ABG40(2)') === 'ABG40|2', 'ABG40(2) es el lote ABG40, volqueta 2');
+ok(parte('ABG40.2') === 'ABG40|2', 'ABG40.2 también');
+ok(parte('SJ1015.3') === 'SJ1015|3', 'y SJ1015.3, que es la forma que más se usa');
+ok(parte('ABG40(12)') === 'ABG40|12', 'el número puede tener dos cifras');
+
+// Lo que NO se toca, que es lo que evita estropear códigos de verdad
+ok(parte('PG1042') === 'PG1042|', 'un código normal se queda entero');
+ok(parte('PG213()') === 'PG213()|', 'un paréntesis vacío se deja tal cual: no sabemos qué quiso decir');
+ok(parte('ABG-2026-000117') === 'ABG-2026-000117|', 'un código con guiones y ceros no es una volqueta');
+ok(parte('SJ1015.B') === 'SJ1015.B|', 'después del punto tiene que haber un número');
+ok(parte('') === '|', 'y un código vacío no revienta');
+
+// En el plano, el código va entero y el número pequeño encima
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+  lotes: [{ id: 'lv', codigo: 'ABG40.2', estado: 'muestreado', pila_id: null,
+            forma: 'elipse', x: 300, y: 300, rx: 60, ry: 45, rot: 0 }] });
+const conVolqueta = lienzo.innerHTML;
+ok(!conVolqueta.includes('>ABG40.2<'), 'en el óvalo ya no se escribe "ABG40.2" de corrido');
+ok(/>ABG40<tspan[^>]*>2<\/tspan>/.test(conVolqueta),
+   'sino "ABG40" con el 2 en un tspan más pequeño y levantado');
+
+// ---------------------------------------------------------------------
+titulo('Una devolución sin recoger se pinta negra, no con borde rojo.');
+
+// Un borde hay que buscarlo; en un patio de ciento y pico lotes de
+// colores parecidos, el negro salta a la vista desde el otro lado.
+const negro = (fecha, estado) => {
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+    lotes: [{ id: 'lz', codigo: 'PG9', estado, pila_id: null, forma: 'elipse',
+              x: 300, y: 300, rx: 46, ry: 34, rot: 0, fecha_recogida: fecha }] });
+  return lienzo.innerHTML;
+};
+const vencido = negro('2020-01-01', 'devolucion');
+ok(vencido.includes('fill="#14171a"'), 'el lote sin recoger se rellena de negro');
+ok(!vencido.includes('stroke-dasharray="8 5"'), 'y se va el borde rojo a rayas');
+ok(!vencido.includes('stroke-width="10"'), 'y el borde vuelve al grosor de siempre');
+ok(vencido.includes('fill="#ffffff"'), 'el código encima va en blanco, que sobre negro se lee');
+
+const aTiempo = negro('2099-01-01', 'devolucion');
+ok(!aTiempo.includes('fill="#14171a" stroke'), 'una devolución en plazo conserva su color');
+const otroEstado = negro('2020-01-01', 'muestreado');
+ok(!otroEstado.includes('fill="#14171a" stroke'),
+   'y una fecha vieja en un lote que ya no es devolución no pinta nada');
 
 // ---------------------------------------------------------------------
 titulo('Los controles del mapa siguen flotando sobre el plano.');
