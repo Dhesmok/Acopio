@@ -42,6 +42,7 @@
   --remuestreo:    #8a5cd6;
   --facturado:     #2b5ca8;
   --devolucion:    #b8352a;
+  --plataforma:    #0f6d78;
   --despachado:    #5f6863;
   --vencida:       #7a1f16;
 
@@ -397,7 +398,16 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .etiqueta[data-e="remuestreo"]    { background: var(--remuestreo);    color: var(--txt-remuestreo, #fff); }
 .etiqueta[data-e="facturado"]     { background: var(--facturado);     color: var(--txt-facturado, #fff); }
 .etiqueta[data-e="devolucion"]    { background: var(--devolucion);    color: var(--txt-devolucion, #fff); }
+.etiqueta[data-e="plataforma"]    { background: var(--plataforma);    color: var(--txt-plataforma, #fff); }
 .etiqueta[data-e="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
+
+/* El número de volqueta: pequeño y arriba, como un exponente. Va a la
+   mitad del tamaño y sin subir del todo, para que no descuadre el
+   renglón ni se despegue del código al que pertenece. */
+.volqueta {
+  font-size: .58em; font-weight: 800; vertical-align: super;
+  line-height: 0; margin-left: .06em; opacity: .8;
+}
 
 .pila-tag {
   font-family: var(--mono); font-size: 12px; font-weight: 800;
