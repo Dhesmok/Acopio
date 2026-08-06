@@ -43,6 +43,33 @@ ok(avisos.length === 1 && /pila 3 ya existía/.test(avisos[0].texto),
    `se avisa del renombre: "${avisos[0]?.texto}"`);
 
 // ---------------------------------------------------------------------
+titulo('Una pila archivada suelta su nombre: el número se vuelve a usar.');
+
+// El nombre era único PARA SIEMPRE, así que cada pila que se archivaba
+// —y se archivan solas al quedarse con un lote— dejaba su número
+// apartado. Con tres pilas en el patio la siguiente ya se llamaba "4", y
+// en un año iría por la "40". Una pila archivada no se dibuja en el
+// plano, así que su nombre no le estorba a nadie.
+for (const p of servidor.tablas.pilas.values()) p.estado = 'consumida';
+for (const p of await Store.pilas()) await Store.renombrarPila(p.id, { estado: 'consumida' });
+
+const reusada = await Store.crearPila({ codigo: '1', tipo: 'otro', nota: null,
+  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+await Store.sincronizar();
+const enServidor = servidor.tablas.pilas.get(reusada.id);
+ok(!!enServidor, 'la pila nueva subió aunque ya hubo una "1" archivada');
+ok(enServidor?.codigo === '1', `y se quedó con el nombre "1" (quedó "${enServidor?.codigo}")`);
+
+// Pero entre las ABIERTAS el nombre sigue sin poder repetirse: dos pilas
+// llamadas igual a la vez en el plano no se pueden distinguir.
+const choca = await Store.crearPila({ codigo: '1', tipo: 'otro', nota: null,
+  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+await Store.sincronizar();
+await Store.sincronizar();
+ok(servidor.tablas.pilas.get(choca.id)?.codigo === '2',
+   `otra "1" abierta a la vez sí se renombra (quedó "${servidor.tablas.pilas.get(choca.id)?.codigo}")`);
+
+// ---------------------------------------------------------------------
 titulo('Un lote recibido de noche NO se fecha al día siguiente.');
 // lunes 27 de julio, 8:30 p. m. en Bogotá: en UTC ya es el martes 28
 const descongelar = congelarReloj('2026-07-28T01:30:00Z');

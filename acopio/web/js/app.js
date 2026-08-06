@@ -1168,8 +1168,13 @@ async function anotarRecorrido(lote, origen) {
   });
 }
 
+// El número libre más bajo, contando SOLO las pilas abiertas. Una pila
+// archivada ya no se ve en el plano y suelta su número: si no, con tres
+// pilas en el patio la siguiente ya se llamaba "4", y en un año, "40".
 function siguienteCodigoPila() {
-  const usados = S.pilas.map((p) => parseInt(p.codigo, 10)).filter((n) => !isNaN(n));
+  const usados = S.pilas
+    .filter((p) => p.estado === 'abierta')
+    .map((p) => parseInt(p.codigo, 10)).filter((n) => !isNaN(n));
   let n = 1;
   while (usados.includes(n)) n++;
   return String(n);

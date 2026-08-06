@@ -295,6 +295,27 @@ do $$ begin
   end if;
 end $$;
 
+-- ------------------------------- el nombre de una pila se puede reusar
+--  El nombre era único PARA SIEMPRE, así que una pila archivada seguía
+--  reservando el suyo y la numeración no paraba de subir: con tres pilas
+--  en el patio ya se iba por la 4, y en un año por la 40.
+--
+--  Ahora es único solo entre las pilas ABIERTAS, que es donde importa:
+--  en el plano nunca hay dos con el mismo nombre. Las archivadas lo
+--  sueltan, y el número se puede volver a usar.
+--
+--  El historial no se enreda: cada apunte guarda el id de la pila, no su
+--  nombre, y en la ficha del lote cada línea va con su fecha. Que dos
+--  pilas distintas se hayan llamado "1" en marzo y en septiembre se lee
+--  igual de bien.
+do $$ begin
+  if exists (select 1 from pg_constraint where conname = 'pilas_codigo_key') then
+    alter table pilas drop constraint pilas_codigo_key;
+  end if;
+end $$;
+create unique index if not exists ux_pilas_codigo_abierta
+  on pilas (codigo) where estado = 'abierta';
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

@@ -72,7 +72,9 @@ create table proveedores (
 --  x, y = centro sobre el plano;  rx, ry = semiejes;  rot = grados
 create table pilas (
   id             uuid primary key,
-  codigo         text not null unique,
+  -- único solo entre las ABIERTAS, ver el índice más abajo: una pila
+  -- archivada suelta su nombre para que se pueda volver a usar
+  codigo         text not null,
   tipo           tipo_pila not null default 'otro',
   estado         estado_pila not null default 'abierta',
   nota           text,
@@ -87,6 +89,14 @@ create table pilas (
   creado_en      timestamptz not null default now(),
   actualizado_en timestamptz not null default now()
 );
+
+-- El nombre no puede repetirse ENTRE LAS ABIERTAS, que es donde importa:
+-- en el plano nunca hay dos pilas que se llamen igual. Una pila
+-- archivada suelta el suyo y el número se vuelve a usar; si no, la
+-- numeración sube para siempre y con tres pilas en el patio ya se va por
+-- la 4. El historial no se enreda porque cada apunte guarda el id, no el
+-- nombre, y en la ficha del lote cada línea va con su fecha.
+create unique index ux_pilas_codigo_abierta on pilas (codigo) where estado = 'abierta';
 
 -- --------------------------------------------------------------- lotes
 create table lotes (
