@@ -99,6 +99,11 @@ export async function reintentarFallidos() {
   }
 }
 export const pendientes = () => idb.todos('cola');
+// Todos los eventos guardados en el celular, para rehacer el patio de un
+// día pasado. No se piden al servidor: la sincronización ya los baja y
+// los va acumulando, y la ventana de tiempo que cubren es justo hasta
+// donde se puede retroceder con honestidad.
+export const eventos = () => idb.todos('eventos');
 
 // Avisos de una sola vez: cosas que la app resolvió sola pero que la
 // persona tiene que saber (una pila que hubo que renombrar al subir).
