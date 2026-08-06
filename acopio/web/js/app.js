@@ -137,6 +137,63 @@ function soloLetrasYNumeros(campo) {
   });
 }
 
+// ------------------------------------------------------------ volquetas
+// Un lote puede haberlo traído MÁS DE UNA volqueta: cuando todas
+// descargan sobre el mismo montón es un solo lote, con una muestra y un
+// estado. (Si cada una hace su propio montón son lotes distintos, y para
+// eso está el código ABG40.1 / ABG40.2, que el plano pinta como ABG40¹.)
+//
+// Se guardan en el mismo campo, separadas por un espacio. Y se escriben
+// EN UNA CAJA CADA UNA, no todas seguidas: si se dejaran escribir
+// espacios, "VLJ 116" de un dedazo y "VLJ 116" de dos volquetas se
+// escribirían igual y no habría manera de distinguirlos. Con una caja
+// por volqueta cada una sigue siendo solo letras y números.
+const placasDe = (l) =>
+  String((l && typeof l === 'object' ? l.placa : l) || '').trim().split(/\s+/).filter(Boolean);
+const placasTexto = (l, sep = ' · ') => placasDe(l).join(sep);
+
+// El número no se reutiliza aunque se quiten filas: si se contaran las
+// que hay, quitar una del medio y añadir otra repetiría un identificador.
+let nPlaca = 0;
+const filaPlaca = (id, valor = '') => `<div class="fila-placa">
+  <input id="${id}-${nPlaca++}" class="placa" data-mono autocomplete="off" inputmode="text"
+    autocapitalize="characters" spellcheck="false" value="${esc(valor)}">
+  <button type="button" class="ctrl quitar-placa" aria-label="Quitar esta volqueta">×</button>
+</div>`;
+
+function cajaPlacas(id, valor = '') {
+  const lista = placasDe(valor);
+  if (!lista.length) lista.push('');
+  const primera = `${id}-${nPlaca}`;          // el número que le va a tocar
+  return `<div class="campo">
+    <label for="${primera}">Placa de la volqueta</label>
+    <div id="${id}-lista">${lista.map((p) => filaPlaca(id, p)).join('')}</div>
+    <button type="button" class="pastilla" id="${id}-mas">+ Otra volqueta</button>
+  </div>`;
+}
+
+function montarPlacas(id) {
+  const lista = $(`#${id}-lista`);
+  if (!lista) return;
+  lista.querySelectorAll('input.placa').forEach(soloLetrasYNumeros);
+  $(`#${id}-mas`).onclick = () => {
+    lista.insertAdjacentHTML('beforeend', filaPlaca(id));
+    const nueva = lista.lastElementChild.querySelector('input');
+    soloLetrasYNumeros(nueva);
+    nueva.focus();
+  };
+  lista.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.quitar-placa');
+    if (b) b.closest('.fila-placa').remove();
+  });
+}
+
+// Lo que se guarda: en mayúsculas, sin vacías y sin repetir.
+const leerPlacas = (id) => [...document.querySelectorAll(`#${id}-lista input.placa`)]
+  .map((c) => c.value.trim().toUpperCase())
+  .filter((p, i, v) => p && v.indexOf(p) === i)
+  .join(' ');
+
 // Cómo se escribe un código en pantalla. La volqueta va pequeña y
 // arriba, como un exponente: ABG40.2 se lee "ABG40" con un 2 al lado.
 // Lo hace `Mapa.partesCodigo`, que es quien conoce el formato; aquí solo
@@ -825,7 +882,7 @@ const lotesQueCoinciden = () => {
     return f.campo === 'ninguno' ? true
       : f.campo === 'proveedor' ? l.proveedor_id === f.valor
       : f.campo === 'estado' ? l.estado === f.valor
-      : f.campo === 'placa' ? (l.placa || '') === f.valor
+      : f.campo === 'placa' ? placasDe(l).includes(f.valor)
       : f.campo === 'material' ? (l.material || 'granel') === f.valor
       : true;
   });
@@ -855,7 +912,7 @@ function figurasEnElPlano(lotes) {
 }
 
 function panelFiltro() {
-  const placas = [...new Set(S.lotes.map((l) => l.placa).filter(Boolean))].sort();
+  const placas = [...new Set(S.lotes.flatMap(placasDe))].sort();
   abrirHoja(`
     <h2>Filtrar el mapa</h2>
     <div class="sub">Lo que coincide se resalta; el resto queda atenuado.</div>
@@ -1227,7 +1284,7 @@ function tarjeta(l, prov, pilas) {
       <span class="codigo">${codigoHTML(l.codigo)}</span>
       <span class="meta">
         <span>${esc(prov[l.proveedor_id] || '—')}</span>
-        ${l.placa ? `<span>${esc(l.placa)}</span>` : ''}
+        ${l.placa ? `<span>${esc(placasTexto(l))}</span>` : ''}
         <span class="dias" data-alerta="${v ? 'si' : 'no'}">${r || (d === 0 ? 'hoy' : `hace ${d} d`)}</span>
       </span>
     </span>
@@ -1377,7 +1434,7 @@ function filasDelInforme(notas) {
       diasEstado: l.estado_desde ? dias(l.estado_desde) : '',
       ingreso: l.fecha_recepcion || '',
       diasPatio: diasEntreFechas(l.fecha_recepcion),
-      volqueta: l.placa || '',
+      volqueta: placasTexto(l, ' / '),
       material: MATERIALES[l.material || 'granel'],
       enPila: l.pila_id ? 'Sí' : 'No',
       pila: l.pila_id ? (pilas[l.pila_id] || '') : '',
@@ -1459,7 +1516,7 @@ async function fichaLote(id) {
   const encabezado = `
     <h2>${codigoHTML(l.codigo)}</h2>
     <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}
-      · volqueta ${esc(l.placa || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
+      · ${placasDe(l).length > 1 ? 'volquetas' : 'volqueta'} ${esc(placasTexto(l) || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
     <div class="fila-chips">
       <span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span>
       <span class="dias">${dias(l.estado_desde) === 0 ? 'desde hoy' : `hace ${dias(l.estado_desde)} días`}</span>
@@ -1513,11 +1570,7 @@ async function fichaLote(id) {
       <label for="a-cod">Código</label>
       <input id="a-cod" data-mono value="${esc(l.codigo)}">
     </div>
-    <div class="campo">
-      <label for="a-placa">Placa de la volqueta</label>
-      <input id="a-placa" class="placa" data-mono spellcheck="false"
-        autocapitalize="characters" value="${esc(l.placa || '')}">
-    </div>
+    ${cajaPlacas('a-placa', l.placa)}
     <div class="campo">
       <label for="a-prov">Proveedor</label>
       <select id="a-prov">
@@ -1611,7 +1664,7 @@ async function fichaLote(id) {
     abrirEdicion('lote', { ...l, ...cambios });
   });
 
-  soloLetrasYNumeros($('#a-placa'));
+  montarPlacas('a-placa');
   const ef = $('#editar-forma');
   if (ef) ef.onclick = () => { cerrarHoja(); abrirEdicion('lote', l); };
 
@@ -1636,7 +1689,7 @@ async function fichaLote(id) {
     const codigo = $('#a-cod').value.trim().toUpperCase();
     if (!codigo) return;
     await Store.actualizarLote(l.id, {
-      codigo, placa: $('#a-placa').value.trim().toUpperCase(), proveedor_id: $('#a-prov').value
+      codigo, placa: leerPlacas('a-placa'), proveedor_id: $('#a-prov').value
     });
     await Store.registrarEvento({
       lote_id: l.id, tipo: 'renombrado',
@@ -1769,7 +1822,7 @@ async function fichaPila(id) {
             <span class="barra"></span>
             <span class="cuerpo"><span class="codigo">${codigoHTML(l.codigo)}</span>
               <span class="meta"><span>${esc(prov[l.proveedor_id] || '—')}</span>
-              <span>${esc(l.placa || '')}</span></span></span>
+              <span>${esc(placasTexto(l))}</span></span></span>
             <span class="lado"><span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span></span>
           </button>
           ${lectura ? '' : `<button class="pastilla" data-sacar="${l.id}">Sacar</button>`}
@@ -1882,11 +1935,7 @@ function formLote() {
         <input id="f-num" data-mono inputmode="numeric" autocomplete="off">
       </div>
     </div>
-    <div class="campo">
-      <label for="f-placa">Placa de la volqueta</label>
-      <input id="f-placa" class="placa" data-mono autocomplete="off"
-             inputmode="text" autocapitalize="characters" spellcheck="false">
-    </div>
+    ${cajaPlacas('f-placa')}
     <div class="campo">
       <label>Tipo de material</label>
       <div class="acciones">
@@ -1907,7 +1956,7 @@ function formLote() {
     $('#fm-granel').classList.toggle('btn-lleno', m === 'granel');
     $('#fm-bigbag').classList.toggle('btn-lleno', m === 'bigbag');
   };
-  soloLetrasYNumeros($('#f-placa'));
+  montarPlacas('f-placa');
   $('#fm-granel').onclick = () => elegirMaterial('granel');
   $('#fm-bigbag').onclick = () => elegirMaterial('bigbag');
 
@@ -1916,7 +1965,7 @@ function formLote() {
   $('#f-guardar').onclick = accion(async () => {
     $('#f-error').hidden = true;
     const num = $('#f-num').value.trim().toUpperCase();
-    const placa = $('#f-placa').value.trim().toUpperCase();
+    const placa = leerPlacas('f-placa');
     const proveedor_id = $('#f-prov').value;
     const codigo = sigla() + num;
     if (!num) return falla('Escribe el número del lote.');
