@@ -196,7 +196,11 @@ async function abrirSesion(usuario) {
   await recargar();
   Mapa.encuadrar();
   sincronizar();
-  setInterval(sincronizar, 20_000);
+  // Cada minuto, y solo con la app a la vista. Iba cada veinte segundos y
+  // seguía preguntando con el teléfono en el bolsillo: en la mina eso es
+  // batería y datos gastados para no enterarse de nada. Al volver a la
+  // pantalla se pregunta enseguida, así que nunca se ve nada viejo.
+  setInterval(() => { if (!document.hidden) sincronizar(); }, 60_000);
   addEventListener('online', sincronizar);
   addEventListener('offline', pintarSync);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizar(); });

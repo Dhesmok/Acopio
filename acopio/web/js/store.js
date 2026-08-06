@@ -527,9 +527,13 @@ function mensajeError(e) {
 // consulta cada veinte segundos para algo que no cambia casi nunca.
 // Mientras NO esté confirmado sí se pregunta en cada vuelta, para que
 // quien acaba de ser habilitado lo note enseguida y no en diez minutos.
+// Media hora. Antes iba atado a la pasada completa, que era cada diez
+// minutos; ahora esa es cada seis horas y enterarse tan tarde de que a
+// alguien lo desactivaron sería demasiado. Es una consulta de una fila.
+const CONFIRMAR_PERFIL_CADA = 30 * 60_000;
 let perfilConfirmado = 0;
 async function perfilVivo() {
-  if (Date.now() - perfilConfirmado < RECONCILIAR_CADA) return true;
+  if (Date.now() - perfilConfirmado < CONFIRMAR_PERFIL_CADA) return true;
   const { data: s } = await sb.auth.getSession();
   const uid = s?.session?.user?.id;
   if (!uid) return false;
@@ -544,25 +548,26 @@ async function perfilVivo() {
 // ficha (ver `historial`), así que topar aquí no esconde nada.
 const TOPE_EVENTOS = 3000;
 
-// Cada cuánto se hace una pasada COMPLETA. Hace dos cosas que la
-// incremental no puede: notar lo que se BORRÓ en el servidor, y recoger
-// lo que se haya escapado por la rendija de abajo.
-const RECONCILIAR_CADA = 10 * 60_000;
-let ultimoCompleto = 0;              // en cero: la primera del arranque va completa
+// -------------------------------------------------- cuánto se gasta
+// Esto se usa en una mina: señal mala, datos que se pagan y un día
+// entero sin dónde cargar el celular. Cada consulta cuesta batería
+// aunque no traiga nada, porque enciende la radio.
+//
+// Antes, cada veinte segundos se bajaban ENTEROS los proveedores, las
+// figuras del plano, la configuración y los perfiles —cosas que cambian
+// una vez al mes—, y cada diez minutos, encima, todos los lotes y los
+// tres mil eventos más recientes: cerca de un megabyte, seis veces por
+// hora, para enterarse de lo que casi nunca pasa.
+//
+// Ahora la vuelta normal pregunta SOLO por lo que cambió desde la vez
+// anterior: tres consultas que lo habitual es que no traigan ni una
+// fila. Lo caro se hace de tarde en tarde.
+const RECONCILIAR_CADA = 6 * 60 * 60_000;      // cada seis horas
+// Se recuerda entre aperturas. Si no, abrir la app treinta veces al día
+// —que es lo normal en el patio— hacía treinta reconciliaciones: los
+// catálogos enteros cada vez, para nada.
+let ultimoCompleto = null;           // sin leer todavía; en cero: toca
 let marcados = [];                   // filas pintadas como rechazadas la vuelta pasada
-
-// Quita del celular los eventos que el servidor ya no tiene, mirando solo
-// el tramo que la consulta alcanzó a cubrir: desde el más viejo que vino
-// hacia acá. Si vinieron menos de los que caben, la consulta llegó al
-// fondo y entonces opina sobre todo.
-async function podarEventos(traidos) {
-  if (!traidos?.length) return;
-  const vinieron = new Set(traidos.map((e) => e.id));
-  const corte = traidos.length < TOPE_EVENTOS ? ''
-    : traidos.reduce((m, e) => (e.ocurrido_en < m ? e.ocurrido_en : m), traidos[0].ocurrido_en);
-  for (const e of await idb.todos('eventos'))
-    if (e.ocurrido_en >= corte && !vinieron.has(e.id)) await idb.borrar('eventos', e.id);
-}
 
 // La marca de agua sale de las filas RECIBIDAS, no del reloj del celular:
 // un teléfono con la hora corrida se quedaría sin bajar nada, o bajándolo
@@ -572,74 +577,134 @@ const marcaMayor = (filas, campo, actual) =>
 
 // La rendija: una transacción que empezó antes de nuestra consulta pero
 // se confirma después lleva una hora anterior a la que alcanzamos a ver,
-// así que un corte exacto se la salta. Se aceptó a propósito, porque la
-// alternativa —pedir con unos segundos de margen— vuelve a bajar en cada
-// vuelta las filas que caen justo sobre la marca, para siempre. La
-// pasada completa de cada diez minutos las recoge.
+// así que un corte exacto se la salta. Antes la tapaba la pasada
+// completa bajando el patio entero cada diez minutos.
+//
+// Ahora la marca va UNA VUELTA POR DETRÁS: se pregunta con el máximo que
+// se vio en la pasada anterior, no en esta. Así cada fila que cambia se
+// baja dos veces y ni una más —con el patio quieto, la marca no se mueve
+// y no se baja nada—, y cualquier fila que se confirme tarde entra en la
+// vuelta siguiente. Poner un margen fijo de segundos no servía: las
+// filas que caen justo sobre la marca volverían a bajarse en cada
+// vuelta, para siempre.
+async function marcaYMaximo(tabla, campo, filas) {
+  const previo = await meta(`max_${tabla}`);
+  const nuevo = marcaMayor(filas, campo, previo);
+  // La primera vez no hay nada que tapar —esa pasada se lo trajo todo—,
+  // así que la marca arranca al día y no se baja el patio dos veces.
+  await meta(`marca_${tabla}`, previo || nuevo);
+  await meta(`max_${tabla}`, nuevo);
+}
+
+// Cuadrar el celular con el servidor pidiendo solo los `id`: pesan una
+// décima parte de las filas enteras y dicen las dos cosas que hacen
+// falta. Lo que sobra se borra; lo que falta se devuelve para ir a
+// buscarlo, que es más barato que bajarlo todo por si acaso.
+//
+// Lo que está en la cola no se toca: no aparece en el servidor porque
+// todavía no ha subido, no porque lo hayan borrado.
+async function conciliar(tabla, filas) {
+  const vivos = new Set((filas || []).map((f) => f.id));
+  const enCola = new Set((await idb.todos('cola')).map((o) => o.fila?.id).filter(Boolean));
+  const aqui = new Set();
+  for (const f of await idb.todos(tabla)) {
+    aqui.add(f.id);
+    if (!vivos.has(f.id) && !enCola.has(f.id)) await idb.borrar(tabla, f.id);
+  }
+  return [...vivos].filter((id) => !aqui.has(id));
+}
+
+// Trae filas sueltas por id, de cien en cien para no armar una dirección
+// kilométrica. Normalmente la lista viene vacía y esto no hace nada.
+async function traerPorId(tabla, ids) {
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await sb.from(tabla).select('*').in('id', ids.slice(i, i + 100));
+    if (error) throw new Error(error.message);
+    if (data?.length) await idb.varios(tabla, data);
+  }
+}
 
 async function bajar() {
+  if (ultimoCompleto === null) {
+    ultimoCompleto = Number(await meta('ultimo_completo')) || 0;
+    // Un celular con la hora adelantada guardaría una marca del futuro y
+    // no volvería a reconciliar nunca. Si está por delante, no vale.
+    if (ultimoCompleto > Date.now()) ultimoCompleto = 0;
+  }
   const completo = Date.now() - ultimoCompleto > RECONCILIAR_CADA;
-  const mLotes   = completo ? null : await meta('marca_lotes');
-  const mPilas   = completo ? null : await meta('marca_pilas');
-  const mEventos = completo ? null : await meta('marca_eventos');
+  const mLotes   = await meta('marca_lotes');
+  const mPilas   = await meta('marca_pilas');
+  const mEventos = await meta('marca_eventos');
 
+  // La vuelta de siempre: tres preguntas, y solo por lo que cambió.
   const qLotes = sb.from('lotes').select('*');
   const qPilas = sb.from('pilas').select('*');
   const qEventos = sb.from('eventos').select('*');
   if (mLotes)   qLotes.gt('actualizado_en', mLotes);
   if (mPilas)   qPilas.gt('actualizado_en', mPilas);
   if (mEventos) qEventos.gt('registrado_en', mEventos);
+  // la primera vez de todas no hay marca: se traen los más recientes
   else qEventos.order('ocurrido_en', { ascending: false }).limit(TOPE_EVENTOS);
 
-  const r = await Promise.all([
+  // Y de tarde en tarde, lo caro: los catálogos (que cambian una vez al
+  // mes) y la lista de ids para ver si borraron algo. Los eventos no
+  // entran aquí: no se borran nunca —la base misma lo impide— así que
+  // preguntar por ellos sería gastar por nada.
+  const extras = completo ? [
     sb.from('proveedores').select('*').eq('activo', true),
-    qPilas, qLotes, qEventos,
     sb.from('mapa_figuras').select('*'),
     sb.from('mapa_config').select('*').eq('id', 'unico').maybeSingle(),
-    sb.from('perfiles').select('id, nombre, rol')
-  ]);
+    sb.from('perfiles').select('id, nombre, rol'),
+    sb.from('lotes').select('id'),
+    sb.from('pilas').select('id')
+  ] : [];
+
+  const r = await Promise.all([qPilas, qLotes, qEventos, ...extras]);
   for (const x of r) if (x.error) throw new Error(x.error.message);
-  const [prov, pil, lot, eve, fig, cfg, per] = r;
+  const [pil, lot, eve, prov, fig, cfg, per, idLotes, idPilas] = r;
 
-  // Segundo cerrojo, y este no cuesta ni una consulta de más: si no
-  // podemos leer NI UN perfil —ni el nuestro—, el nuestro dejó de estar
-  // activo mientras trabajábamos. Vaciar aquí borraría de la pantalla lo
-  // que sí está guardado, así que mejor parar y volver a preguntar.
-  if (!per.data?.length) { perfilConfirmado = 0; throw new Error('perfil_inactivo'); }
-
-  // Catálogos: son pocos y cambian poco, se reemplazan enteros.
-  await idb.vaciar('proveedores'); await idb.varios('proveedores', prov.data);
-  await idb.vaciar('figuras');     await idb.varios('figuras', fig.data);
-  await idb.vaciar('perfiles');    await idb.varios('perfiles', per.data);
-  if (cfg.data) { await idb.vaciar('config'); await idb.guardar('config', cfg.data); }
-
-  // Operación: en la pasada completa se reemplaza (así desaparece lo que
-  // se haya borrado en el servidor); en las incrementales se escribe
-  // encima de lo que ya está.
   if (completo) {
-    await idb.vaciar('lotes'); await idb.vaciar('pilas');
+    // Segundo cerrojo: si no podemos leer NI UN perfil —ni el nuestro—,
+    // el nuestro dejó de estar activo mientras trabajábamos. Parar aquí,
+    // porque escribir borraría de la pantalla lo que sí está guardado.
+    // El primero, `perfilVivo()`, pregunta más a menudo y más barato.
+    if (!per.data?.length) { perfilConfirmado = 0; throw new Error('perfil_inactivo'); }
+
+    // Catálogos: son pocos y cambian poco, se reemplazan enteros.
+    await idb.vaciar('proveedores'); await idb.varios('proveedores', prov.data);
+    await idb.vaciar('figuras');     await idb.varios('figuras', fig.data);
+    await idb.vaciar('perfiles');    await idb.varios('perfiles', per.data);
+    if (cfg.data) { await idb.vaciar('config'); await idb.guardar('config', cfg.data); }
     ultimoCompleto = Date.now();
+    await meta('ultimo_completo', ultimoCompleto);
   }
+
   await idb.varios('pilas', pil.data);
   await idb.varios('lotes', lot.data);
   await idb.varios('eventos', eve.data);
-  // Los eventos NO se vacían. Vaciarlos borraba cada diez minutos toda la
-  // historia guardada y la dejaba en los TOPE_EVENTOS más recientes, que
-  // es una ventana de días: con eso, mirar el patio de la semana pasada
-  // salía mal, porque de la mayoría de los lotes no quedaba ni un evento
-  // y se les suponía el estado de recién llegados.
+
+  // Se cuadra con el servidor comparando ids. Va DESPUÉS de guardar lo
+  // que acaba de llegar, o una fila recién creada se borraría por no
+  // estar en una lista de ids que se pidió un instante antes.
   //
-  // Vaciar servía para notar lo que se hubiera borrado en el servidor.
-  // Eso se sigue haciendo, pero solo DENTRO de la ventana que acabamos de
-  // traer, que es la única parte sobre la que esta consulta puede opinar:
-  // fuera de ella, que un evento no venga no significa que no exista.
-  if (completo) await podarEventos(eve.data);
+  // Lo que falta se va a buscar: puede haber una fila que el servidor
+  // confirmó con una hora anterior a nuestra marca —la rendija— y que
+  // por eso no vendría nunca. Antes esto se tapaba bajando el patio
+  // entero cada diez minutos; ahora se baja solo esa fila.
+  if (completo) {
+    await traerPorId('lotes', await conciliar('lotes', idLotes.data));
+    await traerPorId('pilas', await conciliar('pilas', idPilas.data));
+  }
+  // Los eventos no se podan nunca. Vaciarlos era lo que borraba cada diez
+  // minutos toda la historia guardada y dejaba solo una ventana de días:
+  // con eso, mirar el patio de la semana pasada salía mal, porque de la
+  // mayoría de los lotes no quedaba ni un evento.
 
   // Si la columna todavía no existe (falta correr migracion.sql) la marca
   // queda vacía y todo sigue bajándose completo: más lento, nunca roto.
-  await meta('marca_lotes',   marcaMayor(lot.data, 'actualizado_en', mLotes));
-  await meta('marca_pilas',   marcaMayor(pil.data, 'actualizado_en', mPilas));
-  await meta('marca_eventos', marcaMayor(eve.data, 'registrado_en', mEventos));
+  await marcaYMaximo('lotes',   'actualizado_en', lot.data);
+  await marcaYMaximo('pilas',   'actualizado_en', pil.data);
+  await marcaYMaximo('eventos', 'registrado_en',  eve.data);
 
   // Un rechazo del servidor NO puede hacer desaparecer nada de la pantalla:
   // lo rechazado se vuelve a pintar, marcado, hasta que se resuelva.
