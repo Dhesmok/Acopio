@@ -31,10 +31,16 @@ export const createClient = () => ({
         if (e) return { error: e };
         if (tabla === 'eventos' && !servidor.tablas.lotes.has(fila.lote_id))
           return { error: err('23503', 'insert or update on table "eventos" violates foreign key constraint "eventos_lote_id_fkey"') };
-        if (tabla === 'lotes' || tabla === 'pilas') {   // codigo es UNIQUE en las dos
+        // `codigo` es único en lotes siempre, y en pilas SOLO entre las
+        // abiertas: una pila archivada suelta su nombre (ver el índice
+        // ux_pilas_codigo_abierta en el esquema).
+        if (tabla === 'lotes' || tabla === 'pilas') {
+          const choca = (f) => String(f.codigo) === String(fila.codigo)
+            && (tabla === 'lotes' || (f.estado === 'abierta' && fila.estado === 'abierta'));
           for (const [id, f] of servidor.tablas[tabla])
-            if (String(f.codigo) === String(fila.codigo) && id !== fila.id)
-              return { error: err('23505', `duplicate key value violates unique constraint "${tabla}_codigo_key"`) };
+            if (id !== fila.id && choca(f))
+              return { error: err('23505', `duplicate key value violates unique constraint "${
+                tabla === 'pilas' ? 'ux_pilas_codigo_abierta' : `${tabla}_codigo_key`}"`) };
         }
         // el servidor pone la marca de cambio, como el trigger
         const marca = tabla === 'eventos' ? { registrado_en: ahora() } : { actualizado_en: ahora() };

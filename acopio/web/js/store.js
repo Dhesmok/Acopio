@@ -458,16 +458,19 @@ async function subir() {
 
 // El consecutivo de una pila lo elige cada celular por su cuenta, así que
 // dos personas sin señal escogen el mismo y el servidor rechaza el
-// segundo: `pilas.codigo` es único. Pero el nombre es una ETIQUETA, no la
-// identidad —esa es el id—, y perder la pila (con los lotes que alguien
-// ya le metió) por un nombre repetido no tiene sentido. Se le da el
-// siguiente libre y se avisa.
+// segundo: el nombre no se puede repetir entre las pilas ABIERTAS. Pero
+// el nombre es una ETIQUETA, no la identidad —esa es el id—, y perder la
+// pila (con los lotes que alguien ya le metió) por un nombre repetido no
+// tiene sentido. Se le da el siguiente libre y se avisa.
 async function renombrarPorChoque(op) {
-  const { data, error } = await sb.from('pilas').select('codigo');
+  const { data, error } = await sb.from('pilas').select('codigo').eq('estado', 'abierta');
   if (error || !data) return false;
+  // Las archivadas no cuentan ni aquí ni en el servidor: su nombre está
+  // libre. Contarlas hacía que el número siguiera subiendo para siempre.
   const usados = new Set([
     ...data.map((p) => String(p.codigo)),
-    ...(await idb.todos('pilas')).map((p) => String(p.codigo))
+    ...(await idb.todos('pilas')).filter((p) => p.estado === 'abierta')
+      .map((p) => String(p.codigo))
   ]);
   let n = 1;
   while (usados.has(String(n))) n++;

@@ -429,6 +429,18 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
    Al guardar se pasa a mayúsculas de verdad. */
 input.placa { text-transform: uppercase; }
 
+/* Una caja por volqueta. Un lote traído por dos volquetas lleva dos
+   cajas, cada una con su placa: escribirlas seguidas en una sola
+   confundiría un dedazo ("VLJ 116") con dos volquetas de verdad. */
+.fila-placa { display: flex; gap: 6px; align-items: stretch; }
+.fila-placa + .fila-placa { margin-top: 6px; }
+.fila-placa input { flex: 1; min-width: 0; }
+.fila-placa .quitar-placa { flex: none; width: 44px; font-size: 20px; line-height: 1; }
+/* Con una sola volqueta no hay nada que quitar, y así la caja ocupa todo
+   el ancho como cualquier otro campo del formulario. */
+.fila-placa:only-child .quitar-placa { display: none; }
+[id$="-lista"] + .pastilla { margin-top: 8px; }
+
 .volqueta {
   font-size: .58em; font-weight: 800; vertical-align: super;
   line-height: 0; margin-left: .06em; opacity: .8;

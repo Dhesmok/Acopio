@@ -27,6 +27,13 @@ const eventos = [
   { lote_id: 'l1', tipo: 'salida_pila', ocurrido_en: T(16) },
   { lote_id: 'l1', tipo: 'cambio_estado', estado_nuevo: 'facturado', ocurrido_en: T(18) }
 ];
+// Otro lote del patio, de los que llevan meses ahí sin que les pase
+// nada: no tiene ni un evento guardado.
+const viejoQuieto = {
+  id: 'l9', codigo: 'PG9', estado: 'facturado', pila_id: null,
+  forma: 'elipse', x: 250, y: 640, rx: 40, ry: 40, rot: 0,
+  fecha_recogida: null, creado_en: T(3), fecha_recepcion: '2026-07-03'
+};
 const en = (d) => planoEn(T(d), { lotes: [lote], pilas: [pila], eventos });
 
 // ---------------------------------------------------------------------
@@ -51,9 +58,37 @@ titulo('La posición es la de entonces, no la de ahora.');
 // evento guarda de dónde salió, no a dónde llegó.
 const antes = en(11).lotes[0];
 ok(antes.x === 100 && antes.y === 100, `antes del traslado estaba en (${antes.x}, ${antes.y})`);
+ok(lote.x === 900, 'y el lote de verdad no se toca: sigue donde está hoy');
+
+// ---------------------------------------------------------------------
+titulo('Sin traslados posteriores, el lote se dibuja DONDE ESTÁ.');
+
+// Esto se vio en el patio: al entrar a mirar otro día, medio plano se
+// descuadraba y salían lotes montados unos encima de otros.
+//
+// La razón es que un acomodo pequeño NO se apunta —solo cuenta como
+// traslado si la figura deja de traslaparse con donde estaba, ver
+// `movimientoReal`—, así que la última posición apuntada se va quedando
+// atrás de la de verdad. Clavar el lote en esa posición vieja movía el
+// patio entero, incluso mirando "ahora mismo".
+//
+// El criterio es el mismo que para el estado: si nadie lo movió después
+// del momento pedido, donde está hoy es donde estaba.
 const despues = en(15).lotes[0];
-ok(despues.x === 400 && despues.y === 300, `después, en (${despues.x}, ${despues.y})`);
-ok(lote.x === 900, 'y hoy está en otro sitio, que es el que no se toca');
+ok(despues.x === 900 && despues.y === 900,
+   `el 15 ya no hay traslados por delante, así que va donde está hoy (${despues.x}, ${despues.y})`);
+
+// Y mirar "ahora mismo" tiene que dar el plano de verdad, clavado: es lo
+// primero que se ve al pulsar el botón, y cualquier diferencia ahí hace
+// pensar que la app se inventa cosas.
+const ahora = planoEn(T(28), { lotes: [lote, viejoQuieto], pilas: [pila], eventos }).lotes;
+ok(ahora.length === 2, 'están los dos lotes');
+for (const l of ahora) {
+  const real = [lote, viejoQuieto].find((o) => o.id === l.id);
+  ok(l.x === real.x && l.y === real.y, `${l.codigo} sale en su sitio de verdad (${l.x}, ${l.y})`);
+  ok(l.estado === real.estado, `${l.codigo} sale con su estado de verdad (${l.estado})`);
+  ok(l.pila_id === real.pila_id, `${l.codigo} sale con su pila de verdad`);
+}
 
 // ---------------------------------------------------------------------
 titulo('Una pila se ve solo mientras tuvo algo dentro.');
