@@ -23,7 +23,7 @@ export const createClient = () => ({
   },
   from(tabla) {
     const filtros = [];
-    let tope = null;
+    let tope = null, orden = null, pedidas = '*';
     const api = {
       async upsert(fila) {
         servidor.intentos.push(`${tabla}:${fila.id}`);
@@ -42,15 +42,35 @@ export const createClient = () => ({
         return { error: null };
       },
       delete: () => ({ eq: async () => ({ error: null }) }),
-      select() { return api; },
-      order() { return api; },
+      // Se apunta QUÉ columnas se piden: pedir la lista de ids para
+      // cuadrar no es lo mismo que bajarse las filas enteras, y las
+      // pruebas de gasto necesitan poder distinguirlo.
+      select(campos) { pedidas = campos || '*'; return api; },
+      // Ordenar de verdad importa: la app baja los eventos MÁS RECIENTES
+      // y luego va bajando hacia atrás de página en página. Con un order
+      // que no ordenaba, esa paginación no se estaba probando.
+      order(campo, op) { orden = { campo, asc: op?.ascending !== false }; return api; },
       limit(n) { tope = n; return api; },
       eq(campo, valor) { filtros.push((f) => String(f[campo]) === String(valor)); return api; },
       gt(campo, valor) { filtros.push((f) => (f[campo] || '') > valor); return api; },
+      lte(campo, valor) { filtros.push((f) => (f[campo] || '') <= valor); return api; },
+      in(campo, lista) { const s = new Set(lista.map(String));
+                         filtros.push((f) => s.has(String(f[campo]))); return api; },
       resolver() {
         let filas = [...servidor.tablas[tabla].values()].filter((f) => filtros.every((p) => p(f)));
+        if (orden) filas.sort((a, b) => {
+          const x = String(a[orden.campo] ?? ''), y = String(b[orden.campo] ?? '');
+          return (x < y ? -1 : x > y ? 1 : 0) * (orden.asc ? 1 : -1);
+        });
         if (tope != null) filas = filas.slice(0, tope);
-        servidor.bajado.push({ tabla, filas: filas.length });
+        // Se devuelven SOLO las columnas pedidas, como hace el servidor
+        // de verdad: pedir `id` para cuadrar tiene que pesar lo que pesa.
+        if (pedidas !== '*') {
+          const cols = pedidas.split(',').map((c) => c.trim());
+          filas = filas.map((f) => Object.fromEntries(cols.map((c) => [c, f[c]])));
+        }
+        servidor.bajado.push({ tabla, filas: filas.length, campos: pedidas,
+                               bytes: JSON.stringify(filas).length });
         return filas;
       },
       async maybeSingle() {

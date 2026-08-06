@@ -10,8 +10,22 @@ const { servidor } = await import('./ayudas/supabase.mjs');
 const { cargarStore } = await import('./ayudas/cargar.mjs');
 const Store = await cargarStore();
 
+// Filas ENTERAS bajadas: la lista de ids que se pide para cuadrar no
+// cuenta, porque es justamente lo barato.
 const bajadoDe = (tabla) => servidor.bajado
-  .filter((b) => b.tabla === tabla).reduce((n, b) => n + b.filas, 0);
+  .filter((b) => b.tabla === tabla && b.campos === '*').reduce((n, b) => n + b.filas, 0);
+const consultoA = (tabla) => servidor.bajado.some((b) => b.tabla === tabla);
+
+// La pasada que pasa lista es cada hora. Cada llamada adelanta el reloj
+// un poco MÁS que la anterior: se dispara comparando contra la hora de la
+// última, así que congelar siempre en el mismo instante solo forzaría la
+// primera.
+let adelanto = 2;
+const saltar = () => {
+  const d = congelarReloj(new Date(Date.now() + adelanto * 3600_000).toISOString());
+  adelanto += 2;
+  return Store.sincronizar().finally(d);
+};
 
 await Store.iniciar();
 
@@ -45,6 +59,23 @@ ok((await Store.lote('L7')).x === 999, 'y el cambio llegó a la pantalla');
 ok((await Store.lotes()).length === 40, 'los otros 39 siguen ahí, no se borraron');
 
 // ---------------------------------------------------------------------
+titulo('La vuelta de siempre son tres preguntas, y ninguna cara.');
+
+// Esto se usa en una mina: señal mala, datos que se pagan y un día sin
+// dónde cargar el celular. Cada consulta enciende la radio aunque vuelva
+// vacía. Antes, CADA VUELTA se bajaban enteros los proveedores, las
+// figuras del plano, la configuración y los perfiles: cosas que cambian
+// una vez al mes.
+servidor.bajado.length = 0;
+await Store.sincronizar();
+ok(consultoA('lotes') && consultoA('pilas') && consultoA('eventos'),
+   'se pregunta por lotes, pilas y eventos, que es lo que cambia a diario');
+for (const t of ['proveedores', 'mapa_figuras', 'mapa_config', 'perfiles'])
+  ok(!consultoA(t), `y NO se vuelve a bajar ${t}, que cambia una vez al mes`);
+ok(servidor.bajado.length === 3,
+   `tres consultas en total, ni una más (fueron ${servidor.bajado.length})`);
+
+// ---------------------------------------------------------------------
 titulo('El historial viejo ya no desaparece en silencio.');
 
 // un lote cuyo evento de recepción quedó fuera del tope de la descarga
@@ -62,24 +93,103 @@ ok(Store.historialCompleto(h), 'y queda marcado como completo');
 ok(!!(await tiendas.get('eventos').get('EX')), 'lo traído se guarda en el celular');
 
 // ---------------------------------------------------------------------
-titulo('La pasada completa sí nota lo que se borró en el servidor.');
+titulo('La pasada que pasa lista sí nota lo que se borró.');
 servidor.tablas.lotes.delete('L3');
 await Store.sincronizar();
 ok(!!(await Store.lote('L3')), 'una vuelta incremental no lo nota (es lo esperado)');
 
-const descongelar = congelarReloj(new Date(Date.now() + 11 * 60_000).toISOString());
-await Store.sincronizar();
-descongelar();
-ok(!(await Store.lote('L3')), 'la pasada completa (cada 10 min) sí lo quita');
+servidor.bajado.length = 0;
+await saltar();
+ok(!(await Store.lote('L3')), 'la pasada que reconcilia sí lo quita');
 ok((await Store.lotes()).length === 40, 'quedan 40 lotes (39 + el viejo)');
+
+// Y lo hace pidiendo IDS, no las filas enteras: para saber qué sobra no
+// hace falta bajarse otra vez todo el patio.
+ok(consultoA('proveedores') && consultoA('perfiles'),
+   'esta sí trae los catálogos, que es cuando toca');
+ok(servidor.bajado.some((b) => b.tabla === 'lotes' && b.campos === 'id'),
+   'y para saber qué sobra pide solo los ids, no las filas enteras');
+
+// La lista de ids sirve para las dos cosas: lo que sobra se borra y lo
+// que falta se va a buscar. LX está en el servidor con una fecha vieja,
+// anterior a nuestra marca, así que por lo incremental no vendría nunca.
+ok(!!(await Store.lote('LX')),
+   'y lo que falta se trae por id: una fila con fecha vieja ya no se queda fuera para siempre');
+
+// Abrir la app no fuerza una reconciliación: en el patio se abre y se
+// cierra treinta veces al día, y eran treinta veces los catálogos
+// enteros. La última queda apuntada en el celular.
+servidor.bajado.length = 0;
+await Store.sincronizar();
+ok(!consultoA('proveedores'), 'una vuelta normal después no la repite');
+ok(!!(await tiendas.get('meta').get('ultimo_completo')),
+   'y la hora de la última queda GUARDADA, que es lo que la hace sobrevivir a cerrar la app');
+
+// ---------------------------------------------------------------------
+titulo('La historia guardada ya no se borra sola cada diez minutos.');
+
+// Este era el fallo que dejaba inservible lo de mirar otro día. La
+// pasada completa vaciaba la tienda de eventos y la volvía a llenar con
+// los TOPE_EVENTOS más recientes, así que del patio no quedaba más
+// historia que unos días, se mirase cuando se mirase.
+const VIEJO = '2019-06-01T10:00:00.000Z';
+servidor.tablas.eventos.set('ANTIGUO', { id: 'ANTIGUO', lote_id: 'L1', tipo: 'cambio_estado',
+  estado_nuevo: 'muestreado', ocurrido_en: VIEJO, registrado_en: VIEJO });
+
+// se rellena por encima del tope de la descarga, para que ese evento
+// quede FUERA de la ventana que la sincronización alcanza a ver
+for (let i = 0; i < 3200; i++) {
+  const id = `R${i}`;
+  const cuando = new Date(Date.parse('2026-07-02T00:00:00.000Z') + i * 1000).toISOString();
+  servidor.tablas.eventos.set(id, { id, lote_id: 'L1', tipo: 'observacion',
+    nota: `n${i}`, ocurrido_en: cuando, registrado_en: cuando });
+}
+
+await saltar();
+ok(!(await tiendas.get('eventos').get('ANTIGUO')),
+   'la descarga normal no llega tan atrás: ese evento no está todavía');
+
+const hondo = await Store.ahondarHistoria();
+ok(!!(await tiendas.get('eventos').get('ANTIGUO')),
+   'pedir más historia sí lo trae, bajando de página en página');
+ok(hondo.entera === true, 'y avisa de que ya se llegó al principio de todo');
+
+await saltar();
+ok(!!(await tiendas.get('eventos').get('ANTIGUO')),
+   'y la pasada completa YA NO se lo lleva por delante: esto es lo que estaba roto');
+
+const otraVez = await Store.ahondarHistoria();
+ok(otraVez.traidos === 0, 'una vez entera, volver a pedirla no baja nada');
+
+// ---------------------------------------------------------------------
+titulo('Un evento no se borra nunca, y por eso no se pregunta por ellos.');
+
+// Los eventos son el libro de cuentas del patio: la base de datos misma
+// impide borrarlos y la app no tiene por dónde. Preguntar cada tanto si
+// siguen ahí sería gastar señal y batería para confirmar lo que ya se
+// sabe, así que se dejan en paz, se borren o no en el servidor.
+servidor.tablas.eventos.delete('R3100');
+servidor.tablas.eventos.delete('ANTIGUO');
+servidor.bajado.length = 0;
+await saltar();
+ok(!!(await tiendas.get('eventos').get('R3100')) &&
+   !!(await tiendas.get('eventos').get('ANTIGUO')),
+   'siguen en el celular: la app ya no va a comprobarlo');
+ok(servidor.bajado.filter((b) => b.tabla === 'eventos').length === 1,
+   'a eventos se le pregunta UNA vez, y solo por los nuevos');
 
 // ---------------------------------------------------------------------
 titulo('Si desactivan el perfil, no se borra lo que hay en el celular.');
 // Las políticas devuelven cero filas SIN error: sin cerrojo, la app
 // tomaría ese vacío por la verdad y dejaría la pantalla en blanco.
+//
+// Se comprueba con el reloj adelantado porque los dos cerrojos van por
+// tiempo: el barato pregunta por el perfil propio cada media hora, y el
+// otro va con la pasada que reconcilia. Preguntar en cada vuelta era una
+// consulta cada veinte segundos para algo que no cambia casi nunca.
 const habia = (await Store.lotes()).length;
 servidor.tablas.perfiles.clear();
-const r = await Store.sincronizar();
+const r = await saltar();
 ok(r.motivo === 'perfil_inactivo', `la app lo detecta y lo dice (${JSON.stringify(r)})`);
 ok((await Store.lotes()).length === habia, `los ${habia} lotes siguen en pantalla`);
 
