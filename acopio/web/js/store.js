@@ -562,7 +562,12 @@ const TOPE_EVENTOS = 3000;
 // Ahora la vuelta normal pregunta SOLO por lo que cambió desde la vez
 // anterior: tres consultas que lo habitual es que no traigan ni una
 // fila. Lo caro se hace de tarde en tarde.
-const RECONCILIAR_CADA = 6 * 60 * 60_000;      // cada seis horas
+// Una hora. Pasar lista es lo único que nota un borrado hecho a mano en
+// la base de datos, y es también por donde llegan el fondo del mapa, los
+// colores y las figuras dibujadas: seis horas para eso era demasiado. Los
+// lotes, los estados y las pilas no dependen de esto — esos van por la
+// vuelta de cada minuto.
+const RECONCILIAR_CADA = 60 * 60_000;
 // Se recuerda entre aperturas. Si no, abrir la app treinta veces al día
 // —que es lo normal en el patio— hacía treinta reconciliaciones: los
 // catálogos enteros cada vez, para nada.

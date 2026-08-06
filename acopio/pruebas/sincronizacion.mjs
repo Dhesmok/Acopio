@@ -16,14 +16,14 @@ const bajadoDe = (tabla) => servidor.bajado
   .filter((b) => b.tabla === tabla && b.campos === '*').reduce((n, b) => n + b.filas, 0);
 const consultoA = (tabla) => servidor.bajado.some((b) => b.tabla === tabla);
 
-// La pasada que reconcilia es cada seis horas. Cada llamada adelanta el
-// reloj un poco MÁS que la anterior: se dispara comparando contra la hora
-// de la última, así que congelar siempre en el mismo instante solo
-// forzaría la primera.
-let adelanto = 7;
+// La pasada que pasa lista es cada hora. Cada llamada adelanta el reloj
+// un poco MÁS que la anterior: se dispara comparando contra la hora de la
+// última, así que congelar siempre en el mismo instante solo forzaría la
+// primera.
+let adelanto = 2;
 const saltar = () => {
   const d = congelarReloj(new Date(Date.now() + adelanto * 3600_000).toISOString());
-  adelanto += 7;
+  adelanto += 2;
   return Store.sincronizar().finally(d);
 };
 
@@ -93,7 +93,7 @@ ok(Store.historialCompleto(h), 'y queda marcado como completo');
 ok(!!(await tiendas.get('eventos').get('EX')), 'lo traído se guarda en el celular');
 
 // ---------------------------------------------------------------------
-titulo('La pasada de cada seis horas sí nota lo que se borró.');
+titulo('La pasada que pasa lista sí nota lo que se borró.');
 servidor.tablas.lotes.delete('L3');
 await Store.sincronizar();
 ok(!!(await Store.lote('L3')), 'una vuelta incremental no lo nota (es lo esperado)');
