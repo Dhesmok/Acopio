@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v38';
+const VERSION = 'acopio-v39';
 const SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const SHELL = [
   './js/app.js',
   './js/mapa.js',
   './js/store.js',
+  './js/historia.js',
   // se carga solo al pedir el informe, pero tiene que estar guardado de
   // antemano: si no, sacar el listado dejaría de funcionar sin señal
   './js/excel.js',

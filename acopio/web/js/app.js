@@ -4,6 +4,7 @@
 import * as Store from './store.js';
 import { sb } from './store.js';
 import * as Mapa from './mapa.js';
+import { planoEn, desde } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
 
 const $ = (s) => document.querySelector(s);
@@ -37,7 +38,9 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             naciendo: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: { campo: 'ninguno', valor: null },
-            recorrido: null };
+            recorrido: null,
+            // mirar el patio de otro día: solo se mira, no se toca nada
+            historia: null };
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
@@ -59,6 +62,7 @@ const ICO = {
   fondo:     ico('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'),
   cerrar:    ico('<path d="M18 6L6 18M6 6l12 12"/>'),
   lupa:      ico('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>'),
+  reloj:     ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
   diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')
 };
 
@@ -80,6 +84,31 @@ const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))
 // nadie, así que ni se muestra ni cuenta como vencida. Antes seguía
 // saliendo en la ficha, en la lista y como borde de alarma en el plano
 // mucho después de que el asunto se hubiera resuelto.
+// La placa de una volqueta son letras y números y nada más. En vez de
+// avisar DESPUÉS de escribir, el campo no deja entrar lo que no sirve:
+// el espacio, el guion o el punto simplemente no aparecen. Un teclado de
+// celular en el patio mete espacios solo, y una placa con un espacio de
+// más es una placa distinta para el filtro y para el informe.
+//
+// Se conserva dónde estaba el cursor: sin eso, corregir una letra en
+// medio de la placa mandaba el cursor al final en cada tecla.
+function soloLetrasYNumeros(campo) {
+  if (!campo) return;
+  const limpiar = () => {
+    const antes = campo.value;
+    const cursor = campo.selectionStart ?? antes.length;
+    const despues = antes.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (despues === antes) return;
+    // cuántos caracteres buenos había ANTES del cursor: ahí se queda
+    const buenos = antes.slice(0, cursor).replace(/[^a-zA-Z0-9]/g, '').length;
+    campo.value = despues;
+    campo.setSelectionRange?.(buenos, buenos);
+  };
+  campo.addEventListener('input', limpiar);
+  // pegar desde el portapapeles no siempre dispara `input` a tiempo
+  campo.addEventListener('paste', () => setTimeout(limpiar, 0));
+}
+
 // Cómo se escribe un código en pantalla. La volqueta va pequeña y
 // arriba, como un exponente: ABG40.2 se lee "ABG40" con un 2 al lado.
 // Lo hace `Mapa.partesCodigo`, que es quien conoce el formato; aquí solo
@@ -336,6 +365,7 @@ function pantallaPrincipal() {
     <div id="flotantes">
       <div id="barra-recorrido"></div>
       <div id="barra-forma"></div>
+      <div id="barra-historia"></div>
       <div id="franja" hidden class="franja"><div></div></div>
     </div>
     <div id="modal"></div>`;
@@ -406,7 +436,7 @@ function pintarSync() {
 
 // ------------------------------------------------------------------ mapa
 const limpiarBarrasMapa = () => {
-  for (const id of ['#barra-forma', '#barra-recorrido']) {
+  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia']) {
     const n = $(id); if (n) n.innerHTML = '';
   }
 };
@@ -436,6 +466,8 @@ function montarMapa() {
                 ${ICO.filtro}<span>Filtrar</span></button>
               ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
                 ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
+              <button class="btn-mapa" id="r-historia" aria-label="Ver el patio de otro día"
+                ${S.historia ? 'aria-pressed="true"' : ''}>${ICO.reloj}<span>Otro día</span></button>
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
@@ -454,6 +486,9 @@ function montarMapa() {
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
     alTocar: gesto((tipo, id) => {
+      // La ficha cuenta cómo está el lote HOY. Abrirla desde el patio de
+      // otro día mezclaría las dos cosas, así que en ese modo no se abre.
+      if (S.historia) return;
       if (tipo === 'lote') return fichaLote(id);
       if (tipo === 'pila') return fichaPila(id);
       if (esAdmin()) return fichaFigura(id);
@@ -498,15 +533,105 @@ function montarMapa() {
   };
   pintarBuscadorMapa();
   $('#r-filtrar').onclick = panelFiltro;
+  $('#r-historia').onclick = accion(alternarHistoria, { ocupado: 'Leyendo…' });
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
   if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
 
-  Mapa.editar(S.edicion);
-  if (S.edicion) barraEdicion();
+  // Mirando otro día no se edita nada: ni mover, ni ajustar, ni soltar
+  // un lote sobre una pila. El botón de editar se apaga para que no
+  // parezca disponible.
+  Mapa.editar(S.historia ? false : S.edicion);
+  if (S.historia) {
+    $('#r-editar')?.setAttribute('disabled', '');
+    barraHistoria();
+    pintarHistoria();
+  } else if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
+}
+
+// ------------------------------------------------------- otro día
+// Mirar el patio como estaba. SOLO MIRAR: no se guarda nada, no se
+// sincroniza nada y no se puede arrastrar ni editar. Es la misma
+// pregunta que se hace alguien delante del plano —"¿esto dónde estaba el
+// martes?"— y hasta ahora había que ir lote por lote leyendo historiales.
+//
+// Se rehace a partir de los eventos, que no se borran nunca. Lo hace
+// `historia.js`, que no toca la pantalla: aquí solo se le pide el patio
+// de un instante y se le pasa al plano.
+async function alternarHistoria() {
+  if (S.historia) return salirDeHistoria();
+  const eventos = await Store.eventos();
+  const primero = desde(eventos);
+  if (!primero) return avisar('Todavía no hay movimientos guardados para poder mirar atrás.');
+  S.historia = { eventos, primero, ahora: new Date().toISOString(), t: new Date().toISOString() };
+  S.edicion = false;
+  montarMapa();
+}
+
+function salirDeHistoria() {
+  S.historia = null;
+  montarMapa();
+  refrescarMapa();
+}
+
+// El deslizador va en MINUTOS desde el evento más viejo: son suficientes
+// para el patio —nadie busca el segundo exacto— y hacen que el recorrido
+// entero quepa en un rango que el navegador maneja sin despeinarse.
+const enMinutos = (iso) => Math.floor(Date.parse(iso) / 60000);
+
+// "mié 15 jul · 14:30". Se compone a mano porque `toLocaleString` con
+// todo junto suelta "Mié, 15 De Jul, 2:30 P. M.": dos renglones en un
+// teléfono, con la preposición en mayúscula y la hora en dos piezas.
+function momento(d) {
+  const dia = d.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
+    .replace(/,/g, '').replace(/\./g, '');
+  const hora = d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${dia} · ${hora}`;
+}
+
+function barraHistoria() {
+  const caja = $('#barra-historia');
+  if (!caja || !S.historia) return;
+  const h = S.historia;
+  const min = enMinutos(h.primero), max = enMinutos(h.ahora);
+  const val = Math.min(Math.max(enMinutos(h.t), min), max);
+  const cuando = new Date(val * 60000);
+  const alFinal = val >= max;
+
+  caja.innerHTML = `<div class="barra-modo barra-historia">
+    <div class="fila-historia">
+      <strong>${alFinal ? 'Ahora mismo' : esc(momento(cuando))}</strong>
+      <button class="pastilla" id="h-salir">Volver a hoy</button>
+    </div>
+    <div class="fila-historia">
+      <button class="ctrl ctrl-historia" id="h-atras" aria-label="Un día atrás">‹</button>
+      <input type="range" id="h-cuando" min="${min}" max="${max}" value="${val}" step="1">
+      <button class="ctrl ctrl-historia" id="h-alante" aria-label="Un día adelante">›</button>
+    </div>
+    <span class="pista">Solo se mira: nada de lo que se ve aquí cambia el patio.
+      Se puede retroceder hasta el ${esc(new Date(h.primero).toLocaleDateString('es-CO'))}.</span>
+  </div>`;
+
+  const ir = (minutos) => {
+    h.t = new Date(Math.min(Math.max(minutos, min), max) * 60000).toISOString();
+    barraHistoria();
+    pintarHistoria();
+  };
+  const campo = $('#h-cuando');
+  campo.oninput = () => ir(Number(campo.value));
+  $('#h-atras').onclick = () => ir(val - 1440);
+  $('#h-alante').onclick = () => ir(val + 1440);
+  $('#h-salir').onclick = salirDeHistoria;
+}
+
+function pintarHistoria() {
+  const h = S.historia;
+  if (!h || !document.querySelector('#lienzo')) return;
+  const { lotes, pilas } = planoEn(h.t, { lotes: S.lotes, pilas: S.pilas, eventos: h.eventos });
+  Mapa.pintar({ config: S.config, figuras: S.figuras, pilas, lotes });
 }
 
 // El filtro activo se ve sobre el mapa y se quita de un toque, sin
@@ -743,6 +868,10 @@ function enfocarBusqueda() {
 
 function refrescarMapa() {
   if (S.pestana !== 'mapa' || !document.querySelector('#lienzo-caja')) return;
+  // La sincronización sigue corriendo cada 20 segundos mientras se mira
+  // otro día. Si repintara el patio de hoy encima, el plano daría un
+  // salto al presente sin que nadie lo pidiera.
+  if (S.historia) return pintarHistoria();
   Mapa.pintar({
     config: S.config, figuras: S.figuras, pilas: S.pilas, lotes: S.lotes,
     destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado,
@@ -1375,6 +1504,7 @@ async function fichaLote(id) {
     abrirEdicion('lote', { ...l, ...cambios });
   });
 
+  soloLetrasYNumeros($('#a-placa'));
   const ef = $('#editar-forma');
   if (ef) ef.onclick = () => { cerrarHoja(); abrirEdicion('lote', l); };
 
@@ -1669,6 +1799,7 @@ function formLote() {
     $('#fm-granel').classList.toggle('btn-lleno', m === 'granel');
     $('#fm-bigbag').classList.toggle('btn-lleno', m === 'bigbag');
   };
+  soloLetrasYNumeros($('#f-placa'));
   $('#fm-granel').onclick = () => elegirMaterial('granel');
   $('#fm-bigbag').onclick = () => elegirMaterial('bigbag');
 
