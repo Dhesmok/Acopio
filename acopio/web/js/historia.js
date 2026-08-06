@@ -50,17 +50,32 @@ function aplicar(l, e) {
   l.ultimo_evento_en = e.ocurrido_en;
 }
 
-// Dónde estaba antes de moverse por primera vez.
+// Dónde estaba, con el mismo criterio que el estado y la pila.
 //
-// Un traslado se apunta como DOS eventos: de dónde salió y a dónde
-// llegó. Así que el primer 'movimiento' posterior al momento que se pide
-// lleva justo la posición que tenía entonces. Si no se movió nunca, la
-// de hoy es la de siempre.
+// SI NADIE LO MOVIÓ DESPUÉS del momento que se pide, donde está hoy es
+// donde estaba. Y esto no es un apaño: un acomodo pequeño NO se apunta
+// —solo cuenta como traslado si la figura deja de traslaparse con donde
+// estaba, ver `movimientoReal` en mapa.js—, así que la última posición
+// apuntada se va quedando atrás de la de verdad. Clavar el lote ahí
+// hacía que al entrar a mirar otro día el patio entero se descuadrara,
+// con lotes montados unos encima de otros, incluso mirando "ahora
+// mismo", que tiene que salir igualito al plano de verdad.
+//
+// Si sí lo movieron después, entonces la de hoy no vale y manda el
+// apunte: el último anterior al momento pedido, y si no hay ninguno, el
+// primero posterior, que es la marca de "de dónde salió" que se escribe
+// la primera vez que un lote se traslada.
 function dondeEstaba(l, suyos, t) {
-  const antes = suyos.filter((e) => e.tipo === 'movimiento' && e.ocurrido_en <= t && e.x != null);
-  if (antes.length) return null;                    // ya lo pone `aplicar`
-  const despues = suyos.find((e) => e.tipo === 'movimiento' && e.ocurrido_en > t && e.x != null);
-  return despues ? { x: Number(despues.x), y: Number(despues.y) } : null;
+  const mov = (e) => e.tipo === 'movimiento' && e.x != null;
+  const despues = suyos.find((e) => mov(e) && e.ocurrido_en > t);
+  if (!despues) return { x: l.x, y: l.y };
+  let ultimo = null;
+  for (const e of suyos) {
+    if (e.ocurrido_en > t) break;
+    if (mov(e)) ultimo = e;
+  }
+  const p = ultimo || despues;
+  return { x: Number(p.x), y: Number(p.y) };
 }
 
 // Hasta dónde alcanza la reconstrucción: el evento más viejo que hay.
@@ -133,9 +148,11 @@ export function planoEn(t, { lotes = [], pilas = [], eventos = [], indice = null
     arrancar('fecha_recogida', null, ['cambio_estado', 'programar_recogida']);
     if (aprox) { copia._aprox = true; aproximados++; }
 
-    const sitio = dondeEstaba(l, mios, t);
-    if (sitio) { copia.x = sitio.x; copia.y = sitio.y; }
     for (const e of mios) { if (e.ocurrido_en > t) break; aplicar(copia, e); }
+    // La posición se decide APARTE y va la última, porque `aplicar` la
+    // pisa con cada traslado apuntado y aquí manda otro criterio.
+    const sitio = dondeEstaba(l, mios, t);
+    copia.x = sitio.x; copia.y = sitio.y;
     reconstruidos.push(copia);
   }
 
