@@ -74,6 +74,69 @@ ok(!(await Store.lote('L3')), 'la pasada completa (cada 10 min) sí lo quita');
 ok((await Store.lotes()).length === 40, 'quedan 40 lotes (39 + el viejo)');
 
 // ---------------------------------------------------------------------
+titulo('La historia guardada ya no se borra sola cada diez minutos.');
+
+// Este era el fallo que dejaba inservible lo de mirar otro día. La
+// pasada completa vaciaba la tienda de eventos y la volvía a llenar con
+// los TOPE_EVENTOS más recientes, así que del patio no quedaba más
+// historia que unos días, se mirase cuando se mirase.
+const VIEJO = '2019-06-01T10:00:00.000Z';
+servidor.tablas.eventos.set('ANTIGUO', { id: 'ANTIGUO', lote_id: 'L1', tipo: 'cambio_estado',
+  estado_nuevo: 'muestreado', ocurrido_en: VIEJO, registrado_en: VIEJO });
+
+// se rellena por encima del tope de la descarga, para que ese evento
+// quede FUERA de la ventana que la sincronización alcanza a ver
+for (let i = 0; i < 3200; i++) {
+  const id = `R${i}`;
+  const cuando = new Date(Date.parse('2026-07-02T00:00:00.000Z') + i * 1000).toISOString();
+  servidor.tablas.eventos.set(id, { id, lote_id: 'L1', tipo: 'observacion',
+    nota: `n${i}`, ocurrido_en: cuando, registrado_en: cuando });
+}
+
+// Cada llamada adelanta el reloj UN POCO MÁS que la anterior: la pasada
+// completa se dispara comparando contra la hora de la última, así que
+// congelar siempre en el mismo instante solo forzaba la primera.
+let adelanto = 22;
+const saltar = () => {
+  const d = congelarReloj(new Date(Date.now() + adelanto * 60_000).toISOString());
+  adelanto += 11;
+  return Store.sincronizar().finally(d);
+};
+await saltar();
+ok(!(await tiendas.get('eventos').get('ANTIGUO')),
+   'la descarga normal no llega tan atrás: ese evento no está todavía');
+
+const hondo = await Store.ahondarHistoria();
+ok(!!(await tiendas.get('eventos').get('ANTIGUO')),
+   'pedir más historia sí lo trae, bajando de página en página');
+ok(hondo.entera === true, 'y avisa de que ya se llegó al principio de todo');
+
+await saltar();
+ok(!!(await tiendas.get('eventos').get('ANTIGUO')),
+   'y la pasada completa YA NO se lo lleva por delante: esto es lo que estaba roto');
+
+const otraVez = await Store.ahondarHistoria();
+ok(otraVez.traidos === 0, 'una vez entera, volver a pedirla no baja nada');
+
+// ---------------------------------------------------------------------
+titulo('Aun así, lo que se borra en el servidor se sigue notando.');
+
+// Dejar de vaciar no puede significar quedarse con basura para siempre.
+// Se borra lo que falte DENTRO del tramo que la consulta cubrió, que es
+// la única parte sobre la que puede opinar.
+servidor.tablas.eventos.delete('R3100');
+await saltar();
+ok(!(await tiendas.get('eventos').get('R3100')),
+   'un evento borrado dentro de la ventana desaparece del celular');
+
+// Y fuera de ese tramo NO se toca nada: que la consulta no lo devuelva
+// solo quiere decir que no llegaba hasta ahí.
+servidor.tablas.eventos.delete('ANTIGUO');
+await saltar();
+ok(!!(await tiendas.get('eventos').get('ANTIGUO')),
+   'uno de hace años se queda: la consulta no llegaba hasta ahí y callar es mejor que borrar');
+
+// ---------------------------------------------------------------------
 titulo('Si desactivan el perfil, no se borra lo que hay en el celular.');
 // Las políticas devuelven cero filas SIN error: sin cerrojo, la app
 // tomaría ese vacío por la verdad y dejaría la pantalla en blanco.

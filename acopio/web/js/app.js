@@ -4,7 +4,7 @@
 import * as Store from './store.js';
 import { sb } from './store.js';
 import * as Mapa from './mapa.js';
-import { planoEn, desde } from './historia.js';
+import { planoEn, desde, indexar } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
 
 const $ = (s) => document.querySelector(s);
@@ -581,8 +581,7 @@ function montarMapa() {
   Mapa.editar(S.historia ? false : S.edicion);
   if (S.historia) {
     $('#r-editar')?.setAttribute('disabled', '');
-    barraHistoria();
-    pintarHistoria();
+    barraHistoria();                       // deja la barra puesta y pinta
   } else if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
@@ -599,74 +598,136 @@ function montarMapa() {
 // de un instante y se le pasa al plano.
 async function alternarHistoria() {
   if (S.historia) return salirDeHistoria();
+  // Primero se baja la historia que falte. Sin esto se rehacía el patio
+  // con la ventana corta que deja la sincronización —unos días— y de casi
+  // ningún lote había un solo evento: salían todos "por muestrear" y sin
+  // pila. Se trae de a tramos y se queda guardada, así que la segunda vez
+  // no baja nada.
+  const traido = await Store.ahondarHistoria();
   const eventos = await Store.eventos();
   const primero = desde(eventos);
   if (!primero) return avisar('Todavía no hay movimientos guardados para poder mirar atrás.');
-  S.historia = { eventos, primero, ahora: new Date().toISOString(), t: new Date().toISOString() };
+  // La lista suelta no se guarda: con el índice basta, y son decenas de
+  // miles de filas que no hace falta tener dos veces en memoria.
+  S.historia = {
+    primero, indice: indexar(eventos),
+    entera: !!traido.entera, sinSenal: !!traido.sinSenal,
+    dia: null, dias: 0, aproximados: 0
+  };
   S.edicion = false;
   montarMapa();
 }
 
 function salirDeHistoria() {
+  if (pintadoPedido) { cancelAnimationFrame(pintadoPedido); pintadoPedido = 0; }
   S.historia = null;
   montarMapa();
   refrescarMapa();
 }
 
-// El deslizador va en MINUTOS desde el evento más viejo: son suficientes
-// para el patio —nadie busca el segundo exacto— y hacen que el recorrido
-// entero quepa en un rango que el navegador maneja sin despeinarse.
-const enMinutos = (iso) => Math.floor(Date.parse(iso) / 60000);
+// El deslizador va en DÍAS, no en minutos. En minutos, un patio con
+// medio año de historia son doscientos sesenta mil pasos repartidos en
+// tres centímetros de pantalla: cada píxel saltaba medio día y era
+// imposible parar en el martes. En días, medio año son ciento ochenta
+// pasos y el dedo cae donde apunta.
+const A_MEDIANOCHE = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const DIA = 86_400_000;
+const diasEntre = (a, b) => Math.round((A_MEDIANOCHE(b) - A_MEDIANOCHE(a)) / DIA);
 
-// "mié 15 jul · 14:30". Se compone a mano porque `toLocaleString` con
-// todo junto suelta "Mié, 15 De Jul, 2:30 P. M.": dos renglones en un
-// teléfono, con la preposición en mayúscula y la hora en dos piezas.
-function momento(d) {
-  const dia = d.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
-    .replace(/,/g, '').replace(/\./g, '');
-  const hora = d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${dia} · ${hora}`;
+// "mié 15 jul". Se compone a mano porque `toLocaleDateString` suelta
+// "Mié, 15 De Jul": la preposición en mayúscula y comas de más.
+const momento = (d) => d
+  .toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
+  .replace(/,/g, '').replace(/\./g, '');
+
+// El patio de un día pasado se enseña COMO QUEDÓ AL CERRAR ESE DÍA, que
+// es la respuesta a "¿cómo estaba el martes?". El de hoy, ahora mismo.
+function instanteDelDia(h, i) {
+  if (i >= h.dias) return new Date().toISOString();
+  const f = A_MEDIANOCHE(new Date(h.primero));
+  f.setDate(f.getDate() + i);
+  f.setHours(23, 59, 59, 999);
+  return f.toISOString();
 }
 
 function barraHistoria() {
   const caja = $('#barra-historia');
   if (!caja || !S.historia) return;
   const h = S.historia;
-  const min = enMinutos(h.primero), max = enMinutos(h.ahora);
-  const val = Math.min(Math.max(enMinutos(h.t), min), max);
-  const cuando = new Date(val * 60000);
-  const alFinal = val >= max;
+  h.dias = Math.max(0, diasEntre(new Date(h.primero), new Date()));
+  if (h.dia == null) h.dia = h.dias;                      // se entra por hoy
 
+  const alcance = new Date(h.primero).toLocaleDateString('es-CO');
   caja.innerHTML = `<div class="barra-modo barra-historia">
     <div class="fila-historia">
-      <strong>${alFinal ? 'Ahora mismo' : esc(momento(cuando))}</strong>
+      <strong id="h-etiqueta"></strong>
       <button class="pastilla" id="h-salir">Volver a hoy</button>
     </div>
     <div class="fila-historia">
       <button class="ctrl ctrl-historia" id="h-atras" aria-label="Un día atrás">‹</button>
-      <input type="range" id="h-cuando" min="${min}" max="${max}" value="${val}" step="1">
+      <input type="range" id="h-cuando" min="0" max="${h.dias}" value="${h.dia}" step="1"
+        aria-label="Qué día mirar">
       <button class="ctrl ctrl-historia" id="h-alante" aria-label="Un día adelante">›</button>
     </div>
-    <span class="pista">Solo se mira: nada de lo que se ve aquí cambia el patio.
-      Se puede retroceder hasta el ${esc(new Date(h.primero).toLocaleDateString('es-CO'))}.</span>
+    <span class="pista" id="h-detalle"></span>
+    <span class="pista">Solo se mira. Se llega hasta el ${esc(alcance)}${
+      h.entera ? ', que es el principio de todo.'
+               : h.sinSenal ? '; sin señal no se pudo traer más.'
+                            : '. Al volver a abrirlo se trae otro tramo.'}</span>
   </div>`;
 
-  const ir = (minutos) => {
-    h.t = new Date(Math.min(Math.max(minutos, min), max) * 60000).toISOString();
-    barraHistoria();
-    pintarHistoria();
-  };
   const campo = $('#h-cuando');
-  campo.oninput = () => ir(Number(campo.value));
-  $('#h-atras').onclick = () => ir(val - 1440);
-  $('#h-alante').onclick = () => ir(val + 1440);
+  // El deslizador NO se vuelve a dibujar al moverlo. Antes cada tirón
+  // rehacía esta barra entera, y con ella el propio <input> que el dedo
+  // estaba arrastrando: el navegador perdía el elemento a medio gesto y
+  // el arrastre se cortaba solo. Solo cambian los dos textos.
+  campo.oninput = () => { h.dia = Number(campo.value); rotularHistoria(); pedirPintado(); };
+  const mover = (paso) => () => {
+    campo.value = String(Math.min(Math.max(h.dia + paso, 0), h.dias));
+    campo.dispatchEvent(new Event('input'));
+  };
+  $('#h-atras').onclick = mover(-1);
+  $('#h-alante').onclick = mover(1);
   $('#h-salir').onclick = salirDeHistoria;
+
+  rotularHistoria();
+  pintarHistoria();
+}
+
+// Los dos textos que cambian al mover el deslizador.
+function rotularHistoria() {
+  const h = S.historia;
+  if (!h) return;
+  const hoy = h.dia >= h.dias;
+  const fecha = A_MEDIANOCHE(new Date(h.primero));
+  fecha.setDate(fecha.getDate() + h.dia);
+  const et = $('#h-etiqueta');
+  if (et) et.textContent = hoy ? 'Ahora mismo' : momento(fecha);
+  const de = $('#h-detalle');
+  if (!de) return;
+  const faltan = h.aproximados
+    ? ` · ${h.aproximados} sin historia completa` : '';
+  de.textContent = hoy ? 'El patio tal como está ahora'
+                       : `Como quedó al final del día${faltan}`;
+}
+
+// Pintar el plano entero cuesta; el dedo manda muchos más tirones que
+// cuadros puede dibujar la pantalla. Se guarda el último y se pinta una
+// vez por cuadro, así el deslizador nunca se queda atrás del dedo.
+let pintadoPedido = 0;
+function pedirPintado() {
+  if (pintadoPedido) return;
+  pintadoPedido = requestAnimationFrame(() => { pintadoPedido = 0; pintarHistoria(); });
 }
 
 function pintarHistoria() {
   const h = S.historia;
   if (!h || !document.querySelector('#lienzo')) return;
-  const { lotes, pilas } = planoEn(h.t, { lotes: S.lotes, pilas: S.pilas, eventos: h.eventos });
+  const t = instanteDelDia(h, h.dia);
+  const { lotes, pilas, aproximados } = planoEn(t, {
+    lotes: S.lotes, pilas: S.pilas, indice: h.indice
+  });
+  if (aproximados !== h.aproximados) { h.aproximados = aproximados; rotularHistoria(); }
   Mapa.pintar({ config: S.config, figuras: S.figuras, pilas, lotes });
 }
 

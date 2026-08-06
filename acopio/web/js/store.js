@@ -100,10 +100,54 @@ export async function reintentarFallidos() {
 }
 export const pendientes = () => idb.todos('cola');
 // Todos los eventos guardados en el celular, para rehacer el patio de un
-// día pasado. No se piden al servidor: la sincronización ya los baja y
-// los va acumulando, y la ventana de tiempo que cubren es justo hasta
-// donde se puede retroceder con honestidad.
+// día pasado.
 export const eventos = () => idb.todos('eventos');
+
+// Cuánta historia se trae de una vez al pedir mirar atrás. Un patio con
+// años encima puede tener decenas de miles de eventos, y bajarlos todos
+// de golpe con la señal de una mina es tenerse que esperar sin saber
+// cuánto. Se traen seis mil por vez —algo más de un megabyte—, se quedan
+// guardados, y la vez siguiente se sigue desde donde se quedó: a la
+// segunda o tercera vez de abrirlo, ya está entera y no se baja nada.
+const PAGINA = 1000;
+const PAGINAS_POR_VEZ = 6;
+
+// Baja el siguiente tramo de historia, hacia atrás. Devuelve hasta dónde
+// alcanza ya y si se llegó al principio de todo.
+export async function ahondarHistoria() {
+  const guardados = await idb.todos('eventos');
+  const conocidos = new Set(guardados.map((e) => e.id));
+  let fondo = guardados.reduce((m, e) => (!m || e.ocurrido_en < m ? e.ocurrido_en : m), null);
+
+  if (await meta('historia_entera')) return { desde: fondo, entera: true, traidos: 0 };
+  if (!navigator.onLine) return { desde: fondo, entera: false, traidos: 0, sinSenal: true };
+
+  let traidos = 0, entera = false;
+  for (let i = 0; i < PAGINAS_POR_VEZ; i++) {
+    const q = sb.from('eventos').select('*')
+      .order('ocurrido_en', { ascending: false }).limit(PAGINA);
+    // `lte` y no `lt`: dos eventos pueden caer en el mismo milisegundo
+    // —una pila entera cambia de estado a la vez— y cortar por debajo se
+    // saltaría los hermanos. Vuelven a venir los del borde, que ya están.
+    if (fondo) q.lte('ocurrido_en', fondo);
+    const { data, error } = await q;
+    if (error || !data?.length) break;
+
+    const nuevos = data.filter((e) => !conocidos.has(e.id));
+    await idb.varios('eventos', data);
+    for (const e of nuevos) conocidos.add(e.id);
+    traidos += nuevos.length;
+
+    // menos filas de las que caben: se llegó al principio de todo
+    if (data.length < PAGINA) { entera = true; break; }
+    // una página entera con la misma hora: no se puede bajar más sin
+    // dejar de avanzar, y seguir sería dar vueltas sobre lo mismo
+    if (!nuevos.length) break;
+    fondo = data.reduce((m, e) => (e.ocurrido_en < m ? e.ocurrido_en : m), data[0].ocurrido_en);
+  }
+  if (entera) await meta('historia_entera', true);
+  return { desde: fondo, entera, traidos };
+}
 
 // Avisos de una sola vez: cosas que la app resolvió sola pero que la
 // persona tiene que saber (una pila que hubo que renombrar al subir).
@@ -507,6 +551,19 @@ const RECONCILIAR_CADA = 10 * 60_000;
 let ultimoCompleto = 0;              // en cero: la primera del arranque va completa
 let marcados = [];                   // filas pintadas como rechazadas la vuelta pasada
 
+// Quita del celular los eventos que el servidor ya no tiene, mirando solo
+// el tramo que la consulta alcanzó a cubrir: desde el más viejo que vino
+// hacia acá. Si vinieron menos de los que caben, la consulta llegó al
+// fondo y entonces opina sobre todo.
+async function podarEventos(traidos) {
+  if (!traidos?.length) return;
+  const vinieron = new Set(traidos.map((e) => e.id));
+  const corte = traidos.length < TOPE_EVENTOS ? ''
+    : traidos.reduce((m, e) => (e.ocurrido_en < m ? e.ocurrido_en : m), traidos[0].ocurrido_en);
+  for (const e of await idb.todos('eventos'))
+    if (e.ocurrido_en >= corte && !vinieron.has(e.id)) await idb.borrar('eventos', e.id);
+}
+
 // La marca de agua sale de las filas RECIBIDAS, no del reloj del celular:
 // un teléfono con la hora corrida se quedaría sin bajar nada, o bajándolo
 // todo siempre.
@@ -560,12 +617,23 @@ async function bajar() {
   // se haya borrado en el servidor); en las incrementales se escribe
   // encima de lo que ya está.
   if (completo) {
-    await idb.vaciar('lotes'); await idb.vaciar('pilas'); await idb.vaciar('eventos');
+    await idb.vaciar('lotes'); await idb.vaciar('pilas');
     ultimoCompleto = Date.now();
   }
   await idb.varios('pilas', pil.data);
   await idb.varios('lotes', lot.data);
   await idb.varios('eventos', eve.data);
+  // Los eventos NO se vacían. Vaciarlos borraba cada diez minutos toda la
+  // historia guardada y la dejaba en los TOPE_EVENTOS más recientes, que
+  // es una ventana de días: con eso, mirar el patio de la semana pasada
+  // salía mal, porque de la mayoría de los lotes no quedaba ni un evento
+  // y se les suponía el estado de recién llegados.
+  //
+  // Vaciar servía para notar lo que se hubiera borrado en el servidor.
+  // Eso se sigue haciendo, pero solo DENTRO de la ventana que acabamos de
+  // traer, que es la única parte sobre la que esta consulta puede opinar:
+  // fuera de ella, que un evento no venga no significa que no exista.
+  if (completo) await podarEventos(eve.data);
 
   // Si la columna todavía no existe (falta correr migracion.sql) la marca
   // queda vacía y todo sigue bajándose completo: más lento, nunca roto.
