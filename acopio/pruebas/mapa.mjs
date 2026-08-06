@@ -470,6 +470,49 @@ ok(/position:\s*absolute/.test(bloque),
 ok(/inset:\s*0/.test(bloque), 'y cubre el plano entero, que es donde se colocan');
 
 // ---------------------------------------------------------------------
+titulo('Los botones de cambiar estado llevan el color de su estado.');
+
+// Seis opciones en una rejilla: leerlas todas cuesta más que dar con la
+// que se busca por el color, que además es el color con el que ese lote
+// va a quedar pintado en el plano.
+for (const e of ['por_muestrear', 'muestreado', 'remuestreo', 'facturado',
+                 'devolucion', 'plataforma', 'despachado']) {
+  const regla = new RegExp(
+    `\\.acciones button\\[data-estado="${e}"\\][^}]*background:\\s*var\\(--${e}\\)`);
+  ok(regla.test(css), `el botón de "${e}" se pinta con var(--${e})`);
+}
+// La regla genérica de hover repintaba el botón de gris y se perdía el
+// color justo al tocarlo, que es cuando hace falta verlo.
+ok(/:where\(\.acciones\) button[^{]*:not\(\[data-estado\]\)[^{]*:hover/.test(css),
+   'y el hover genérico deja en paz a los que llevan color de estado');
+
+// «Nuevo lote» abajo a la derecha, con las demás barras flotantes: era
+// lo único que quedaba arriba a la izquierda, lejos del pulgar.
+ok(/#boton-nuevo\s*{[^}]*align-self:\s*flex-end/.test(css),
+   '«Nuevo lote» se alinea a la derecha dentro de la columna flotante');
+ok(/#boton-nuevo:empty[^{]*{[^}]*display:\s*none/.test(css),
+   'y sin botón dentro no deja un hueco que tape el plano');
+
+// ---------------------------------------------------------------------
+titulo('El texto encima de un color se lee: ámbar con letra oscura.');
+
+// El corte de claridad vive por duplicado —claro() en mapa.js pinta los
+// códigos del plano, contraste() en app.js pinta botones y etiquetas—.
+// Si se separan, el mismo lote sale con letra blanca en el plano y
+// oscura en su ficha.
+const fuenteMapa = await readFile(new URL('../web/js/mapa.js', import.meta.url), 'utf8');
+const fuenteApp  = await readFile(new URL('../web/js/app.js',  import.meta.url), 'utf8');
+const corte = (t) => (t.match(/\(r \* 299 \+ g \* 587 \+ b \* 114\) \/ 1000 > (\d+)/) || [])[1];
+ok(corte(fuenteMapa) && corte(fuenteMapa) === corte(fuenteApp),
+   `plano y ficha usan el mismo corte de claridad (${corte(fuenteMapa)})`);
+
+const ambar = negro(null, 'por_muestrear');
+ok(ambar.includes('fill="#14171a"'),
+   'sobre el ámbar de "por muestrear" el código va oscuro, que blanco casi no se ve');
+const azul = negro(null, 'facturado');
+ok(azul.includes('fill="#ffffff"'), 'y sobre el azul de "facturado" sigue yendo blanco');
+
+// ---------------------------------------------------------------------
 titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
 
 // Esto es una DECISIÓN, no un detalle, y por eso está aquí: que se rompa
