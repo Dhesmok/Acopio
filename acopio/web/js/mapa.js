@@ -496,11 +496,13 @@ function figuraLote(l, capa) {
   </g>`;
 }
 
-// ¿el color de fondo es claro? entonces el texto va oscuro
+// ¿el color de fondo es claro? entonces el texto va oscuro.
+// El corte tiene que ser el mismo que el de contraste() en app.js, o el
+// código de un lote saldría blanco en el plano y negro en su ficha.
 function claro(hex) {
   const c = hex.replace('#', '');
   const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 165;
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
 const hoyISO = () => {

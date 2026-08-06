@@ -84,29 +84,57 @@ const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))
 // nadie, así que ni se muestra ni cuenta como vencida. Antes seguía
 // saliendo en la ficha, en la lista y como borde de alarma en el plano
 // mucho después de que el asunto se hubiera resuelto.
-// La placa de una volqueta son letras y números y nada más. En vez de
-// avisar DESPUÉS de escribir, el campo no deja entrar lo que no sirve:
-// el espacio, el guion o el punto simplemente no aparecen. Un teclado de
-// celular en el patio mete espacios solo, y una placa con un espacio de
-// más es una placa distinta para el filtro y para el informe.
+// La placa de una volqueta son letras y números y nada más.
 //
-// Se conserva dónde estaba el cursor: sin eso, corregir una letra en
-// medio de la placa mandaba el cursor al final en cada tecla.
+// El carácter malo NO LLEGA A ENTRAR: se cancela en `beforeinput`, antes
+// de que el navegador lo escriba. Dar al espacio, sencillamente, no hace
+// nada.
+//
+// La primera versión lo hacía al revés —dejaba escribir y luego reescribía
+// el campo limpio— y en un teclado de celular eso se portaba como la
+// tecla de borrar. En Android el espacio es la tecla que CIERRA la
+// palabra que el teclado va componiendo; si mientras tanto alguien le
+// cambia el contenido al campo por debajo, el teclado se queda con una
+// idea distinta de lo que hay escrito y en la siguiente pulsación
+// "corrige" comiéndose letras. Por eso ahora no se toca el valor en el
+// camino normal.
+//
+// Las mayúsculas las pone el CSS, no el código, por lo mismo: cambiar el
+// valor en cada tecla era justo lo que descuadraba al teclado. Al
+// guardar ya se pasa a mayúsculas de todos modos.
 function soloLetrasYNumeros(campo) {
   if (!campo) return;
-  const limpiar = () => {
-    const antes = campo.value;
-    const cursor = campo.selectionStart ?? antes.length;
-    const despues = antes.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    if (despues === antes) return;
-    // cuántos caracteres buenos había ANTES del cursor: ahí se queda
-    const buenos = antes.slice(0, cursor).replace(/[^a-zA-Z0-9]/g, '').length;
-    campo.value = despues;
-    campo.setSelectionRange?.(buenos, buenos);
-  };
-  campo.addEventListener('input', limpiar);
-  // pegar desde el portapapeles no siempre dispara `input` a tiempo
-  campo.addEventListener('paste', () => setTimeout(limpiar, 0));
+  const malos = /[^a-zA-Z0-9]/g;
+
+  campo.addEventListener('beforeinput', (ev) => {
+    // Solo interesan los que meten texto. Borrar, mover el cursor o
+    // deshacer no traen `data`, y hay que dejarlos pasar tal cual.
+    const entra = typeof ev.data === 'string' ? ev.data
+      : ev.dataTransfer?.getData('text') ?? null;
+    if (entra === null || entra === '') return;
+    if (!malos.test(entra)) return;
+    malos.lastIndex = 0;                       // el flag /g guarda posición
+
+    ev.preventDefault();
+    // Lo que sí sirve de lo que venía —al pegar "AB C-99" entra "ABC99"—
+    // se mete a mano. Si no queda nada, no pasa nada, que es lo que se
+    // quiere cuando alguien da al espacio.
+    const bueno = entra.replace(malos, '');
+    if (!bueno) return;
+    const i = campo.selectionStart ?? campo.value.length;
+    const f = campo.selectionEnd ?? i;
+    campo.setRangeText(bueno, i, f, 'end');
+    campo.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  // Red de seguridad. Un teclado que compone palabras puede cerrar la
+  // suya con un espacio dentro sin que `beforeinput` se pueda cancelar;
+  // eso se limpia al terminar de componer, que ya es momento seguro para
+  // tocar el valor.
+  campo.addEventListener('compositionend', () => {
+    const limpio = campo.value.replace(malos, '');
+    if (limpio !== campo.value) campo.value = limpio;
+  });
 }
 
 // Cómo se escribe un código en pantalla. La volqueta va pequeña y
@@ -190,7 +218,12 @@ function contraste(hex) {
   const h = String(hex).replace('#', '');
   if (h.length < 6) return '#ffffff';
   const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 165 ? '#14171a' : '#ffffff';
+  // El corte va en 150, no en 165: con 165 el ámbar de «por muestrear»
+  // se quedaba por un pelo del lado oscuro y le tocaba letra blanca,
+  // que sobre ese tono casi no se lee al sol. Con 150 lleva letra negra
+  // y ningún otro color de la paleta cambia (el siguiente más claro
+  // anda por 190). El mismo número está en mapa.js, claro().
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#14171a' : '#ffffff';
 }
 
 async function recargar() {
@@ -366,6 +399,7 @@ function pantallaPrincipal() {
       <div id="barra-recorrido"></div>
       <div id="barra-forma"></div>
       <div id="barra-historia"></div>
+      <div id="boton-nuevo"></div>
       <div id="franja" hidden class="franja"><div></div></div>
     </div>
     <div id="modal"></div>`;
@@ -436,7 +470,7 @@ function pintarSync() {
 
 // ------------------------------------------------------------------ mapa
 const limpiarBarrasMapa = () => {
-  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia']) {
+  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#boton-nuevo']) {
     const n = $(id); if (n) n.innerHTML = '';
   }
 };
@@ -446,6 +480,10 @@ function montarMapa() {
   const vistaPrevia = document.querySelector('#lienzo') ? Mapa.obtenerVista() : null;
 
   limpiarBarrasMapa();
+  // Mirando otro día no se registran lotes: el botón ni aparece.
+  const nb = $('#boton-nuevo');
+  if (nb && !soloLectura() && !S.historia) nb.innerHTML =
+    `<button class="btn-mapa btn-mapa-primario" id="nuevo">${ICO.mas}<span>Nuevo lote</span></button>`;
   const rec = $('#barra-recorrido');
   if (rec && S.recorrido) rec.innerHTML = `<div class="barra-modo">
     <span>Recorrido del lote en pantalla</span>
@@ -457,8 +495,6 @@ function montarMapa() {
         <div id="lienzo-caja"></div>
         <div class="mapa-controles">
           <div class="ctrl-izq">
-            ${soloLectura() ? '' : `<button class="btn-mapa btn-mapa-primario" id="nuevo"
-              >${ICO.mas}<span>Nuevo lote</span></button>`}
             <div class="grupo-herramientas">
               <button class="btn-mapa" id="r-buscar" aria-label="Buscar un lote"
                 ${S.buscarMapa ? 'aria-pressed="true"' : ''}>${ICO.lupa}<span>Buscar</span></button>
@@ -1409,7 +1445,8 @@ async function fichaLote(id) {
     </div>
     <div class="campo">
       <label for="a-placa">Placa de la volqueta</label>
-      <input id="a-placa" data-mono value="${esc(l.placa || '')}">
+      <input id="a-placa" class="placa" data-mono spellcheck="false"
+        autocapitalize="characters" value="${esc(l.placa || '')}">
     </div>
     <div class="campo">
       <label for="a-prov">Proveedor</label>
@@ -1777,7 +1814,8 @@ function formLote() {
     </div>
     <div class="campo">
       <label for="f-placa">Placa de la volqueta</label>
-      <input id="f-placa" data-mono autocomplete="off">
+      <input id="f-placa" class="placa" data-mono autocomplete="off"
+             inputmode="text" autocapitalize="characters" spellcheck="false">
     </div>
     <div class="campo">
       <label>Tipo de material</label>
