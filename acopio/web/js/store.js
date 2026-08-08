@@ -152,6 +152,20 @@ export async function ahondarHistoria() {
   return { desde: fondo, entera, traidos };
 }
 
+// La lista de gente viaja con los catálogos, o sea una vez por hora. Eso
+// vale para poner un nombre en un historial, pero no para ELEGIR a quién
+// se le manda una tarea: un compañero recién habilitado no aparecería
+// hasta la hora siguiente. Esto la refresca en el momento; son diez
+// filas y solo se pide al abrir el formulario.
+export async function refrescarPerfiles() {
+  if (!navigator.onLine) return idb.todos('perfiles');
+  const { data, error } = await sb.from('perfiles').select('id, nombre, rol, activo');
+  if (error || !data) return idb.todos('perfiles');
+  await idb.vaciar('perfiles');
+  await idb.varios('perfiles', data);
+  return data;
+}
+
 // Avisos de una sola vez: cosas que la app resolvió sola pero que la
 // persona tiene que saber (una pila que hubo que renombrar al subir).
 export const avisos = async () => (await meta('avisos')) || [];
@@ -715,7 +729,7 @@ async function bajar() {
     sb.from('proveedores').select('*').eq('activo', true),
     sb.from('mapa_figuras').select('*'),
     sb.from('mapa_config').select('*').eq('id', 'unico').maybeSingle(),
-    sb.from('perfiles').select('id, nombre, rol'),
+    sb.from('perfiles').select('id, nombre, rol, activo'),
     sb.from('lotes').select('id'),
     sb.from('pilas').select('id'),
     sb.from('tareas').select('id')
