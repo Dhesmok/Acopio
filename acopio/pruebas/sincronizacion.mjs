@@ -59,7 +59,7 @@ ok((await Store.lote('L7')).x === 999, 'y el cambio llegó a la pantalla');
 ok((await Store.lotes()).length === 40, 'los otros 39 siguen ahí, no se borraron');
 
 // ---------------------------------------------------------------------
-titulo('La vuelta de siempre son tres preguntas, y ninguna cara.');
+titulo('La vuelta de siempre son cuatro preguntas, y ninguna cara.');
 
 // Esto se usa en una mina: señal mala, datos que se pagan y un día sin
 // dónde cargar el celular. Cada consulta enciende la radio aunque vuelva
@@ -68,12 +68,17 @@ titulo('La vuelta de siempre son tres preguntas, y ninguna cara.');
 // una vez al mes.
 servidor.bajado.length = 0;
 await Store.sincronizar();
-ok(consultoA('lotes') && consultoA('pilas') && consultoA('eventos'),
-   'se pregunta por lotes, pilas y eventos, que es lo que cambia a diario');
+ok(consultoA('lotes') && consultoA('pilas') && consultoA('eventos') && consultoA('tareas'),
+   'se pregunta por lotes, pilas, eventos y tareas, que es lo que cambia a diario');
 for (const t of ['proveedores', 'mapa_figuras', 'mapa_config', 'perfiles'])
   ok(!consultoA(t), `y NO se vuelve a bajar ${t}, que cambia una vez al mes`);
-ok(servidor.bajado.length === 3,
-   `tres consultas en total, ni una más (fueron ${servidor.bajado.length})`);
+ok(servidor.bajado.length === 4,
+   `cuatro consultas en total, ni una más (fueron ${servidor.bajado.length})`);
+
+// Las tareas van en la vuelta RÁPIDA y no con los catálogos: una tarea
+// urgente que tardara una hora en llegarle al contratista no serviría.
+ok(servidor.bajado.find((b) => b.tabla === 'tareas')?.filas === 0,
+   'y la de tareas no trae nada mientras no haya ninguna nueva');
 
 // ---------------------------------------------------------------------
 titulo('El historial viejo ya no desaparece en silencio.');

@@ -12,13 +12,15 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const DB = 'acopio';
 const TIENDAS = ['lotes', 'pilas', 'proveedores', 'eventos', 'figuras',
-                 'config', 'perfiles', 'cola', 'fallidos', 'meta'];
+                 'config', 'perfiles', 'tareas', 'cola', 'fallidos', 'meta'];
 let db = null;
 
 // ------------------------------------------------------------ IndexedDB
 function abrir() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(DB, 4);
+    // La 5 añadió la tienda de tareas. Subir el número es lo que hace
+    // que se cree en los celulares que ya tenían la app instalada.
+    const req = indexedDB.open(DB, 5);
     req.onupgradeneeded = () => {
       const d = req.result;
       for (const t of TIENDAS)
@@ -78,6 +80,7 @@ async function meta(k, v) {
 
 // -------------------------------------------------------------- lecturas
 export const lotes = () => idb.todos('lotes');
+export const tareas = () => idb.todos('tareas');
 export const pilas = () => idb.todos('pilas');
 export const proveedores = () => idb.todos('proveedores');
 export const figuras = () => idb.todos('figuras');
@@ -239,7 +242,12 @@ export async function observaciones() {
 }
 
 // ------------------------------------------------------------ escrituras
-// modo: 'insertar' (idempotente) | 'guardar' (upsert) | 'borrar'
+// modo: 'insertar' (idempotente) | 'guardar' (upsert) | 'actualizar' | 'borrar'
+//
+// 'actualizar' existe por las tareas: un contratista puede COMPLETAR una
+// tarea pero no crearla, y un upsert —que es un insert con salida por
+// conflicto— exige permiso de insertar aunque la fila ya exista. Con un
+// update a secas, el servidor solo comprueba lo que de verdad se hace.
 // Los campos internos (los que empiezan por _) no existen en el servidor
 const limpiar = (fila) =>
   Object.fromEntries(Object.entries(fila).filter(([k]) => !k.startsWith('_')));
@@ -263,6 +271,9 @@ function padres(clave, tabla, fila) {
     if (fila.pila_id) p.push(`pilas:${fila.pila_id}`);
   } else if (tabla === 'pilas') {
     p.push(`pilas:${fila.id}`);
+  } else if (tabla === 'tareas') {
+    if (fila.lote_id) p.push(`lotes:${fila.lote_id}`);
+    if (fila.pila_id) p.push(`pilas:${fila.pila_id}`);
   }
   return p.filter((k) => k !== clave);   // nadie es padre de sí mismo
 }
@@ -321,6 +332,39 @@ export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, usuario_id }
   await idb.guardar('pilas', fila);
   await encolar(`pilas:${fila.id}`, 'pilas', 'insertar', fila);
   return fila;
+}
+
+// ---------------------------------------------------------------- tareas
+export async function crearTarea({ titulo, detalle, prioridad, asignado_a,
+                                   lote_id, pila_id, usuario_id }) {
+  const fila = {
+    id: uuid(), titulo: titulo.trim(), detalle: (detalle || '').trim() || null,
+    prioridad: prioridad || 'media', asignado_a: asignado_a || null,
+    lote_id: lote_id || null, pila_id: pila_id || null,
+    creado_por: usuario_id, creado_en: ahora(),
+    completado_en: null, completado_por: null, nota_cierre: null
+  };
+  await idb.guardar('tareas', fila);
+  await encolar(`tareas:${fila.id}`, 'tareas', 'insertar', fila);
+  return fila;
+}
+
+// Completar es un cambio de UNA fila, y la clave de la cola es fija por
+// tarea: darle dos veces sube una sola. El servidor, además, no deja
+// reabrirla ni cambiarle nada más a quien no es admin.
+export async function completarTarea(id, { usuario_id, nota }) {
+  const t = await idb.uno('tareas', id);
+  if (!t || t.completado_en) return t;
+  const fila = { ...t, completado_en: ahora(), completado_por: usuario_id,
+                 nota_cierre: (nota || '').trim() || null };
+  await idb.guardar('tareas', fila);
+  await encolar(`tareas:${fila.id}`, 'tareas', 'actualizar', fila);
+  return fila;
+}
+
+export async function borrarTarea(id) {
+  await idb.borrar('tareas', id);
+  await encolar(`del:tareas:${id}`, 'tareas', 'borrar', { id });
 }
 
 // Posición y forma: se sobrescriben, no generan evento. La clave de la
@@ -439,6 +483,8 @@ async function subir() {
     let error = null;
     if (op.modo === 'borrar') {
       ({ error } = await sb.from(op.tabla).delete().eq('id', op.fila.id));
+    } else if (op.modo === 'actualizar') {
+      ({ error } = await sb.from(op.tabla).update(op.fila).eq('id', op.fila.id));
     } else {
       ({ error } = await sb.from(op.tabla).upsert(op.fila, {
         onConflict: 'id', ignoreDuplicates: op.modo === 'insertar'
@@ -643,13 +689,20 @@ async function bajar() {
   const mLotes   = await meta('marca_lotes');
   const mPilas   = await meta('marca_pilas');
   const mEventos = await meta('marca_eventos');
+  const mTareas  = await meta('marca_tareas');
 
-  // La vuelta de siempre: tres preguntas, y solo por lo que cambió.
+  // La vuelta de siempre: cuatro preguntas, y solo por lo que cambió.
+  // Las tareas van AQUÍ y no con los catálogos: una tarea urgente que
+  // tardara una hora en llegarle al contratista no serviría de nada.
+  // Como se pregunta solo por lo que cambió, lo normal es que no traiga
+  // ni una fila.
   const qLotes = sb.from('lotes').select('*');
   const qPilas = sb.from('pilas').select('*');
   const qEventos = sb.from('eventos').select('*');
+  const qTareas = sb.from('tareas').select('*');
   if (mLotes)   qLotes.gt('actualizado_en', mLotes);
   if (mPilas)   qPilas.gt('actualizado_en', mPilas);
+  if (mTareas)  qTareas.gt('actualizado_en', mTareas);
   if (mEventos) qEventos.gt('registrado_en', mEventos);
   // la primera vez de todas no hay marca: se traen los más recientes
   else qEventos.order('ocurrido_en', { ascending: false }).limit(TOPE_EVENTOS);
@@ -664,12 +717,13 @@ async function bajar() {
     sb.from('mapa_config').select('*').eq('id', 'unico').maybeSingle(),
     sb.from('perfiles').select('id, nombre, rol'),
     sb.from('lotes').select('id'),
-    sb.from('pilas').select('id')
+    sb.from('pilas').select('id'),
+    sb.from('tareas').select('id')
   ] : [];
 
-  const r = await Promise.all([qPilas, qLotes, qEventos, ...extras]);
+  const r = await Promise.all([qPilas, qLotes, qEventos, qTareas, ...extras]);
   for (const x of r) if (x.error) throw new Error(x.error.message);
-  const [pil, lot, eve, prov, fig, cfg, per, idLotes, idPilas] = r;
+  const [pil, lot, eve, tar, prov, fig, cfg, per, idLotes, idPilas, idTareas] = r;
 
   if (completo) {
     // Segundo cerrojo: si no podemos leer NI UN perfil —ni el nuestro—,
@@ -690,6 +744,7 @@ async function bajar() {
   await idb.varios('pilas', pil.data);
   await idb.varios('lotes', lot.data);
   await idb.varios('eventos', eve.data);
+  await idb.varios('tareas', tar.data);
 
   // Se cuadra con el servidor comparando ids. Va DESPUÉS de guardar lo
   // que acaba de llegar, o una fila recién creada se borraría por no
@@ -700,8 +755,9 @@ async function bajar() {
   // por eso no vendría nunca. Antes esto se tapaba bajando el patio
   // entero cada diez minutos; ahora se baja solo esa fila.
   if (completo) {
-    await traerPorId('lotes', await conciliar('lotes', idLotes.data));
-    await traerPorId('pilas', await conciliar('pilas', idPilas.data));
+    await traerPorId('lotes',  await conciliar('lotes',  idLotes.data));
+    await traerPorId('pilas',  await conciliar('pilas',  idPilas.data));
+    await traerPorId('tareas', await conciliar('tareas', idTareas.data));
   }
   // Los eventos no se podan nunca. Vaciarlos era lo que borraba cada diez
   // minutos toda la historia guardada y dejaba solo una ventana de días:
@@ -713,6 +769,7 @@ async function bajar() {
   await marcaYMaximo('lotes',   'actualizado_en', lot.data);
   await marcaYMaximo('pilas',   'actualizado_en', pil.data);
   await marcaYMaximo('eventos', 'registrado_en',  eve.data);
+  await marcaYMaximo('tareas',  'actualizado_en', tar.data);
 
   // Un rechazo del servidor NO puede hacer desaparecer nada de la pantalla:
   // lo rechazado se vuelve a pintar, marcado, hasta que se resuelva.

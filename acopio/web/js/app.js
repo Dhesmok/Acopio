@@ -40,7 +40,10 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             mapaFiltro: { campo: 'ninguno', valor: null },
             recorrido: null,
             // mirar el patio de otro día: solo se mira, no se toca nada
-            historia: null };
+            historia: null,
+            // encargos del admin. `avisadas` recuerda cuáles ya hicieron
+            // vibrar el celular, para no repetir el aviso en cada vuelta
+            tareas: [], avisadas: new Set() };
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
@@ -63,7 +66,9 @@ const ICO = {
   cerrar:    ico('<path d="M18 6L6 18M6 6l12 12"/>'),
   lupa:      ico('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>'),
   reloj:     ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
-  diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>')
+  diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  campana:   ico('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
+  visto:     ico('<path d="M20 6L9 17l-5-5"/>')
 };
 
 const hoyISO = (mas = 0) => {
@@ -288,12 +293,13 @@ function contraste(hex) {
 }
 
 async function recargar() {
-  const [lotes, pilas, prov, figuras, config, cola, gente, malos] = await Promise.all([
+  const [lotes, pilas, prov, figuras, config, cola, gente, malos, tareas] = await Promise.all([
     Store.lotes(), Store.pilas(), Store.proveedores(),
     Store.figuras(), Store.config(), Store.pendientes(),
-    Store.perfiles(), Store.fallidos()
+    Store.perfiles(), Store.fallidos(), Store.tareas()
   ]);
-  S.gente = gente; S.rechazados = malos.length;
+  S.gente = gente; S.rechazados = malos.length; S.tareas = tareas;
+  pintarTareas();
   S.lotes = lotes; S.pilas = pilas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   S.proveedores = prov.sort((a, b) => a.abreviatura.localeCompare(b.abreviatura));
   S.figuras = figuras; S.config = config;
@@ -444,6 +450,8 @@ function pantallaPrincipal() {
       <header>
         <h1>Acopio</h1>
         <span class="crece"></span>
+        <button class="icono campana" id="campana" aria-label="Tareas" hidden
+          >${ICO.campana}<span class="cuenta" id="campana-n"></span></button>
         <button class="chip-sync" id="chip"><span class="punto"></span><span id="chip-txt">—</span></button>
         <button class="icono" id="menu" aria-label="Cuenta">⋮</button>
       </header>
@@ -467,6 +475,7 @@ function pantallaPrincipal() {
 
   $('#chip').onclick = sincronizar;
   $('#menu').onclick = menuCuenta;
+  $('#campana').onclick = panelTareas;
   document.querySelectorAll('nav.pestanas button').forEach((b) => {
     b.onclick = () => {
       S.pestana = b.dataset.t;
@@ -480,6 +489,7 @@ function pantallaPrincipal() {
 
 function pintar() {
   pintarSync();
+  pintarTareas();
   // El mapa va a sangre completa: sin márgenes ni tope de ancho. La
   // lista sí se centra, porque un renglón de texto muy largo se lee mal.
   const m = $('#main');
@@ -646,6 +656,211 @@ function montarMapa() {
   } else if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
+}
+
+// --------------------------------------------------------------- tareas
+// Encargos del admin a los contratistas.
+//
+// Las ve TODO el mundo aunque el admin diga a quién van dirigidas: en el
+// patio se cubren entre ellos y esconderle un encargo a quien está al
+// lado no ayuda. Quien no es admin solo puede COMPLETARLAS; el servidor
+// lo impone, no la pantalla.
+//
+// El aviso es DENTRO de la app: la campana se pone roja y el celular
+// vibra al aparecer una tarea nueva. No hay notificación con la app
+// cerrada —eso necesita un servicio aparte y gasta batería—, pero como
+// la app se abre varias veces al día para registrar lotes, se ve igual.
+const PRIORIDADES = { urgente: 'Urgente', alta: 'Alta', media: 'Media', baja: 'Baja' };
+const ORDEN_PRIORIDAD = { urgente: 0, alta: 1, media: 2, baja: 3 };
+
+const pendientes = () => S.tareas.filter((t) => !t.completado_en)
+  .sort((a, b) => (ORDEN_PRIORIDAD[a.prioridad] ?? 9) - (ORDEN_PRIORIDAD[b.prioridad] ?? 9)
+                  || String(a.creado_en).localeCompare(String(b.creado_en)));
+const completadas = () => S.tareas.filter((t) => t.completado_en)
+  .sort((a, b) => String(b.completado_en).localeCompare(String(a.completado_en)));
+
+// La campana: cuántas hay y si toca avisar. Vibra UNA vez por tarea, la
+// primera que se ve; si no, cada vuelta de sincronización volvería a
+// hacer vibrar el celular por lo mismo.
+function pintarTareas() {
+  const b = $('#campana');
+  if (!b) return;
+  const abiertas = pendientes();
+  b.hidden = !abiertas.length && !esAdmin();
+  b.dataset.hay = abiertas.length ? 'si' : 'no';
+  b.dataset.urgente = abiertas.some((t) => t.prioridad === 'urgente') ? 'si' : 'no';
+  $('#campana-n').textContent = abiertas.length || '';
+
+  const nuevas = abiertas.filter((t) => !S.avisadas.has(t.id));
+  for (const t of abiertas) S.avisadas.add(t.id);
+  if (nuevas.length && !esAdmin() && navigator.vibrate) {
+    // dos toques cortos para lo normal, tres largos para lo urgente
+    navigator.vibrate(nuevas.some((t) => t.prioridad === 'urgente')
+      ? [200, 100, 200, 100, 200] : [120, 80, 120]);
+  }
+}
+
+const quienEs = (id) => S.gente.find((p) => p.id === id)?.nombre || 'alguien';
+
+function panelTareas() {
+  const abiertas = pendientes(), hechas = completadas();
+  abrirHoja(`
+    ${esAdmin() ? `<button class="btn btn-lleno btn-ancho" id="t-nueva" style="width:100%"
+      >${ICO.mas}<span>Nueva tarea</span></button>` : ''}
+
+    <h3>Pendientes</h3>
+    ${abiertas.length ? `<ul class="tareas">${abiertas.map(filaTarea).join('')}</ul>`
+      : '<p class="pista">No hay tareas pendientes.</p>'}
+
+    ${esAdmin() ? `
+      <h3>Completadas</h3>
+      ${hechas.length ? `<ul class="tareas hechas">${hechas.slice(0, 50).map((t) => `
+        <li data-id="${t.id}">
+          <span class="etiqueta-prio" data-p="${t.prioridad}">${esc(PRIORIDADES[t.prioridad] || '')}</span>
+          <span class="tarea-txt"><strong>${esc(t.titulo)}</strong>
+            <span class="dias">${esc(quienEs(t.completado_por))} ·
+              ${new Date(t.completado_en).toLocaleString('es-CO')}</span></span>
+        </li>`).join('')}</ul>`
+        : '<p class="pista">Todavía no se ha completado ninguna.</p>'}` : ''}`,
+    '<h2>Tareas</h2>');
+
+  const nueva = $('#t-nueva');
+  if (nueva) nueva.onclick = () => hojaNuevaTarea();
+  for (const li of document.querySelectorAll('.tareas li'))
+    li.onclick = () => fichaTarea(li.dataset.id);
+}
+
+const filaTarea = (t) => `<li data-id="${t.id}">
+  <span class="etiqueta-prio" data-p="${t.prioridad}">${esc(PRIORIDADES[t.prioridad] || '')}</span>
+  <span class="tarea-txt"><strong>${esc(t.titulo)}</strong>
+    ${t.asignado_a ? `<span class="dias">Para ${esc(quienEs(t.asignado_a))}</span>` : ''}</span>
+</li>`;
+
+function fichaTarea(id) {
+  const t = S.tareas.find((x) => x.id === id);
+  if (!t) return;
+  const lote = t.lote_id && S.lotes.find((l) => l.id === t.lote_id);
+  const pila = t.pila_id && S.pilas.find((p) => p.id === t.pila_id);
+  abrirHoja(`
+    <div class="fila-chips">
+      <span class="etiqueta-prio" data-p="${t.prioridad}">${esc(PRIORIDADES[t.prioridad] || '')}</span>
+      ${t.asignado_a ? `<span class="dias">Para ${esc(quienEs(t.asignado_a))}</span>` : ''}
+    </div>
+    ${t.detalle ? `<p class="detalle-tarea">${esc(t.detalle)}</p>`
+                : '<p class="pista">Sin más detalle.</p>'}
+    <p class="pista">La puso ${esc(quienEs(t.creado_por))} ·
+      ${new Date(t.creado_en).toLocaleString('es-CO')}</p>
+
+    ${lote || pila ? `<button class="btn btn-ancho btn-ubicar" id="t-ir" style="width:100%;margin:12px 0"
+      >${ICO.diana}<span>Ver ${lote ? `el lote ${esc(lote.codigo)}` : `la pila ${esc(pila.codigo)}`} en el mapa</span></button>` : ''}
+
+    ${t.completado_en ? `
+      <p class="aviso">Completada por ${esc(quienEs(t.completado_por))} el
+        ${new Date(t.completado_en).toLocaleString('es-CO')}.</p>
+      ${t.nota_cierre ? `<p class="detalle-tarea">${esc(t.nota_cierre)}</p>` : ''}`
+    : soloLectura() ? '' : `
+      <div class="campo">
+        <label for="t-nota">Nota al completar (opcional)</label>
+        <textarea id="t-nota" rows="2" placeholder="Qué se hizo"></textarea>
+      </div>
+      <button class="btn btn-guardar btn-ancho" id="t-listo" style="width:100%"
+        >${ICO.visto}<span>Completada</span></button>`}
+
+    ${esAdmin() ? `<button class="btn btn-peligro btn-ancho" id="t-borrar" style="width:100%;margin-top:14px"
+      >Borrar la tarea</button>` : ''}`,
+    `<h2>${esc(t.titulo)}</h2>`);
+
+  // Saltar al plano es exactamente lo que ya hace la ficha de un lote:
+  // se reutiliza, y así la tarea también avisa si el lote ya salió del
+  // patio en vez de llevar a un sitio donde no hay nada dibujado.
+  const ir = $('#t-ir');
+  if (ir) ir.onclick = () => { cerrarHoja(); if (lote) ubicarEnMapa(lote); else fichaPila(pila.id); };
+
+  const listo = $('#t-listo');
+  if (listo) listo.onclick = accion(async () => {
+    await Store.completarTarea(t.id, { usuario_id: S.perfil.id, nota: $('#t-nota')?.value });
+    cerrarHoja(); await recargar(); pintarTareas(); sincronizar();
+  }, { ocupado: 'Guardando…' });
+
+  const borrar = $('#t-borrar');
+  if (borrar) borrar.onclick = accion(async () => {
+    const ok = await confirmar({
+      titulo: '¿Borrar la tarea?',
+      detalle: 'Desaparece para todos y no queda rastro de ella.',
+      aceptar: 'Borrarla', peligro: true
+    });
+    if (!ok) return fichaTarea(id);
+    await Store.borrarTarea(t.id);
+    cerrarHoja(); await recargar(); pintarTareas(); sincronizar();
+  });
+}
+
+function hojaNuevaTarea() {
+  const gente = S.gente.filter((p) => p.rol === 'contratista');
+  abrirHoja(`
+    <div class="campo">
+      <label for="t-titulo">Qué hay que hacer</label>
+      <input id="t-titulo" autocomplete="off" placeholder="Remuestrear el PG1042">
+    </div>
+    <div class="campo">
+      <label for="t-detalle">Detalle (opcional)</label>
+      <textarea id="t-detalle" rows="3" placeholder="Lo que haga falta explicar"></textarea>
+    </div>
+    <div class="campo">
+      <label>Prioridad</label>
+      <div class="acciones" id="t-prio">
+        ${Object.entries(PRIORIDADES).map(([k, v]) => `<button type="button" data-p="${k}"
+          class="etiqueta-prio${k === 'media' ? ' elegida' : ''}" data-p2="${k}">${v}</button>`).join('')}
+      </div>
+    </div>
+    <div class="campo">
+      <label for="t-quien">Para quién (opcional)</label>
+      <select id="t-quien">
+        <option value="">Cualquiera</option>
+        ${gente.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="campo">
+      <label for="t-lote">Sobre un lote o una pila (opcional)</label>
+      <select id="t-lote">
+        <option value="">Ninguno</option>
+        ${S.lotes.filter((l) => l.estado !== 'despachado').map((l) =>
+          `<option value="l:${l.id}">Lote ${esc(l.codigo)}</option>`).join('')}
+        ${S.pilas.filter((p) => p.estado === 'abierta').map((p) =>
+          `<option value="p:${p.id}">Pila ${esc(p.codigo)}</option>`).join('')}
+      </select>
+    </div>
+    <p id="t-error" class="aviso" hidden></p>
+    <div class="acciones">
+      <button id="t-cancelar">Cancelar</button>
+      <button id="t-crear" class="btn-lleno">Enviar la tarea</button>
+    </div>`, '<h2>Nueva tarea</h2>');
+
+  let prioridad = 'media';
+  for (const b of document.querySelectorAll('#t-prio button'))
+    b.onclick = () => {
+      prioridad = b.dataset.p;
+      for (const o of document.querySelectorAll('#t-prio button')) o.classList.remove('elegida');
+      b.classList.add('elegida');
+    };
+
+  $('#t-cancelar').onclick = () => panelTareas();
+  $('#t-crear').onclick = accion(async () => {
+    const titulo = $('#t-titulo').value.trim();
+    if (!titulo) {
+      const e = $('#t-error'); e.hidden = false; e.textContent = 'Escribe qué hay que hacer.';
+      return;
+    }
+    const sobre = $('#t-lote').value;
+    await Store.crearTarea({
+      titulo, detalle: $('#t-detalle').value, prioridad,
+      asignado_a: $('#t-quien').value || null,
+      lote_id: sobre.startsWith('l:') ? sobre.slice(2) : null,
+      pila_id: sobre.startsWith('p:') ? sobre.slice(2) : null,
+      usuario_id: S.perfil.id
+    });
+    cerrarHoja(); await recargar(); pintarTareas(); sincronizar();
+  }, { ocupado: 'Enviando…' });
 }
 
 // ------------------------------------------------------- otro día
