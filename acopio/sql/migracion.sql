@@ -341,6 +341,30 @@ create table if not exists tareas (
   actualizado_en timestamptz not null default now()
 );
 
+-- `create table if not exists` no toca una tabla que YA existe, así que
+-- a quien creó las tareas con la versión anterior —una tarea señalaba un
+-- solo lote y una sola pila— no le llegaban las columnas nuevas, y la app
+-- fallaba con "Could not find the 'lotes_ids' column of 'tareas'".
+alter table tareas add column if not exists lotes_ids uuid[] not null default '{}';
+alter table tareas add column if not exists pilas_ids uuid[] not null default '{}';
+
+-- Lo que hubiera apuntado a la manera vieja se pasa a la lista antes de
+-- quitar las columnas, para no perderlo.
+do $$ begin
+  if exists (select 1 from information_schema.columns
+              where table_name = 'tareas' and column_name = 'lote_id') then
+    execute $q$ update tareas set lotes_ids = array[lote_id]
+                 where lote_id is not null and cardinality(lotes_ids) = 0 $q$;
+    execute 'alter table tareas drop column lote_id';
+  end if;
+  if exists (select 1 from information_schema.columns
+              where table_name = 'tareas' and column_name = 'pila_id') then
+    execute $q$ update tareas set pilas_ids = array[pila_id]
+                 where pila_id is not null and cardinality(pilas_ids) = 0 $q$;
+    execute 'alter table tareas drop column pila_id';
+  end if;
+end $$;
+
 create index if not exists idx_tareas_pendientes on tareas (completado_en, prioridad);
 
 drop trigger if exists trg_marcar_actualizado on tareas;

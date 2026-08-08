@@ -43,7 +43,9 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             historia: null,
             // encargos del admin. `avisadas` recuerda cuáles ya hicieron
             // vibrar el celular, para no repetir el aviso en cada vuelta
-            tareas: [], avisadas: new Set() };
+            tareas: [], avisadas: new Set(),
+            // los avisos se pueden apagar; queda guardado en el celular
+            mudo: localStorage.getItem('acopio-mudo') === '1' };
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
@@ -140,6 +142,29 @@ function soloLetrasYNumeros(campo) {
     const limpio = campo.value.replace(malos, '');
     if (limpio !== campo.value) campo.value = limpio;
   });
+}
+
+// -------------------------------------------------------------- sonidos
+// Dos avisos que se oyen sin mirar la pantalla: la volqueta al registrar
+// un lote, y el timbre al llegar una tarea. En un patio con ruido y con
+// el celular en el bolsillo, un sonido llega donde un color no.
+//
+// Se cargan de una vez y se guardan: el navegador no vuelve a pedirlos, y
+// el service worker los tiene en la caché, así que suenan sin señal.
+//
+// Nunca revientan nada. Un navegador puede negarse a sonar —lo hacen si
+// la persona todavía no ha tocado la pantalla— y eso no puede tumbar el
+// registro de un lote: se traga el fallo y sigue.
+const SONIDOS = { volqueta: './sonidos/volqueta.mp3', tarea: './sonidos/tarea.mp3' };
+const guardados = {};
+function sonar(cual, volumen = 1) {
+  if (S.mudo) return;
+  try {
+    const a = guardados[cual] || (guardados[cual] = new Audio(SONIDOS[cual]));
+    a.volume = volumen;
+    a.currentTime = 0;
+    a.play?.().catch(() => {});
+  } catch { /* sin sonido se sigue trabajando igual */ }
 }
 
 // ------------------------------------------------------------ volquetas
@@ -691,11 +716,14 @@ function pintarTareas() {
   b.dataset.urgente = abiertas.some((t) => t.prioridad === 'urgente') ? 'si' : 'no';
   $('#campana-n').textContent = abiertas.length || '';
 
+  // Se avisa UNA vez por tarea, la primera que se ve. Sin esto, cada
+  // vuelta de sincronización volvería a sonar por lo mismo.
   const nuevas = abiertas.filter((t) => !S.avisadas.has(t.id));
   for (const t of abiertas) S.avisadas.add(t.id);
-  if (nuevas.length && !esAdmin() && navigator.vibrate) {
+  if (nuevas.length && !esAdmin()) {
+    sonar('tarea');
     // dos toques cortos para lo normal, tres largos para lo urgente
-    navigator.vibrate(nuevas.some((t) => t.prioridad === 'urgente')
+    if (navigator.vibrate) navigator.vibrate(nuevas.some((t) => t.prioridad === 'urgente')
       ? [200, 100, 200, 100, 200] : [120, 80, 120]);
   }
 }
@@ -1340,6 +1368,10 @@ function refrescarMapa() {
 const DURACION_VOLQUETA = 1700;   // ms; el lote real aparece a los 1080
 
 function animarLlegada(lote) {
+  // El sonido va lo primero: se oye aunque la escena no se dibuje —por
+  // "reducir movimiento" o por estar en otra pestaña—, que es cuando más
+  // sirve, porque no hay nada que mirar.
+  sonar('volqueta');
   const caja = document.querySelector('.mapa-caja');
   const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Si no hay escena, el lote tiene que aparecer YA. Dejar `naciendo`
@@ -1664,12 +1696,24 @@ function menuCuenta() {
     <button class="btn btn-ancho" id="informe" style="width:100%">Listado de lotes para Excel</button>
     <p class="pista">Todos los lotes del patio, con su estado, proveedor, volqueta,
        material, pila y observaciones, en un archivo que abre en Excel.</p>` : ''}
+    <h3>Avisos</h3>
+    <button class="btn btn-ancho" id="mudo" style="width:100%"
+      >${S.mudo ? 'Activar los sonidos' : 'Silenciar los sonidos'}</button>
+    <p class="pista">La volqueta al registrar un lote y el timbre al llegar una tarea.
+       ${S.mudo ? 'Ahora están apagados.' : 'La vibración no se toca.'}</p>
+
     <h3>Sesión</h3>
     <div class="acciones">
       <button id="cerrar">Volver</button>
       <button id="salir" class="btn-peligro">Cerrar sesión</button>
     </div>`);
   $('#cerrar').onclick = cerrarHoja;
+  $('#mudo').onclick = () => {
+    S.mudo = !S.mudo;
+    localStorage.setItem('acopio-mudo', S.mudo ? '1' : '0');
+    if (!S.mudo) sonar('tarea', .6);     // para oír que ya suena
+    menuCuenta();
+  };
   // Traer las observaciones del servidor tarda un momento; el botón lo
   // dice en vez de quedarse mudo.
   if (puedeExportar()) $('#informe').onclick = accion(panelInforme, { ocupado: 'Contando lotes…' });
