@@ -77,9 +77,10 @@ titulo('Una tarea sobre un lote no puede subir antes que el lote.');
 // la rechazaría por llave foránea y se gastaría los reintentos.
 servidor.tablas.proveedores.set('p1', { id: 'p1', abreviatura: 'PG', nombre: 'Prueba', activo: true });
 const lote = await Store.crearLote({ codigo: 'PG1042', proveedor_id: 'p1', placa: 'WGY308',
-  material: 'granel', forma: 'elipse', x: 0, y: 0, usuario_id: 'yo' });
+  material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 const pila = await Store.crearPila({ codigo: '7', tipo: 'otro', nota: null,
-  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+  x: 0, y: 0, rx: 100, ry: 70, plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 const conLote = await Store.crearTarea({
   titulo: 'Acomodar estos dos', prioridad: 'alta',
   lotes_ids: [lote.id], pilas_ids: [pila.id], usuario_id: 'yo'

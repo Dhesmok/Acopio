@@ -17,14 +17,16 @@ titulo('Dos celulares eligen el mismo número de pila.');
 // otro celular ya subió las pilas 1, 2 y 3: el siguiente libre es el 4
 for (const n of ['1', '2', '3'])
   servidor.tablas.pilas.set('otra' + n,
-    { id: 'otra' + n, codigo: n, tipo: 'otro', estado: 'abierta' });
+    { id: 'otra' + n, codigo: n, tipo: 'otro', estado: 'abierta',
+      plataforma_id: 'PL-TOPSOIL' });
 
 const lote = await Store.crearLote({ codigo: 'ABG50', proveedor_id: 'p1', placa: 'AAA111',
-  material: 'granel', forma: 'elipse', x: 0, y: 0, usuario_id: 'yo' });
+  material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 await Store.sincronizar();
 
 const pila = await Store.crearPila({ codigo: '3', tipo: 'otro', nota: null,
-  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+  x: 0, y: 0, rx: 100, ry: 70, plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 await Store.registrarEvento({ lote_id: lote.id, tipo: 'ingreso_pila',
   pila_id: pila.id, usuario_id: 'yo' });
 
@@ -54,7 +56,7 @@ for (const p of servidor.tablas.pilas.values()) p.estado = 'consumida';
 for (const p of await Store.pilas()) await Store.renombrarPila(p.id, { estado: 'consumida' });
 
 const reusada = await Store.crearPila({ codigo: '1', tipo: 'otro', nota: null,
-  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+  x: 0, y: 0, rx: 100, ry: 70, plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 await Store.sincronizar();
 const enServidor = servidor.tablas.pilas.get(reusada.id);
 ok(!!enServidor, 'la pila nueva subió aunque ya hubo una "1" archivada');
@@ -63,7 +65,7 @@ ok(enServidor?.codigo === '1', `y se quedó con el nombre "1" (quedó "${enServi
 // Pero entre las ABIERTAS el nombre sigue sin poder repetirse: dos pilas
 // llamadas igual a la vez en el plano no se pueden distinguir.
 const choca = await Store.crearPila({ codigo: '1', tipo: 'otro', nota: null,
-  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
+  x: 0, y: 0, rx: 100, ry: 70, plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 await Store.sincronizar();
 await Store.sincronizar();
 ok(servidor.tablas.pilas.get(choca.id)?.codigo === '2',
@@ -74,7 +76,8 @@ titulo('Un lote recibido de noche NO se fecha al día siguiente.');
 // lunes 27 de julio, 8:30 p. m. en Bogotá: en UTC ya es el martes 28
 const descongelar = congelarReloj('2026-07-28T01:30:00Z');
 const nocturno = await Store.crearLote({ codigo: 'ABG77', proveedor_id: 'p1', placa: 'BBB222',
-  material: 'granel', forma: 'elipse', x: 0, y: 0, usuario_id: 'yo' });
+  material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
 descongelar();
 
 ok(nocturno.fecha_recepcion === '2026-07-27',

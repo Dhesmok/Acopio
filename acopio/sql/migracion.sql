@@ -25,6 +25,10 @@ alter type forma_figura add value if not exists 'poligono';
 alter type tipo_evento  add value if not exists 'programar_recogida';
 alter type tipo_evento  add value if not exists 'movimiento';
 alter type tipo_evento  add value if not exists 'renombrado';
+--  'alimentado': el lote se consumió en planta y deja de verse en el
+--  plano. 'traslado': se pasó a otra plataforma.
+alter type estado_lote add value if not exists 'alimentado';
+alter type tipo_evento add value if not exists 'traslado';
 
 -- -------------------------------------------------------------- lotes
 alter table lotes add column if not exists placa          text;
@@ -143,9 +147,26 @@ create or replace function fn_aplicar_evento()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   perform set_config('app.desde_evento', 'on', true);
+
   if new.tipo = 'cambio_estado' then
-    update lotes set estado = new.estado_nuevo, estado_desde = new.ocurrido_en,
+    -- Alimentar es el final del camino: se apunta POR DÓNDE entró y
+    -- CUÁNDO, que es lo que se consulta después. Si el estado cambia a
+    -- otra cosa, esos dos datos se limpian: el lote ya no está
+    -- alimentado y dejarlos puestos mentiría en el informe.
+    update lotes set estado = new.estado_nuevo,
+                     estado_desde = new.ocurrido_en,
                      fecha_recogida = new.fecha_recogida,
+                     punto_id = case when new.estado_nuevo = 'alimentado'
+                                     then new.punto_id else null end,
+                     alimentado_en = case when new.estado_nuevo = 'alimentado'
+                                          then new.ocurrido_en else null end,
+                     ultimo_evento_en = greatest(ultimo_evento_en, new.ocurrido_en)
+     where id = new.lote_id;
+  elsif new.tipo = 'traslado' then
+    -- Cambiar de plataforma NO cambia el estado ni saca de la pila: un
+    -- lote facturado que se pasa a Ye sigue facturado. Si iba dentro de
+    -- una pila, la pila entera se mueve y él va con ella.
+    update lotes set plataforma_id = new.plataforma_id,
                      ultimo_evento_en = greatest(ultimo_evento_en, new.ocurrido_en)
      where id = new.lote_id;
   elsif new.tipo = 'programar_recogida' then
@@ -164,14 +185,20 @@ begin
     update lotes set ultimo_evento_en = greatest(ultimo_evento_en, new.ocurrido_en)
      where id = new.lote_id;
   end if;
+
   perform set_config('app.desde_evento', 'off', true);
   return new;
 end; $$;
+
+drop trigger if exists trg_aplicar_evento on eventos;
+create trigger trg_aplicar_evento
+  after insert on eventos for each row execute function fn_aplicar_evento();
 
 create or replace function fn_proteger_derivados()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if coalesce(current_setting('app.desde_evento', true), 'off') <> 'on' then
+    -- solo el admin puede corregir el código y el proveedor de un lote
     if fn_mi_rol() is distinct from 'admin' then
       new.codigo       := old.codigo;
       new.proveedor_id := old.proveedor_id;
@@ -180,6 +207,12 @@ begin
     new.estado_desde   := old.estado_desde;
     new.fecha_recogida := old.fecha_recogida;
     new.pila_id        := old.pila_id;
+    -- La plataforma se cambia con un evento 'traslado', no escribiendo
+    -- la columna: si no, mover un lote por el plano podría teletransportarlo
+    -- de patio sin dejar rastro de quién lo hizo.
+    new.plataforma_id  := old.plataforma_id;
+    new.punto_id       := old.punto_id;
+    new.alimentado_en  := old.alimentado_en;
     new.creado_en      := old.creado_en;
     new.creado_por     := old.creado_por;
   end if;
@@ -416,6 +449,159 @@ do $$ begin
   if not exists (select 1 from pg_policies where tablename = 'tareas' and policyname = 'p_borrar_tareas') then
     create policy p_borrar_tareas on tareas for delete to authenticated
       using (fn_mi_rol() = 'admin');
+  end if;
+end $$;
+
+
+-- ===================================================================
+--  PLATAFORMAS  ·  el patio deja de ser uno y pasa a ser cinco.
+--
+--  Lo que hace, en orden y sin perder nada:
+--    1. crea las tablas y columnas nuevas
+--    2. crea las cinco plataformas y los puntos de alimentación
+--    3. mete TODO lo que existe hoy en Topsoil
+--    4. los lotes que estaban en estado 'plataforma' se mudan a
+--       Plataforma 5 y quedan como 'facturado'
+--    5. el tamaño y el fondo del plano de hoy pasan a ser los de Topsoil
+--    6. recién entonces se ponen las columnas como obligatorias
+--
+--  Se puede correr las veces que se quiera.
+-- ===================================================================
+
+create table if not exists plataformas (
+  id              uuid primary key,
+  nombre          text not null unique,
+  orden           int not null default 0,
+  activa          boolean not null default true,
+  ancho           numeric not null default 1000,
+  alto            numeric not null default 700,
+  color_fondo     text not null default '#e4e7e2',
+  imagen_url      text,
+  imagen_x        numeric not null default 0,
+  imagen_y        numeric not null default 0,
+  imagen_ancho    numeric not null default 1000,
+  imagen_alto     numeric not null default 700,
+  imagen_opacidad numeric not null default 1,
+  creado_en       timestamptz not null default now(),
+  actualizado_en  timestamptz not null default now()
+);
+
+create table if not exists puntos_alimentacion (
+  id             uuid primary key,
+  nombre         text not null unique,
+  orden          int not null default 0,
+  activo         boolean not null default true,
+  creado_en      timestamptz not null default now(),
+  actualizado_en timestamptz not null default now()
+);
+
+drop trigger if exists trg_marcar_actualizado on plataformas;
+create trigger trg_marcar_actualizado before insert or update on plataformas
+  for each row execute function fn_marcar_actualizado();
+drop trigger if exists trg_marcar_actualizado on puntos_alimentacion;
+create trigger trg_marcar_actualizado before insert or update on puntos_alimentacion
+  for each row execute function fn_marcar_actualizado();
+
+-- Las cinco. El orden es el que se ve en la app.
+insert into plataformas (id, nombre, orden) values
+  ('11111111-0000-4000-8000-000000000001', 'Topsoil',       1),
+  ('11111111-0000-4000-8000-000000000002', 'Plataforma 2',  2),
+  ('11111111-0000-4000-8000-000000000003', 'Plataforma 3',  3),
+  ('11111111-0000-4000-8000-000000000004', 'Ye',            4),
+  ('11111111-0000-4000-8000-000000000005', 'Plataforma 5',  5)
+on conflict (nombre) do nothing;
+
+insert into puntos_alimentacion (id, nombre, orden) values
+  ('22222222-0000-4000-8000-000000000001', 'Batch',         1),
+  ('22222222-0000-4000-8000-000000000002', 'Tolva Naranja', 2),
+  ('22222222-0000-4000-8000-000000000003', 'Reempaque',     3)
+on conflict (nombre) do nothing;
+
+-- Columnas nuevas, todavía sin obligar: primero hay que rellenarlas.
+alter table lotes        add column if not exists plataforma_id uuid references plataformas (id);
+alter table lotes        add column if not exists punto_id      uuid references puntos_alimentacion (id);
+alter table lotes        add column if not exists alimentado_en timestamptz;
+alter table pilas        add column if not exists plataforma_id uuid references plataformas (id);
+alter table mapa_figuras add column if not exists plataforma_id uuid references plataformas (id);
+alter table eventos      add column if not exists plataforma_id uuid references plataformas (id);
+alter table eventos      add column if not exists punto_id      uuid references puntos_alimentacion (id);
+
+-- Todo lo que hay hoy está en Topsoil: es el único patio que existía.
+update lotes        set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
+update pilas        set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
+update mapa_figuras set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
+
+-- Los que estaban en estado 'plataforma' querían decir "se fue a la
+-- Plataforma 5". Ahora eso es un SITIO, así que se mudan de verdad y
+-- recuperan un estado normal.
+--
+-- NO se les escribe un evento de traslado, y es a propósito: Postgres no
+-- deja USAR un valor de enumeración recién añadido —'traslado'— en la
+-- misma corrida en que se añade, y si fallara aquí se desharía la
+-- migración entera y quedaría dando vueltas. Su historial ya cuenta la
+-- historia: tienen el cambio a 'plataforma' del día que se fueron.
+update lotes set plataforma_id = '11111111-0000-4000-8000-000000000005', estado = 'facturado'
+ where estado = 'plataforma';
+
+-- El plano de hoy pasa a ser el plano de Topsoil.
+do $$ begin
+  if exists (select 1 from information_schema.columns
+              where table_name = 'mapa_config' and column_name = 'ancho') then
+    execute $q$
+      update plataformas p set
+        ancho = c.ancho, alto = c.alto, color_fondo = c.color_fondo,
+        imagen_url = c.imagen_url, imagen_x = c.imagen_x, imagen_y = c.imagen_y,
+        imagen_ancho = c.imagen_ancho, imagen_alto = c.imagen_alto,
+        imagen_opacidad = c.imagen_opacidad
+      from mapa_config c
+       where c.id = 'unico' and p.id = '11111111-0000-4000-8000-000000000001' $q$;
+    -- El tamaño y el fondo ya viven en cada plataforma. En mapa_config
+    -- se queda solo la paleta, que sí es de toda la empresa.
+    execute 'alter table mapa_config drop column ancho, drop column alto,
+             drop column color_fondo, drop column imagen_url, drop column imagen_x,
+             drop column imagen_y, drop column imagen_ancho, drop column imagen_alto,
+             drop column imagen_opacidad';
+  end if;
+end $$;
+
+-- Las otras cuatro empiezan con el mismo tamaño que Topsoil, para que se
+-- puedan usar desde el primer día sin configurar nada.
+update plataformas set ancho = (select ancho from plataformas where nombre = 'Topsoil'),
+                       alto  = (select alto  from plataformas where nombre = 'Topsoil')
+ where nombre <> 'Topsoil' and ancho = 1000 and alto = 700;
+
+-- Ahora sí, obligatorias.
+alter table lotes        alter column plataforma_id set not null;
+alter table pilas        alter column plataforma_id set not null;
+alter table mapa_figuras alter column plataforma_id set not null;
+
+create index if not exists idx_lotes_plataforma on lotes (plataforma_id);
+create index if not exists idx_pilas_plataforma on pilas (plataforma_id);
+
+-- El nombre de una pila es único entre las abiertas DE SU PLATAFORMA:
+-- puede haber una "pila 1" en Topsoil y otra en Plataforma 5.
+drop index if exists ux_pilas_codigo_abierta;
+create unique index if not exists ux_pilas_codigo_abierta
+  on pilas (plataforma_id, codigo) where estado = 'abierta';
+
+alter table plataformas enable row level security;
+alter table puntos_alimentacion enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'plataformas' and policyname = 'p_leer_plataformas') then
+    create policy p_leer_plataformas on plataformas for select to authenticated
+      using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'plataformas' and policyname = 'p_admin_plataformas') then
+    create policy p_admin_plataformas on plataformas for all to authenticated
+      using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'puntos_alimentacion' and policyname = 'p_leer_puntos') then
+    create policy p_leer_puntos on puntos_alimentacion for select to authenticated
+      using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'puntos_alimentacion' and policyname = 'p_admin_puntos') then
+    create policy p_admin_puntos on puntos_alimentacion for all to authenticated
+      using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
   end if;
 end $$;
 
