@@ -147,4 +147,22 @@ ok(/if old\.asignado_a is not null and old\.asignado_a <> auth\.uid\(\) then\s*\
 ok(/if old\.completado_en is not null then return old; end if;/.test(disparador),
    'y cerrar una ya cerrada tampoco falla: dos personas pueden darle a la vez');
 
+// ---------------------------------------------------------------------
+titulo('Los avisos suenan también sin señal.');
+
+// El sonido vive en un archivo aparte, así que tiene que estar en la
+// lista que el service worker guarda. Si no, en la mina —que es donde se
+// usa— no sonaría nunca, y eso no se nota probando con wifi.
+const sw = await readFile(new URL('../web/sw.js', import.meta.url), 'utf8');
+for (const f of ['volqueta.mp3', 'tarea.mp3']) {
+  ok(sw.includes(`./sonidos/${f}`), `${f} está en la caché del service worker`);
+  const bytes = await readFile(new URL(`../web/sonidos/${f}`, import.meta.url));
+  ok(bytes.length > 1000 && bytes[0] === 0xFF, `y el archivo existe y es un mp3 (${bytes.length} bytes)`);
+}
+
+// Subir la versión del service worker es lo que hace que los celulares
+// se bajen lo nuevo. Sin eso, un archivo añadido a la lista no llega.
+const version = (sw.match(/const VERSION = '([^']+)'/) || [])[1];
+ok(/^acopio-v\d+$/.test(version), `la versión está puesta y con formato (${version})`);
+
 cerrar();

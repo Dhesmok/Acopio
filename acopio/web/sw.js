@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v49';
+const VERSION = 'acopio-v50';
 const SHELL = [
   './',
   './index.html',
@@ -15,6 +15,11 @@ const SHELL = [
   // antemano: si no, sacar el listado dejaría de funcionar sin señal
   './js/excel.js',
   './js/config.js',
+  // Los avisos tienen que sonar sin señal, así que se guardan como el
+  // resto de la app: la volqueta al registrar un lote y el timbre al
+  // llegar una tarea.
+  './sonidos/volqueta.mp3',
+  './sonidos/tarea.mp3',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
