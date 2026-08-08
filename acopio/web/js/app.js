@@ -725,7 +725,7 @@ function panelTareas() {
     '<h2>Tareas</h2>');
 
   const nueva = $('#t-nueva');
-  if (nueva) nueva.onclick = () => hojaNuevaTarea();
+  if (nueva) nueva.onclick = accion(hojaNuevaTarea, { ocupado: 'Abriendo…' });
   for (const li of document.querySelectorAll('.tareas li'))
     li.onclick = () => fichaTarea(li.dataset.id);
 }
@@ -795,8 +795,18 @@ function fichaTarea(id) {
   });
 }
 
-function hojaNuevaTarea() {
-  const gente = S.gente.filter((p) => p.rol === 'contratista');
+async function hojaNuevaTarea() {
+  // La lista de gente se refresca AQUÍ. Viaja con los catálogos, que van
+  // una vez por hora, y con eso un compañero recién habilitado no
+  // aparecía en el desplegable hasta la hora siguiente.
+  S.gente = await Store.refrescarPerfiles();
+  // Solo quien puede trabajar en el patio: el de rol "empresa" solo mira,
+  // y a quien todavía no esté habilitado no le abre ni la app, así que
+  // mandarle una tarea no serviría de nada.
+  const gente = S.gente
+    .filter((p) => p.activo !== false && (p.rol === 'contratista' || p.rol === 'admin'))
+    .sort((x, y) => String(x.nombre).localeCompare(String(y.nombre), 'es'));
+  const dormidos = S.gente.filter((p) => p.activo === false).length;
   abrirHoja(`
     <div class="campo">
       <label for="t-titulo">Qué hay que hacer</label>
@@ -819,6 +829,9 @@ function hojaNuevaTarea() {
         <option value="">Cualquiera</option>
         ${gente.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
       </select>
+      ${dormidos ? `<p class="pista">Hay ${dormidos} persona${dormidos === 1 ? '' : 's'}
+        sin habilitar todavía, y no ${dormidos === 1 ? 'sale' : 'salen'} aquí:
+        sin habilitar no ${dormidos === 1 ? 'puede' : 'pueden'} ni abrir la app.</p>` : ''}
     </div>
     <div class="campo">
       <label for="t-lote">Sobre un lote o una pila (opcional)</label>
