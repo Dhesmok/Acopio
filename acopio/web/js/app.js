@@ -53,9 +53,12 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             recorrido: null,
             // mirar el patio de otro día: solo se mira, no se toca nada
             historia: null,
-            // encargos del admin. `avisadas` recuerda cuáles ya hicieron
-            // vibrar el celular, para no repetir el aviso en cada vuelta
-            tareas: [], avisadas: new Set(),
+            // Encargos del admin. `avisadas` recuerda cuáles ya hicieron
+            // vibrar el celular, para no repetir el aviso en cada vuelta.
+            // Se guarda en el celular: si viviera solo en memoria, cada vez
+            // que se abre la app volvería a sonar por las tareas de ayer.
+            tareas: [],
+            avisadas: new Set(JSON.parse(localStorage.getItem('acopio-avisadas') || '[]')),
             // los avisos se pueden apagar; queda guardado en el celular
             mudo: localStorage.getItem('acopio-mudo') === '1',
             // el patio es de CINCO plataformas. Se recuerda en cuál
@@ -85,9 +88,15 @@ const nombrePunto = (id) => S.puntos.find((p) => p.id === id)?.nombre || '—';
 const seVeEnLaLista = (l) => !alimentado(l) || esAdmin();
 
 // Lo que se dibuja: solo lo de la plataforma que se está mirando.
-const misLotes = () => S.lotes.filter((l) => l.plataforma_id === S.plataforma && !alimentado(l));
-const misPilas = () => S.pilas.filter((p) => p.plataforma_id === S.plataforma);
-const misFiguras = () => S.figuras.filter((f) => f.plataforma_id === S.plataforma);
+//
+// Si NO hay plataformas cargadas —la app publicada antes de correr la
+// migración, o la primera sincronización todavía en marcha— no se filtra
+// nada. Sin esto el patio saldría vacío y parecería que se perdió todo,
+// que es la peor cara posible para un despiste de despliegue.
+const enEstaPlataforma = (x) => !S.plataforma || x.plataforma_id === S.plataforma;
+const misLotes = () => S.lotes.filter((l) => enEstaPlataforma(l) && !alimentado(l));
+const misPilas = () => S.pilas.filter(enEstaPlataforma);
+const misFiguras = () => S.figuras.filter(enEstaPlataforma);
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
@@ -778,6 +787,10 @@ const resumen = (id) => {
   for (const l of suyos) porEstado[l.estado] = (porEstado[l.estado] || 0) + 1;
   return { total: suyos.length, porEstado,
            pilas: S.pilas.filter((p) => p.plataforma_id === id && p.estado === 'abierta').length,
+           // Lo que ya se pasó de fecha va en rojo; lo que está citado
+           // para más adelante se cuenta, pero sin alarma: pintar de rojo
+           // una recogida de la semana que viene enseña a no mirar el rojo.
+           sinRecoger: suyos.filter(vencido).length,
            porRecoger: suyos.filter((l) => enDevolucion(l) && l.fecha_recogida).length };
 };
 
@@ -796,7 +809,8 @@ function pintarPlataformas() {
         : '<span class="barra-est vacia"></span>'}
       <span class="pie">
         ${r.pilas ? `<span>${r.pilas} pila${r.pilas === 1 ? '' : 's'}</span>` : ''}
-        ${r.porRecoger ? `<span class="alerta">${r.porRecoger} por recoger</span>` : ''}
+        ${r.sinRecoger ? `<span class="alerta">${r.sinRecoger} sin recoger</span>`
+          : r.porRecoger ? `<span>${r.porRecoger} por recoger</span>` : ''}
         <span class="crece"></span><span class="flecha">›</span></span>
     </button>`;
   }).join('')}</div>`;
@@ -873,7 +887,10 @@ function pintarTareas() {
   // Se avisa UNA vez por tarea, la primera que se ve. Sin esto, cada
   // vuelta de sincronización volvería a sonar por lo mismo.
   const nuevas = abiertas.filter((t) => !S.avisadas.has(t.id));
-  for (const t of abiertas) S.avisadas.add(t.id);
+  // Solo se recuerdan las que siguen pendientes: una tarea cerrada ya no
+  // puede volver a avisar, y así la lista no crece para siempre.
+  S.avisadas = new Set(abiertas.map((t) => t.id));
+  try { localStorage.setItem('acopio-avisadas', JSON.stringify([...S.avisadas])); } catch { /* sin sitio */ }
   if (nuevas.length && !esAdmin()) {
     sonar('tarea');
     // dos toques cortos para lo normal, tres largos para lo urgente
@@ -1067,10 +1084,12 @@ async function hojaNuevaTarea() {
   // celular va lenta, y si hace falta bajar de quince es que hay que
   // escribir una letra más.
   const catalogo = [
-    ...S.lotes.filter((l) => l.estado !== 'despachado')
-      .map((l) => ({ k: `l:${l.id}`, txt: l.codigo, sub: ESTADOS[l.estado] || '' })),
+    ...S.lotes.filter((l) => l.estado !== 'despachado' && !alimentado(l))
+      .map((l) => ({ k: `l:${l.id}`, txt: l.codigo,
+                     sub: `${ESTADOS[l.estado] || ''} · ${nombrePlataforma(l.plataforma_id)}` })),
     ...S.pilas.filter((p) => p.estado === 'abierta')
-      .map((p) => ({ k: `p:${p.id}`, txt: `Pila ${p.codigo}`, sub: 'pila' }))
+      .map((p) => ({ k: `p:${p.id}`, txt: `Pila ${p.codigo}`,
+                     sub: `pila · ${nombrePlataforma(p.plataforma_id)}` }))
   ].sort((x, y) => x.txt.localeCompare(y.txt, 'es', { numeric: true }));
   const elegidos = new Set();
 
@@ -1260,10 +1279,14 @@ function pintarHistoria() {
   const t = instanteDelDia(h, h.dia);
   // Mirar atrás se hace SOBRE LA PLATAFORMA que se está viendo: rehacer
   // las cinco a la vez no diría nada, y el plano es el de esta.
-  const { lotes, pilas, aproximados } = planoEn(t, {
-    lotes: S.lotes.filter((l) => l.plataforma_id === S.plataforma),
-    pilas: misPilas(), indice: h.indice
-  });
+  // Se rehacen TODOS y se filtra DESPUÉS: un lote que entonces estaba en
+  // Topsoil y hoy está en Ye tiene que salir en el Topsoil de entonces.
+  // Filtrar antes lo escondería justo del día en que sí estaba ahí.
+  const rehecho = planoEn(t, { lotes: S.lotes, pilas: S.pilas, indice: h.indice });
+  const lotes = rehecho.lotes.filter((l) => l.plataforma_id === S.plataforma);
+  const suyas = new Set(lotes.map((l) => l.pila_id).filter(Boolean));
+  const pilas = rehecho.pilas.filter((p) => suyas.has(p.id));
+  const aproximados = lotes.filter((l) => l._aprox).length;
   if (aproximados !== h.aproximados) { h.aproximados = aproximados; rotularHistoria(); }
   Mapa.pintar({ config: { ...S.config, ...(plataformaActual() || {}) },
                 figuras: misFiguras(), pilas, lotes });
@@ -1305,9 +1328,12 @@ function abrirEdicion(tipo, obj) {
 // Lleva el plano hasta un lote y lo deja latiendo unos segundos. Llegar
 // no basta: al llegar hay que saber cuál de las figuras era.
 function ubicarEnMapa(l) {
-  if (l.estado === 'despachado' || l.estado === 'plataforma') {
+  if (l.estado === 'despachado' || l.estado === 'plataforma' || alimentado(l)) {
     return avisar(`${l.codigo}: ${ESTADOS[l.estado]}. Ya salió del patio, no se dibuja en el plano.`);
   }
+  // Puede estar en OTRA plataforma: se cambia de plano antes de buscarlo,
+  // o se acabaría mirando un patio donde ese lote no está.
+  if (l.plataforma_id && l.plataforma_id !== S.plataforma) irAPlataforma(l.plataforma_id);
   const figura = figurasEnElPlano([l])[0];
   if (!figura) return avisar(`${l.codigo} no se está dibujando en el plano.`);
 
@@ -1349,7 +1375,9 @@ const lotesQueCoinciden = () => {
   const q = S.busquedaMapa.trim().toUpperCase();
   const f = S.mapaFiltro;
   if (!q && f.campo === 'ninguno') return null;
-  return S.lotes.filter((l) => {
+  // Solo lo que está dibujado: resaltar un lote de otra plataforma no
+  // serviría de nada, porque en este plano no se ve.
+  return misLotes().filter((l) => {
     // Solo por código. La pregunta que responde este buscador es "¿dónde
     // está el PG1042?"; buscar por volqueta ya lo hace el botón de
     // filtros de al lado, y teniéndolo ahí, aceptar placas aquí solo
@@ -1376,12 +1404,12 @@ function calcularDestacados() {
 }
 
 // Un lote metido en una pila no se dibuja: lo que se ve es la pila. Y uno
-// despachado o en plataforma ya no está en el patio. Para encuadrar hay
+// despachado o alimentado ya no está en el patio. Para encuadrar hay
 // que traducir de lote a la figura que de verdad está en el plano.
 function figurasEnElPlano(lotes) {
   const vistas = new Map();
   for (const l of lotes || []) {
-    if (l.estado === 'despachado' || l.estado === 'plataforma') continue;
+    if (l.estado === 'despachado' || alimentado(l)) continue;
     const f = l.pila_id ? S.pilas.find((p) => p.id === l.pila_id && p.estado === 'abierta') : l;
     if (f) vistas.set(f.id, f);
   }
@@ -1389,7 +1417,7 @@ function figurasEnElPlano(lotes) {
 }
 
 function panelFiltro() {
-  const placas = [...new Set(S.lotes.flatMap(placasDe))].sort();
+  const placas = [...new Set(misLotes().flatMap(placasDe))].sort();
   abrirHoja(`
     <h2>Filtrar el mapa</h2>
     <div class="sub">Lo que coincide se resalta; el resto queda atenuado.</div>
@@ -1751,7 +1779,7 @@ function pintarLista() {
     <div class="lista">
       ${visibles.length ? visibles.map((l) => tarjeta(l, prov, pilas)).join('')
         : `<div class="vacio"><strong>No hay lotes que coincidan</strong>
-             ${S.lotes.length ? 'Cambia el filtro o la búsqueda.' : 'Agrega el primero desde el mapa.'}</div>`}
+             ${alcance.length ? 'Cambia el filtro o la búsqueda.' : 'Agrega el primero desde el mapa.'}</div>`}
     </div>`;
 
   const q_ = $('#q');
@@ -2126,7 +2154,7 @@ async function fichaLote(id) {
     desde: l.plataforma_id,
     alSoltar: async (id) => {
       await Store.trasladarLote(l.id, id, S.perfil.id);
-      cerrarHoja(); await recargar(); refrescarMapa(); pintar(); sincronizar();
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
     }
   });
 
@@ -2285,7 +2313,7 @@ function pedirPunto(l) {
         lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'alimentado',
         punto_id: b.dataset.id, usuario_id: S.perfil.id
       });
-      cerrarHoja(); await recargar(); refrescarMapa(); pintar(); sincronizar();
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
     }, { ocupado: 'Guardando…' });
 }
 
@@ -2448,7 +2476,7 @@ async function fichaPila(id) {
     desde: p.plataforma_id,
     alSoltar: async (destino) => {
       await Store.trasladarPila(id, destino, S.perfil.id);
-      cerrarHoja(); await recargar(); refrescarMapa(); pintar(); sincronizar();
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
     }
   });
 
@@ -2560,10 +2588,15 @@ function formLote() {
 const paletaActual = () => ({ ...Mapa.COLORES_BASE, ...(S.config?.colores || {}) });
 
 function panelFondo() {
-  const c = S.config;
+  // El tamaño, el color y la imagen son de ESTA plataforma. Los colores
+  // de los estados, en cambio, son de la empresa y valen para las cinco.
+  const plat = plataformaActual();
+  if (!plat) return avisar('Todavía no hay plataformas cargadas. Sincroniza y vuelve a intentarlo.');
+  const c = { ...S.config, ...plat };
   abrirHoja(`
     <h2>Fondo del mapa</h2>
-    <div class="sub">Solo tú puedes cambiarlo. Los contratistas lo ven, no lo editan.</div>
+    <div class="sub">Estás editando el plano de <strong>${esc(plat.nombre)}</strong>.
+      Cada plataforma tiene el suyo; los colores de abajo sí son de todas.</div>
 
     <h3>Tamaño del patio</h3>
     <div class="campo">
@@ -2596,7 +2629,8 @@ function panelFondo() {
     <div class="rejilla-color">
       ${[['por_muestrear', 'Por muestrear'], ['muestreado', 'Muestreado'],
          ['remuestreo', 'Remuestreo'], ['facturado', 'Facturado'],
-         ['devolucion', 'Devolución'], ['despachado', 'Despachado'],
+         ['devolucion', 'Devolución'], ['alimentado', 'Alimentado'],
+         ['despachado', 'Despachado'],
          ['pila_alimentacion', 'Pila · alimentación'], ['pila_devolucion', 'Pila · devolución'],
          ['pila_espera', 'Pila · espera'], ['pila_otro', 'Pila · otro']]
         .map(([k, etq]) => `<label class="color-item">
@@ -2623,9 +2657,9 @@ function panelFondo() {
   const agregar = (forma) => accion(async () => {
     const c2 = Mapa.centroVista();
     await Store.guardarFigura('mapa_figuras', {
-      id: Store.uuid(), forma, etiqueta: null,
+      id: Store.uuid(), forma, etiqueta: null, plataforma_id: S.plataforma,
       x: c2.x, y: c2.y, rx: forma === 'rectangulo' ? 110 : 80, ry: 70, rot: 0,
-      color: '#c7cdc5', orden: S.figuras.length
+      color: '#c7cdc5', orden: misFiguras().length
     });
     cerrarHoja(); await recargar(); sincronizar();
   }, { ocupado: 'Agregando…' });
@@ -2634,7 +2668,7 @@ function panelFondo() {
 
   const quitar = $('#quitar-img');
   if (quitar) quitar.onclick = accion(async () => {
-    await Store.guardarConfig({ ...S.config, imagen_url: null });
+    await Store.guardarPlataforma({ ...plat, imagen_url: null });
     cerrarHoja(); await recargar(); sincronizar();
   }, { ocupado: 'Quitando…' });
 
@@ -2646,12 +2680,13 @@ function panelFondo() {
   $('#guardar-fondo').onclick = accion(async () => {
     const colores = { ...paletaActual() };
     document.querySelectorAll('[data-color]').forEach((i) => { colores[i.dataset.color] = i.value; });
+    // Dos cosas distintas y a dos sitios distintos: la paleta a la
+    // configuración de la empresa, y el plano a esta plataforma.
     const cfg = {
-      ...S.config, colores,
       ancho: Number($('#c-ancho').value) || 1000,
       alto: Number($('#c-alto').value) || 700,
       color_fondo: $('#c-color').value,
-      imagen_opacidad: $('#c-op') ? Number($('#c-op').value) : (S.config.imagen_opacidad ?? 1)
+      imagen_opacidad: $('#c-op') ? Number($('#c-op').value) : (plat.imagen_opacidad ?? 1)
     };
     const archivo = $('#c-img').files[0];
     if (archivo) {
@@ -2666,8 +2701,9 @@ function panelFondo() {
         return;
       }
     }
-    await Store.guardarConfig(cfg);
-    cerrarHoja(); await recargar(); Mapa.encuadrar(); sincronizar();
+    await Store.guardarConfig({ ...S.config, colores });
+    await Store.guardarPlataforma({ ...plat, ...cfg });
+    cerrarHoja(); await recargar(); refrescarMapa(); Mapa.encuadrar(); sincronizar();
   }, { alFallar: (e) => {
     const p = $('#fondo-error');
     if (p) { p.hidden = false; p.textContent = `No se pudo guardar: ${e?.message || e}`; } else decirError(e);

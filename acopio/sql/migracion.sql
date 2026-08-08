@@ -540,8 +540,13 @@ update mapa_figuras set plataforma_id = '11111111-0000-4000-8000-000000000001' w
 -- misma corrida en que se añade, y si fallara aquí se desharía la
 -- migración entera y quedaría dando vueltas. Su historial ya cuenta la
 -- historia: tienen el cambio a 'plataforma' del día que se fueron.
+--
+-- Por lo mismo se compara `estado::text` y no `estado = 'plataforma'`:
+-- si esta misma corrida es la que añade el valor —una base que venía de
+-- una versión más vieja—, nombrarlo aquí sería el mismo error. Leerlo
+-- como texto mira lo que YA tienen las filas y nunca falla.
 update lotes set plataforma_id = '11111111-0000-4000-8000-000000000005', estado = 'facturado'
- where estado = 'plataforma';
+ where estado::text = 'plataforma';
 
 -- El plano de hoy pasa a ser el plano de Topsoil.
 do $$ begin
@@ -566,9 +571,18 @@ end $$;
 
 -- Las otras cuatro empiezan con el mismo tamaño que Topsoil, para que se
 -- puedan usar desde el primer día sin configurar nada.
-update plataformas set ancho = (select ancho from plataformas where nombre = 'Topsoil'),
-                       alto  = (select alto  from plataformas where nombre = 'Topsoil')
- where nombre <> 'Topsoil' and ancho = 1000 and alto = 700;
+--
+-- Solo se toca una plataforma que sigue TAL COMO NACIÓ: con el tamaño por
+-- defecto y sin nada dentro. El tamaño de cada plataforma es suyo, y esta
+-- migración se puede correr otra vez: sin este cerrojo, volver a correrla
+-- después de que alguien ajustara una plataforma a 1000 × 700 se la
+-- pisaría con la medida de Topsoil.
+update plataformas p set ancho = t.ancho, alto = t.alto
+  from plataformas t
+ where t.nombre = 'Topsoil' and p.nombre <> 'Topsoil'
+   and p.ancho = 1000 and p.alto = 700
+   and not exists (select 1 from lotes        l where l.plataforma_id = p.id)
+   and not exists (select 1 from mapa_figuras f where f.plataforma_id = p.id);
 
 -- Ahora sí, obligatorias.
 alter table lotes        alter column plataforma_id set not null;

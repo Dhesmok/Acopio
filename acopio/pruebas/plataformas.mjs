@@ -156,4 +156,52 @@ ok(/punto_id = case when new\.estado_nuevo = 'alimentado'/.test(sql),
 ok(/new\.plataforma_id\s*:= old\.plataforma_id;/.test(sql),
    'y el disparador protector impide cambiar de plataforma sin evento');
 
+// ---------------------------------------------------------------------
+titulo('El tamaño del plano es de CADA plataforma, no de todas.');
+
+// Era un solo número en `mapa_config` para el patio entero. Al partirlo
+// en cinco se movió a `plataformas`, pero la pantalla que lo edita seguía
+// escribiendo en `mapa_config`: cambiar el tamaño no habría hecho nada, y
+// peor, habría escrito en columnas que ya no existen.
+const app = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+const fondo = app.slice(app.indexOf('function panelFondo()'),
+                        app.indexOf('function panelFondo()') + 6000);
+ok(/guardarPlataforma\(\{ \.\.\.plat, \.\.\.cfg \}\)/.test(fondo),
+   'el tamaño y el fondo se guardan en la plataforma que se está mirando');
+ok(!/guardarConfig\([^)]*ancho/.test(fondo),
+   'y no en la configuración común, que ya no tiene tamaño');
+ok(/guardarConfig\(\{ \.\.\.S\.config, colores \}\)/.test(fondo),
+   'los colores sí siguen siendo de la empresa: valen para las cinco');
+
+// Una figura del fondo nace en la plataforma que se está mirando. Sin
+// esto el servidor la rechaza —la columna es obligatoria— y el admin ve
+// "no se pudo guardar" sin saber por qué.
+ok(/plataforma_id: S\.plataforma/.test(fondo),
+   'y una figura nueva del fondo nace en esta plataforma');
+
+// ---------------------------------------------------------------------
+titulo('El informe dice en qué plataforma está y por dónde se alimentó.');
+
+// Se pidió textualmente: "al momento de explotar el excel debería
+// especificar alimentado y por dónde".
+for (const [clave, titulo_] of [['plataforma', 'Plataforma'],
+                                ['punto', 'Alimentado por'],
+                                ['cuandoAlim', 'Fecha alimentado']])
+  ok(new RegExp(`clave: '${clave}',\\s*titulo: '${titulo_}'`).test(app),
+     `el archivo lleva la columna "${titulo_}"`);
+ok(/punto: l\.punto_id \? nombrePunto\(l\.punto_id\) : ''/.test(app),
+   'y sale el nombre del punto, no su identificador');
+
+// ---------------------------------------------------------------------
+titulo('La migración no nombra un estado que quizá acaba de crear.');
+
+// Postgres no deja USAR un valor de enumeración en la misma corrida en
+// que se añade. La migración añade 'plataforma' arriba por si viene de
+// una base vieja, así que compararlo por nombre más abajo reventaría la
+// migración entera justo en esas bases.
+const mig = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+ok(/where estado::text = 'plataforma'/.test(mig),
+   "el estado viejo se busca como texto (estado::text), no como valor de la enumeración");
+ok(!/where estado = 'plataforma'/.test(mig), 'y en ningún sitio se nombra a secas');
+
 cerrar();

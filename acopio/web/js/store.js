@@ -429,10 +429,25 @@ export async function borrarFiguraFondo(id) {
   await encolar(`del:mapa_figuras:${id}`, 'mapa_figuras', 'borrar', { id });
 }
 
+// La PALETA es de la empresa: un solo color por estado en todas las
+// plataformas. Por eso sigue en `mapa_config`.
+// Se manda SOLO la paleta, y no la fila entera que hubiera guardada: en
+// un celular que todavía no ha vuelto a sincronizar desde la migración,
+// esa fila trae el tamaño y la imagen de cuando el patio era uno solo, y
+// esas columnas ya no existen. Mandarlas devolvería un error de columna
+// desconocida en vez de guardar los colores.
 export async function guardarConfig(cfg) {
-  const fila = { ...cfg, id: 'unico' };
+  const fila = { id: 'unico', colores: cfg.colores };
   await idb.guardar('config', fila);
   await encolar('fig:mapa_config:unico', 'mapa_config', 'guardar', fila);
+}
+
+// El TAMAÑO, el color y la imagen son de CADA plataforma: cambiar el
+// plano de Ye no puede tocar el de Topsoil.
+export async function guardarPlataforma(fila) {
+  await idb.guardar('plataformas', fila);
+  await encolar(`fig:plataformas:${fila.id}`, 'plataformas', 'guardar', fila);
+  return fila;
 }
 
 export async function actualizarLote(id, cambios) {

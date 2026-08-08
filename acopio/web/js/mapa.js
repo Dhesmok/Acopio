@@ -40,7 +40,7 @@ export function partesCodigo(codigo) {
 
 export const COLORES_BASE = {
   por_muestrear: '#d99a06', muestreado: '#e8b48a', remuestreo: '#8a5cd6',
-  facturado: '#2b5ca8', devolucion: '#b8352a', plataforma: '#0f6d78', despachado: '#5f6863',
+  facturado: '#2b5ca8', devolucion: '#b8352a', alimentado: '#0f6d78', despachado: '#5f6863',
   pila_alimentacion: '#1f7a54', pila_devolucion: '#b8352a',
   pila_espera: '#d99a06', pila_otro: '#14171a'
 };

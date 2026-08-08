@@ -42,8 +42,11 @@
   --remuestreo:    #8a5cd6;
   --facturado:     #2b5ca8;
   --devolucion:    #b8352a;
-  --plataforma:    #0f6d78;
+  --alimentado:    #0f6d78;
   --despachado:    #5f6863;
+  /* Estado retirado: ya no se pone a nadie, pero un lote viejo que se
+     quedara con él tiene que seguir pintándose de algo. */
+  --plataforma:    #0f6d78;
   --vencida:       #7a1f16;
 
   /* El acento de la interfaz es SUYO, no el color de un estado: el admin
@@ -356,6 +359,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .lote[data-estado="remuestreo"]    .barra { background: var(--remuestreo); }
 .lote[data-estado="facturado"]     .barra { background: var(--facturado); }
 .lote[data-estado="devolucion"]    .barra { background: var(--devolucion); }
+.lote[data-estado="alimentado"]    .barra { background: var(--alimentado); }
 .lote[data-estado="despachado"]    .barra { background: var(--despachado); }
 .lote[data-vencida="si"] .barra {
   background: repeating-linear-gradient(-45deg,
@@ -410,6 +414,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .acciones button[data-estado="remuestreo"]    { background: var(--remuestreo);    color: var(--txt-remuestreo, #fff); }
 .acciones button[data-estado="facturado"]     { background: var(--facturado);     color: var(--txt-facturado, #fff); }
 .acciones button[data-estado="devolucion"]    { background: var(--devolucion);    color: var(--txt-devolucion, #fff); }
+.acciones button[data-estado="alimentado"]    { background: var(--alimentado);    color: var(--txt-alimentado, #fff); }
 .acciones button[data-estado="plataforma"]    { background: var(--plataforma);    color: var(--txt-plataforma, #fff); }
 .acciones button[data-estado="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
 
@@ -418,6 +423,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .etiqueta[data-e="remuestreo"]    { background: var(--remuestreo);    color: var(--txt-remuestreo, #fff); }
 .etiqueta[data-e="facturado"]     { background: var(--facturado);     color: var(--txt-facturado, #fff); }
 .etiqueta[data-e="devolucion"]    { background: var(--devolucion);    color: var(--txt-devolucion, #fff); }
+.etiqueta[data-e="alimentado"]    { background: var(--alimentado);    color: var(--txt-alimentado, #fff); }
 .etiqueta[data-e="plataforma"]    { background: var(--plataforma);    color: var(--txt-plataforma, #fff); }
 .etiqueta[data-e="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
 
