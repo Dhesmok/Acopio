@@ -245,6 +245,65 @@ end; $$;
 create trigger trg_evento_recepcion
   after insert on lotes for each row execute function fn_evento_recepcion();
 
+-- -------------------------------------------------------------- tareas
+--  Encargos del admin a los contratistas.
+--
+--  Las ven TODOS los contratistas aunque el admin diga a quién va
+--  dirigida: en el patio se cubren entre ellos, y esconderle un encargo a
+--  quien está al lado no ayuda a nadie. `asignado_a` es una etiqueta de
+--  "esto le toca a fulano", no un permiso.
+--
+--  Una tarea no se borra al completarla: se marca. Es lo que da la
+--  trazabilidad de quién la hizo y cuándo.
+create type prioridad_tarea as enum ('urgente', 'alta', 'media', 'baja');
+
+create table tareas (
+  id             uuid primary key,
+  titulo         text not null,
+  detalle        text,
+  prioridad      prioridad_tarea not null default 'media',
+  asignado_a     uuid references perfiles (id),          -- null = cualquiera
+  -- el encargo puede apuntar a un lote o a una pila, para poder saltar
+  -- ahí desde la tarea. Si el lote se borra, la tarea se queda sin él
+  -- pero no desaparece.
+  lote_id        uuid references lotes (id) on delete set null,
+  pila_id        uuid references pilas (id) on delete set null,
+  creado_por     uuid references perfiles (id),
+  creado_en      timestamptz not null default now(),
+  completado_en  timestamptz,
+  completado_por uuid references perfiles (id),
+  nota_cierre    text,
+  actualizado_en timestamptz not null default now()
+);
+
+create index idx_tareas_pendientes on tareas (completado_en, prioridad);
+
+create trigger trg_marcar_actualizado before insert or update on tareas
+  for each row execute function fn_marcar_actualizado();
+
+--  Un contratista SOLO puede cerrar una tarea abierta. No puede cambiarle
+--  el texto, ni la prioridad, ni a quién va, ni reabrirla.
+create or replace function fn_proteger_tarea()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if fn_mi_rol() is distinct from 'admin' then
+    -- Ya la cerró alguien: se deja como está y no se falla. Dos personas
+    -- pueden darle a "completado" a la vez, o sin señal, y la segunda
+    -- subida no puede quedarse trabada en la cola para siempre.
+    if old.completado_en is not null then return old; end if;
+    new.titulo     := old.titulo;      new.detalle    := old.detalle;
+    new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
+    new.lote_id    := old.lote_id;     new.pila_id    := old.pila_id;
+    new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
+    new.completado_por := auth.uid();
+    if new.completado_en is null then new.completado_en := now(); end if;
+  end if;
+  return new;
+end; $$;
+
+create trigger trg_proteger_tarea before update on tareas
+  for each row execute function fn_proteger_tarea();
+
 -- ------------------------------------------------------- fondo del mapa
 --  Solo el admin lo edita. Figuras para dibujar caseta, vías, límites.
 create table mapa_figuras (
@@ -316,6 +375,7 @@ alter table lotes        enable row level security;
 alter table eventos      enable row level security;
 alter table mapa_figuras enable row level security;
 alter table mapa_config  enable row level security;
+alter table tareas       enable row level security;
 
 -- Lectura: solo perfiles activos
 create policy p_leer_perfiles    on perfiles     for select to authenticated using (fn_mi_rol() is not null);
@@ -325,6 +385,7 @@ create policy p_leer_lotes       on lotes        for select to authenticated usi
 create policy p_leer_eventos     on eventos      for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_figuras     on mapa_figuras for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_config      on mapa_config  for select to authenticated using (fn_mi_rol() is not null);
+create policy p_leer_tareas      on tareas       for select to authenticated using (fn_mi_rol() is not null);
 
 -- Escritura de operación
 create policy p_crear_lotes on lotes for insert to authenticated
@@ -341,6 +402,15 @@ create policy p_mover_pilas on pilas for update to authenticated
 
 create policy p_crear_eventos on eventos for insert to authenticated
   with check (fn_mi_rol() in ('contratista', 'admin') and usuario_id = auth.uid());
+
+-- Las tareas las escribe el admin. El contratista puede tocar la fila
+-- —para completarla— y el disparador de arriba decide qué le deja cambiar.
+create policy p_crear_tareas on tareas for insert to authenticated
+  with check (fn_mi_rol() = 'admin');
+create policy p_cerrar_tareas on tareas for update to authenticated
+  using (fn_mi_rol() is not null) with check (fn_mi_rol() is not null);
+create policy p_borrar_tareas on tareas for delete to authenticated
+  using (fn_mi_rol() = 'admin');
 
 -- El fondo del mapa y los proveedores: solo admin
 create policy p_admin_figuras on mapa_figuras for all to authenticated

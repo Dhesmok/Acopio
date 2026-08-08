@@ -316,6 +316,77 @@ end $$;
 create unique index if not exists ux_pilas_codigo_abierta
   on pilas (codigo) where estado = 'abierta';
 
+-- --------------------------------------------------------------- tareas
+--  Encargos del admin a los contratistas. Ver schema.sql para el porqué
+--  de cada decisión; aquí solo se crea lo que falte.
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'prioridad_tarea') then
+    create type prioridad_tarea as enum ('urgente', 'alta', 'media', 'baja');
+  end if;
+end $$;
+
+create table if not exists tareas (
+  id             uuid primary key,
+  titulo         text not null,
+  detalle        text,
+  prioridad      prioridad_tarea not null default 'media',
+  asignado_a     uuid references perfiles (id),
+  lote_id        uuid references lotes (id) on delete set null,
+  pila_id        uuid references pilas (id) on delete set null,
+  creado_por     uuid references perfiles (id),
+  creado_en      timestamptz not null default now(),
+  completado_en  timestamptz,
+  completado_por uuid references perfiles (id),
+  nota_cierre    text,
+  actualizado_en timestamptz not null default now()
+);
+
+create index if not exists idx_tareas_pendientes on tareas (completado_en, prioridad);
+
+drop trigger if exists trg_marcar_actualizado on tareas;
+create trigger trg_marcar_actualizado before insert or update on tareas
+  for each row execute function fn_marcar_actualizado();
+
+create or replace function fn_proteger_tarea()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if fn_mi_rol() is distinct from 'admin' then
+    if old.completado_en is not null then return old; end if;
+    new.titulo     := old.titulo;      new.detalle    := old.detalle;
+    new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
+    new.lote_id    := old.lote_id;     new.pila_id    := old.pila_id;
+    new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
+    new.completado_por := auth.uid();
+    if new.completado_en is null then new.completado_en := now(); end if;
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists trg_proteger_tarea on tareas;
+create trigger trg_proteger_tarea before update on tareas
+  for each row execute function fn_proteger_tarea();
+
+alter table tareas enable row level security;
+
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'tareas' and policyname = 'p_leer_tareas') then
+    create policy p_leer_tareas on tareas for select to authenticated
+      using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'tareas' and policyname = 'p_crear_tareas') then
+    create policy p_crear_tareas on tareas for insert to authenticated
+      with check (fn_mi_rol() = 'admin');
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'tareas' and policyname = 'p_cerrar_tareas') then
+    create policy p_cerrar_tareas on tareas for update to authenticated
+      using (fn_mi_rol() is not null) with check (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'tareas' and policyname = 'p_borrar_tareas') then
+    create policy p_borrar_tareas on tareas for delete to authenticated
+      using (fn_mi_rol() = 'admin');
+  end if;
+end $$;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

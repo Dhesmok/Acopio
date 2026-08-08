@@ -944,6 +944,60 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .icono:hover { background: #ffffff1a; }
 .icono:active { transform: scale(.92); }
+/* Un .ico suelto no trae tamaño: cada sitio se lo pone. Sin esto el
+   icono crece hasta llenar el botón, que es lo que pasó con el de
+   "Completada". */
+.icono .ico { width: 19px; height: 19px; }
+.btn-guardar .ico, .btn-lleno .ico { width: 18px; height: 18px; flex: none; }
+.btn-guardar, .btn-lleno {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+}
+
+/* ------------------------------------------------------------- tareas */
+/* La campana avisa por COLOR y por MOVIMIENTO: en el patio, con guantes y
+   con sol de frente, un número pequeño se pasa por alto. Se queda quieta
+   cuando no hay nada pendiente. */
+.campana { position: relative; display: grid; place-items: center; }
+.campana[data-hay="si"] { background: var(--devolucion); }
+.campana[data-urgente="si"] { animation: latir-campana 1.6s ease-in-out infinite; }
+@keyframes latir-campana {
+  0%, 70%, 100% { transform: scale(1); }
+  78% { transform: scale(1.14) rotate(-8deg); }
+  86% { transform: scale(1.14) rotate(8deg); }
+}
+.campana .cuenta {
+  position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px;
+  padding: 0 4px; border-radius: 999px; background: #fff; color: var(--tinta);
+  font-size: 11px; font-weight: 800; line-height: 17px; text-align: center;
+}
+.campana[data-hay="no"] .cuenta { display: none; }
+@media (prefers-reduced-motion: reduce) { .campana { animation: none; } }
+
+.tareas { list-style: none; padding: 0; margin: 8px 0 0; }
+.tareas li {
+  display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
+  padding: 10px; border: 1px solid var(--tinta); margin-bottom: -1px;
+  background: var(--papel);
+}
+.tareas li:hover { background: var(--superficie); }
+.tareas .tarea-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tareas.hechas li { opacity: .65; }
+
+.etiqueta-prio {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .04em; padding: 3px 8px; white-space: nowrap;
+  border: 1px solid var(--tinta); color: var(--tinta); background: var(--papel);
+}
+.etiqueta-prio[data-p="urgente"] { background: var(--devolucion); color: #fff; border-color: var(--tinta); }
+.etiqueta-prio[data-p="alta"]    { background: var(--por_muestrear); color: var(--txt-por_muestrear, #14171a); }
+.etiqueta-prio[data-p="media"]   { background: var(--muestreado); color: var(--txt-muestreado, #14171a); }
+.etiqueta-prio[data-p="baja"]    { background: var(--papel); color: var(--tinta); }
+/* el botón elegido al crear la tarea */
+.acciones .etiqueta-prio { cursor: pointer; padding: 10px; font-size: 12px; }
+.acciones .etiqueta-prio.elegida { box-shadow: inset 0 0 0 3px var(--tinta); }
+
+.detalle-tarea { white-space: pre-wrap; margin: 10px 0; line-height: 1.45; }
+
 .fila-chips { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; flex-wrap: wrap; }
 .pista { font-size: 12.5px; color: var(--apagado); margin: 6px 0 0 0; line-height: 1.5; }
 .acciones input[type="date"], .acciones input[type="number"] {

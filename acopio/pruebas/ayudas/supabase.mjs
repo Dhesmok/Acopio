@@ -3,7 +3,8 @@
 // eventos) más los filtros que la app usa para bajar solo lo que cambió.
 export const servidor = {
   tablas: { lotes: new Map(), pilas: new Map(), eventos: new Map(), perfiles: new Map(),
-            proveedores: new Map(), mapa_figuras: new Map(), mapa_config: new Map() },
+            proveedores: new Map(), mapa_figuras: new Map(), mapa_config: new Map(),
+            tareas: new Map() },
   reglas: {},          // tabla -> fn(fila) => error | null
   intentos: [],        // lo que se mandó, en orden
   bajado: []           // { tabla, filas } de cada consulta de lectura
@@ -47,7 +48,28 @@ export const createClient = () => ({
         servidor.tablas[tabla].set(fila.id, { ...fila, ...marca });
         return { error: null };
       },
-      delete: () => ({ eq: async () => ({ error: null }) }),
+      // Borrar de verdad, no decir que sí y dejar la fila puesta: una
+      // prueba que comprueba un borrado tiene que poder verlo.
+      delete: () => ({
+        async eq(campo, valor) {
+          servidor.intentos.push(`del:${tabla}:${valor}`);
+          for (const [id, f] of servidor.tablas[tabla])
+            if (String(f[campo]) === String(valor)) servidor.tablas[tabla].delete(id);
+          return { error: null };
+        }
+      }),
+      // Actualizar SIN insertar. Lo usa completar una tarea: un upsert
+      // exigiría permiso de crear, que el contratista no tiene.
+      update: (fila) => ({
+        async eq(campo, valor) {
+          servidor.intentos.push(`${tabla}:${valor}`);
+          const actual = [...servidor.tablas[tabla].values()]
+            .find((f) => String(f[campo]) === String(valor));
+          if (!actual) return { error: null };
+          servidor.tablas[tabla].set(actual.id, { ...actual, ...fila, actualizado_en: ahora() });
+          return { error: null };
+        }
+      }),
       // Se apunta QUÉ columnas se piden: pedir la lista de ids para
       // cuadrar no es lo mismo que bajarse las filas enteras, y las
       // pruebas de gasto necesitan poder distinguirlo.
