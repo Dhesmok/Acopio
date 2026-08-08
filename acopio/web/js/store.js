@@ -286,8 +286,9 @@ function padres(clave, tabla, fila) {
   } else if (tabla === 'pilas') {
     p.push(`pilas:${fila.id}`);
   } else if (tabla === 'tareas') {
-    if (fila.lote_id) p.push(`lotes:${fila.lote_id}`);
-    if (fila.pila_id) p.push(`pilas:${fila.pila_id}`);
+    // una tarea que señala lotes o pilas no puede subir antes que ellos
+    for (const id of fila.lotes_ids || []) p.push(`lotes:${id}`);
+    for (const id of fila.pilas_ids || []) p.push(`pilas:${id}`);
   }
   return p.filter((k) => k !== clave);   // nadie es padre de sí mismo
 }
@@ -350,11 +351,11 @@ export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, usuario_id }
 
 // ---------------------------------------------------------------- tareas
 export async function crearTarea({ titulo, detalle, prioridad, asignado_a,
-                                   lote_id, pila_id, usuario_id }) {
+                                   lotes_ids, pilas_ids, usuario_id }) {
   const fila = {
     id: uuid(), titulo: titulo.trim(), detalle: (detalle || '').trim() || null,
     prioridad: prioridad || 'media', asignado_a: asignado_a || null,
-    lote_id: lote_id || null, pila_id: pila_id || null,
+    lotes_ids: lotes_ids || [], pilas_ids: pilas_ids || [],
     creado_por: usuario_id, creado_en: ahora(),
     completado_en: null, completado_por: null, nota_cierre: null
   };

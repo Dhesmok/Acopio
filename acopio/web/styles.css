@@ -977,7 +977,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .tareas li {
   display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
   padding: 10px; border: 1px solid var(--tinta); margin-bottom: -1px;
-  background: var(--papel);
+  background: var(--superficie);
 }
 .tareas li:hover { background: var(--superficie); }
 .tareas .tarea-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -986,12 +986,12 @@ button:focus:not(:focus-visible) { outline: none; }
 .etiqueta-prio {
   font-size: 11px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .04em; padding: 3px 8px; white-space: nowrap;
-  border: 1px solid var(--tinta); color: var(--tinta); background: var(--papel);
+  border: 1px solid var(--tinta); color: var(--tinta); background: var(--superficie);
 }
 .etiqueta-prio[data-p="urgente"] { background: var(--devolucion); color: #fff; border-color: var(--tinta); }
 .etiqueta-prio[data-p="alta"]    { background: var(--por_muestrear); color: var(--txt-por_muestrear, #14171a); }
 .etiqueta-prio[data-p="media"]   { background: var(--muestreado); color: var(--txt-muestreado, #14171a); }
-.etiqueta-prio[data-p="baja"]    { background: var(--papel); color: var(--tinta); }
+.etiqueta-prio[data-p="baja"]    { background: var(--superficie); color: var(--tinta); }
 /* el botón elegido al crear la tarea */
 .acciones .etiqueta-prio { cursor: pointer; padding: 10px; font-size: 12px; }
 .acciones .etiqueta-prio.elegida { box-shadow: inset 0 0 0 3px var(--tinta); }
@@ -1393,3 +1393,26 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 @media (prefers-reduced-motion: reduce) {
   .halo-rayas { animation: none; }
 }
+
+/* --- buscador de lotes y pilas para una tarea --------------------
+   Antes era un desplegable con los novecientos lotes: encontrar uno
+   era imposible. Se escribe el código, se marcan los que hagan falta
+   y se ven arriba como pastillas. */
+.elegidos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.elegidos:empty { display: none; }
+.elegidos .quita { background: var(--tinta); color: #fff; border-color: var(--tinta); }
+
+.opciones { margin-top: 6px; max-height: 210px; overflow-y: auto; }
+.opciones:empty { display: none; }
+.opciones button {
+  display: flex; width: 100%; gap: 10px; align-items: baseline; text-align: left;
+  padding: 9px 10px; border: 1px solid var(--tinta); margin-bottom: -1px;
+  background: var(--superficie); cursor: pointer; font: inherit;
+}
+.opciones button:hover { background: var(--superficie); }
+.opciones button strong { font-family: var(--mono); }
+.opciones .pista { margin: 6px 2px 0; }
+
+/* los lotes y pilas que señala una tarea, en su ficha */
+.senalados { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.senalados .btn-ubicar { flex: 1 1 auto; }

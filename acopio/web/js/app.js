@@ -736,11 +736,25 @@ const filaTarea = (t) => `<li data-id="${t.id}">
     ${t.asignado_a ? `<span class="dias">Para ${esc(quienEs(t.asignado_a))}</span>` : ''}</span>
 </li>`;
 
+// Los lotes y las pilas que señala una tarea, ya resueltos. Un id que ya
+// no exista simplemente no sale: la tarea no se rompe por eso.
+const senalados = (t) => [
+  ...(t.lotes_ids || []).map((id) => S.lotes.find((l) => l.id === id))
+    .filter(Boolean).map((l) => ({ tipo: 'lote', o: l })),
+  ...(t.pilas_ids || []).map((id) => S.pilas.find((p) => p.id === id))
+    .filter(Boolean).map((p) => ({ tipo: 'pila', o: p }))
+];
+
+// Quién puede darle a "completada". Si la tarea tiene dueño, solo su
+// dueño; el admin siempre. El servidor lo comprueba otra vez, esto es
+// para no enseñar un botón que iba a no hacer nada.
+const puedeCompletar = (t) =>
+  !soloLectura() && (esAdmin() || !t.asignado_a || t.asignado_a === S.perfil?.id);
+
 function fichaTarea(id) {
   const t = S.tareas.find((x) => x.id === id);
   if (!t) return;
-  const lote = t.lote_id && S.lotes.find((l) => l.id === t.lote_id);
-  const pila = t.pila_id && S.pilas.find((p) => p.id === t.pila_id);
+  const cosas = senalados(t);
   abrirHoja(`
     <div class="fila-chips">
       <span class="etiqueta-prio" data-p="${t.prioridad}">${esc(PRIORIDADES[t.prioridad] || '')}</span>
@@ -751,20 +765,24 @@ function fichaTarea(id) {
     <p class="pista">La puso ${esc(quienEs(t.creado_por))} ·
       ${new Date(t.creado_en).toLocaleString('es-CO')}</p>
 
-    ${lote || pila ? `<button class="btn btn-ancho btn-ubicar" id="t-ir" style="width:100%;margin:12px 0"
-      >${ICO.diana}<span>Ver ${lote ? `el lote ${esc(lote.codigo)}` : `la pila ${esc(pila.codigo)}`} en el mapa</span></button>` : ''}
+    ${cosas.length ? `<div class="senalados">${cosas.map((c, i) => `
+      <button class="btn btn-ubicar" data-ir="${i}">${ICO.diana}<span>${
+        c.tipo === 'lote' ? esc(c.o.codigo) : `Pila ${esc(c.o.codigo)}`}</span></button>`).join('')}</div>` : ''}
 
     ${t.completado_en ? `
       <p class="aviso">Completada por ${esc(quienEs(t.completado_por))} el
         ${new Date(t.completado_en).toLocaleString('es-CO')}.</p>
       ${t.nota_cierre ? `<p class="detalle-tarea">${esc(t.nota_cierre)}</p>` : ''}`
-    : soloLectura() ? '' : `
+    : puedeCompletar(t) ? `
       <div class="campo">
         <label for="t-nota">Nota al completar (opcional)</label>
         <textarea id="t-nota" rows="2" placeholder="Qué se hizo"></textarea>
       </div>
       <button class="btn btn-guardar btn-ancho" id="t-listo" style="width:100%"
-        >${ICO.visto}<span>Completada</span></button>`}
+        >${ICO.visto}<span>Completada</span></button>`
+    : soloLectura() ? '' : `
+      <p class="pista">Esta tarea es de ${esc(quienEs(t.asignado_a))}: solo
+        ${esc(quienEs(t.asignado_a))} puede darla por completada.</p>`}
 
     ${esAdmin() ? `<button class="btn btn-peligro btn-ancho" id="t-borrar" style="width:100%;margin-top:14px"
       >Borrar la tarea</button>` : ''}`,
@@ -773,8 +791,10 @@ function fichaTarea(id) {
   // Saltar al plano es exactamente lo que ya hace la ficha de un lote:
   // se reutiliza, y así la tarea también avisa si el lote ya salió del
   // patio en vez de llevar a un sitio donde no hay nada dibujado.
-  const ir = $('#t-ir');
-  if (ir) ir.onclick = () => { cerrarHoja(); if (lote) ubicarEnMapa(lote); else fichaPila(pila.id); };
+  for (const b of document.querySelectorAll('[data-ir]')) {
+    const c = cosas[Number(b.dataset.ir)];
+    b.onclick = () => { cerrarHoja(); if (c.tipo === 'lote') ubicarEnMapa(c.o); else fichaPila(c.o.id); };
+  }
 
   const listo = $('#t-listo');
   if (listo) listo.onclick = accion(async () => {
@@ -834,14 +854,11 @@ async function hojaNuevaTarea() {
         sin habilitar no ${dormidos === 1 ? 'puede' : 'pueden'} ni abrir la app.</p>` : ''}
     </div>
     <div class="campo">
-      <label for="t-lote">Sobre un lote o una pila (opcional)</label>
-      <select id="t-lote">
-        <option value="">Ninguno</option>
-        ${S.lotes.filter((l) => l.estado !== 'despachado').map((l) =>
-          `<option value="l:${l.id}">Lote ${esc(l.codigo)}</option>`).join('')}
-        ${S.pilas.filter((p) => p.estado === 'abierta').map((p) =>
-          `<option value="p:${p.id}">Pila ${esc(p.codigo)}</option>`).join('')}
-      </select>
+      <label for="t-buscar">Sobre qué lotes o pilas (opcional)</label>
+      <input id="t-buscar" type="search" autocomplete="off"
+             placeholder="Escribe el código: PG1042, SJ10…">
+      <div id="t-elegidos" class="elegidos"></div>
+      <div id="t-opciones" class="opciones"></div>
     </div>
     <p id="t-error" class="aviso" hidden></p>
     <div class="acciones">
@@ -857,6 +874,53 @@ async function hojaNuevaTarea() {
       b.classList.add('elegida');
     };
 
+  // ---- el buscador de lotes y pilas
+  //
+  // Antes era un desplegable con los novecientos lotes en el orden que
+  // los devolviera la base: encontrar uno era imposible. Ahora se
+  // escribe el código y se van marcando los que hagan falta, porque un
+  // encargo puede ser sobre varios ("acomodar estos cuatro").
+  //
+  // Solo se enseñan quince a la vez: la lista entera en el DOM de un
+  // celular va lenta, y si hace falta bajar de quince es que hay que
+  // escribir una letra más.
+  const catalogo = [
+    ...S.lotes.filter((l) => l.estado !== 'despachado')
+      .map((l) => ({ k: `l:${l.id}`, txt: l.codigo, sub: ESTADOS[l.estado] || '' })),
+    ...S.pilas.filter((p) => p.estado === 'abierta')
+      .map((p) => ({ k: `p:${p.id}`, txt: `Pila ${p.codigo}`, sub: 'pila' }))
+  ].sort((x, y) => x.txt.localeCompare(y.txt, 'es', { numeric: true }));
+  const elegidos = new Set();
+
+  const pintarElegidos = () => {
+    $('#t-elegidos').innerHTML = [...elegidos].map((k) => {
+      const c = catalogo.find((o) => o.k === k);
+      return `<button type="button" class="pastilla quita" data-k="${k}"
+        >${esc(c ? c.txt : k)} <span aria-hidden="true">×</span></button>`;
+    }).join('');
+    for (const b of document.querySelectorAll('#t-elegidos .quita'))
+      b.onclick = () => { elegidos.delete(b.dataset.k); pintarElegidos(); pintarOpciones(); };
+  };
+
+  const pintarOpciones = () => {
+    const q = ($('#t-buscar')?.value || '').trim().toUpperCase();
+    const hay = catalogo.filter((o) => !elegidos.has(o.k)
+      && (!q || o.txt.toUpperCase().includes(q)));
+    $('#t-opciones').innerHTML = !q && !hay.length ? ''
+      : hay.length ? hay.slice(0, 15).map((o) => `<button type="button" data-k="${o.k}"
+          ><strong>${esc(o.txt)}</strong><span class="dias">${esc(o.sub)}</span></button>`).join('')
+          + (hay.length > 15 ? `<p class="pista">y ${hay.length - 15} más: escribe una letra más</p>` : '')
+        : '<p class="pista">Ningún lote ni pila con ese código.</p>';
+    for (const b of document.querySelectorAll('#t-opciones button'))
+      b.onclick = () => {
+        elegidos.add(b.dataset.k);
+        $('#t-buscar').value = '';
+        pintarElegidos(); pintarOpciones();
+      };
+  };
+  $('#t-buscar').oninput = pintarOpciones;
+  pintarElegidos(); pintarOpciones();
+
   $('#t-cancelar').onclick = () => panelTareas();
   $('#t-crear').onclick = accion(async () => {
     const titulo = $('#t-titulo').value.trim();
@@ -864,12 +928,11 @@ async function hojaNuevaTarea() {
       const e = $('#t-error'); e.hidden = false; e.textContent = 'Escribe qué hay que hacer.';
       return;
     }
-    const sobre = $('#t-lote').value;
     await Store.crearTarea({
       titulo, detalle: $('#t-detalle').value, prioridad,
       asignado_a: $('#t-quien').value || null,
-      lote_id: sobre.startsWith('l:') ? sobre.slice(2) : null,
-      pila_id: sobre.startsWith('p:') ? sobre.slice(2) : null,
+      lotes_ids: [...elegidos].filter((k) => k.startsWith('l:')).map((k) => k.slice(2)),
+      pilas_ids: [...elegidos].filter((k) => k.startsWith('p:')).map((k) => k.slice(2)),
       usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); pintarTareas(); sincronizar();
