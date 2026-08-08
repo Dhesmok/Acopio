@@ -6,6 +6,7 @@
 //  como un upsert —el servidor le exigiría al contratista permiso para
 //  crear, que no tiene—, y que darle dos veces no la mande dos veces.
 // =====================================================================
+import { readFile } from 'node:fs/promises';
 import { instalar } from './ayudas/idb.mjs';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 
@@ -77,17 +78,23 @@ titulo('Una tarea sobre un lote no puede subir antes que el lote.');
 servidor.tablas.proveedores.set('p1', { id: 'p1', abreviatura: 'PG', nombre: 'Prueba', activo: true });
 const lote = await Store.crearLote({ codigo: 'PG1042', proveedor_id: 'p1', placa: 'WGY308',
   material: 'granel', forma: 'elipse', x: 0, y: 0, usuario_id: 'yo' });
+const pila = await Store.crearPila({ codigo: '7', tipo: 'otro', nota: null,
+  x: 0, y: 0, rx: 100, ry: 70, usuario_id: 'yo' });
 const conLote = await Store.crearTarea({
-  titulo: 'Mover el PG1042', prioridad: 'alta', lote_id: lote.id, usuario_id: 'yo'
+  titulo: 'Acomodar estos dos', prioridad: 'alta',
+  lotes_ids: [lote.id], pilas_ids: [pila.id], usuario_id: 'yo'
 });
 const op = (await enCola()).find((o) => o.id === `tareas:${conLote.id}`);
-ok(op.depende.includes(`lotes:${lote.id}`),
-   `la tarea depende de su lote (${JSON.stringify(op.depende)})`);
+ok(op.depende.includes(`lotes:${lote.id}`) && op.depende.includes(`pilas:${pila.id}`),
+   `la tarea depende de TODO lo que señala (${JSON.stringify(op.depende)})`);
 
 await Store.sincronizar();
 await Store.sincronizar();
 ok(!!servidor.tablas.tareas.get(conLote.id), 'las dos subieron');
-ok(servidor.tablas.tareas.get(conLote.id).lote_id === lote.id, 'y la tarea quedó amarrada al lote');
+const subida = servidor.tablas.tareas.get(conLote.id);
+ok(subida.lotes_ids.length === 1 && subida.lotes_ids[0] === lote.id,
+   'y la tarea quedó amarrada al lote');
+ok(subida.pilas_ids.length === 1 && subida.pilas_ids[0] === pila.id, 'y también a la pila');
 
 // ---------------------------------------------------------------------
 titulo('Borrar una tarea la quita de las dos partes.');
@@ -106,7 +113,7 @@ titulo('Las tareas llegan por la vuelta rápida, no por la lenta.');
 const luego = new Date(Date.now() + 1000).toISOString();
 servidor.tablas.tareas.set('T9', {
   id: 'T9', titulo: 'Desde otro celular', detalle: null, prioridad: 'urgente',
-  asignado_a: null, lote_id: null, pila_id: null, creado_por: 'yo',
+  asignado_a: null, lotes_ids: [], pilas_ids: [], creado_por: 'yo',
   creado_en: luego, completado_en: null, completado_por: null,
   nota_cierre: null, actualizado_en: luego
 });
@@ -114,5 +121,30 @@ servidor.bajado.length = 0;
 await Store.sincronizar();          // vuelta normal, sin adelantar el reloj
 ok((await Store.tareas()).some((x) => x.id === 'T9'),
    'una tarea creada en otro celular llega en la vuelta de siempre');
+
+// ---------------------------------------------------------------------
+titulo('Solo el dueño de la tarea decide quién puede darla por hecha.');
+
+// Esto vive en DOS sitios a propósito. La pantalla no le enseña el botón
+// a quien no es el dueño (`puedeCompletar` en app.js), y el disparador
+// del servidor lo comprueba otra vez. Aquí se prueba la regla, que es la
+// que no se puede saltar tocando la app por dentro.
+const dueno = (t, quien, admin = false) =>
+  admin || !t.asignado_a || t.asignado_a === quien;
+
+const mia    = { asignado_a: 'u2' };
+const suelta = { asignado_a: null };
+ok(dueno(mia, 'u2'),        'el dueño sí puede');
+ok(!dueno(mia, 'u3'),       'otro contratista NO puede');
+ok(dueno(mia, 'u3', true),  'el admin puede con cualquiera');
+ok(dueno(suelta, 'u3'),     'y una tarea sin dueño la cierra quien la haga');
+
+// Y el disparador del servidor dice lo mismo, palabra por palabra.
+const disparador = await readFile(new URL('../sql/schema.sql', import.meta.url), 'utf8');
+ok(/if old\.asignado_a is not null and old\.asignado_a <> auth\.uid\(\) then\s*\n\s*return old;/
+   .test(disparador),
+   'el servidor ignora el cierre de quien no es el dueño, en vez de fallar');
+ok(/if old\.completado_en is not null then return old; end if;/.test(disparador),
+   'y cerrar una ya cerrada tampoco falla: dos personas pueden darle a la vez');
 
 cerrar();

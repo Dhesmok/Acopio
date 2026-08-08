@@ -263,11 +263,16 @@ create table tareas (
   detalle        text,
   prioridad      prioridad_tarea not null default 'media',
   asignado_a     uuid references perfiles (id),          -- null = cualquiera
-  -- el encargo puede apuntar a un lote o a una pila, para poder saltar
-  -- ahí desde la tarea. Si el lote se borra, la tarea se queda sin él
-  -- pero no desaparece.
-  lote_id        uuid references lotes (id) on delete set null,
-  pila_id        uuid references pilas (id) on delete set null,
+  -- El encargo puede apuntar a VARIOS lotes y pilas, para poder saltar a
+  -- ellos desde la tarea: "acomodar estos cuatro" es un solo encargo.
+  --
+  -- Van como listas de ids y SIN llave foránea a propósito. Una llave no
+  -- se puede poner sobre los elementos de una lista, y tampoco hace
+  -- falta: si un lote se borra, su id se queda ahí colgando y la app
+  -- simplemente no lo encuentra y no lo enseña. Perder el botón de
+  -- "ver en el mapa" de un lote borrado no le hace daño a nadie.
+  lotes_ids      uuid[] not null default '{}',
+  pilas_ids      uuid[] not null default '{}',
   creado_por     uuid references perfiles (id),
   creado_en      timestamptz not null default now(),
   completado_en  timestamptz,
@@ -291,9 +296,17 @@ begin
     -- pueden darle a "completado" a la vez, o sin señal, y la segunda
     -- subida no puede quedarse trabada en la cola para siempre.
     if old.completado_en is not null then return old; end if;
+    -- Si la tarea tiene dueño, solo la cierra su dueño. Se ignora en vez
+    -- de fallar, por lo mismo: un error dejaría la cola de ese celular
+    -- atascada, y en la vuelta siguiente la tarea vuelve a bajar abierta,
+    -- que es la verdad. La pantalla ya no enseña el botón a los demás;
+    -- esto es el cerrojo de abajo, el que no se puede saltar.
+    if old.asignado_a is not null and old.asignado_a <> auth.uid() then
+      return old;
+    end if;
     new.titulo     := old.titulo;      new.detalle    := old.detalle;
     new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
-    new.lote_id    := old.lote_id;     new.pila_id    := old.pila_id;
+    new.lotes_ids  := old.lotes_ids;   new.pilas_ids  := old.pilas_ids;
     new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
     new.completado_por := auth.uid();
     if new.completado_en is null then new.completado_en := now(); end if;

@@ -331,8 +331,8 @@ create table if not exists tareas (
   detalle        text,
   prioridad      prioridad_tarea not null default 'media',
   asignado_a     uuid references perfiles (id),
-  lote_id        uuid references lotes (id) on delete set null,
-  pila_id        uuid references pilas (id) on delete set null,
+  lotes_ids      uuid[] not null default '{}',
+  pilas_ids      uuid[] not null default '{}',
   creado_por     uuid references perfiles (id),
   creado_en      timestamptz not null default now(),
   completado_en  timestamptz,
@@ -352,9 +352,17 @@ returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if fn_mi_rol() is distinct from 'admin' then
     if old.completado_en is not null then return old; end if;
+    -- Si la tarea tiene dueño, solo la cierra su dueño. Se ignora en vez
+    -- de fallar, por lo mismo: un error dejaría la cola de ese celular
+    -- atascada, y en la vuelta siguiente la tarea vuelve a bajar abierta,
+    -- que es la verdad. La pantalla ya no enseña el botón a los demás;
+    -- esto es el cerrojo de abajo, el que no se puede saltar.
+    if old.asignado_a is not null and old.asignado_a <> auth.uid() then
+      return old;
+    end if;
     new.titulo     := old.titulo;      new.detalle    := old.detalle;
     new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
-    new.lote_id    := old.lote_id;     new.pila_id    := old.pila_id;
+    new.lotes_ids  := old.lotes_ids;   new.pilas_ids  := old.pilas_ids;
     new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
     new.completado_por := auth.uid();
     if new.completado_en is null then new.completado_en := now(); end if;
