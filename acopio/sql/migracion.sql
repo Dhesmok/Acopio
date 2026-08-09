@@ -526,27 +526,56 @@ alter table mapa_figuras add column if not exists plataforma_id uuid references 
 alter table eventos      add column if not exists plataforma_id uuid references plataformas (id);
 alter table eventos      add column if not exists punto_id      uuid references puntos_alimentacion (id);
 
--- Todo lo que hay hoy está en Topsoil: es el único patio que existía.
-update lotes        set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
-update pilas        set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
-update mapa_figuras set plataforma_id = '11111111-0000-4000-8000-000000000001' where plataforma_id is null;
+-- Rellenar lo que ya existe. Va TODO dentro de este bloque por una razón
+-- que costó un error en producción:
+--
+--   ERROR 23502: column "plataforma_id" of relation "lotes"
+--                contains null values
+--
+-- `lotes` tiene el disparador `trg_proteger_derivados`, que existe justo
+-- para que mover un lote por el plano no pueda cambiarle el estado, la
+-- pila ni —desde ahora— la plataforma: en cada UPDATE devuelve esas
+-- columnas a lo que ya tenían. Un UPDATE hecho a mano no es una
+-- excepción, así que el relleno de abajo se aplicaba y el disparador lo
+-- deshacía en el acto: `plataforma_id` seguía en NULL, y el
+-- `set not null` de más abajo reventaba. Lo mismo le pasaba al cambio de
+-- estado de los que estaban en 'plataforma'.
+--
+-- La marca `app.desde_evento` es la que usa el disparador de eventos para
+-- decir "este cambio viene por las buenas". Aquí se usa igual, y se
+-- apaga al terminar. Va con `true` —solo esta transacción—, así que
+-- aunque algo fallara la marca no queda encendida.
+do $$
+declare
+  topsoil constant uuid := '11111111-0000-4000-8000-000000000001';
+  plat5   constant uuid := '11111111-0000-4000-8000-000000000005';
+begin
+  perform set_config('app.desde_evento', 'on', true);
 
--- Los que estaban en estado 'plataforma' querían decir "se fue a la
--- Plataforma 5". Ahora eso es un SITIO, así que se mudan de verdad y
--- recuperan un estado normal.
---
--- NO se les escribe un evento de traslado, y es a propósito: Postgres no
--- deja USAR un valor de enumeración recién añadido —'traslado'— en la
--- misma corrida en que se añade, y si fallara aquí se desharía la
--- migración entera y quedaría dando vueltas. Su historial ya cuenta la
--- historia: tienen el cambio a 'plataforma' del día que se fueron.
---
--- Por lo mismo se compara `estado::text` y no `estado = 'plataforma'`:
--- si esta misma corrida es la que añade el valor —una base que venía de
--- una versión más vieja—, nombrarlo aquí sería el mismo error. Leerlo
--- como texto mira lo que YA tienen las filas y nunca falla.
-update lotes set plataforma_id = '11111111-0000-4000-8000-000000000005', estado = 'facturado'
- where estado::text = 'plataforma';
+  -- Todo lo que hay hoy está en Topsoil: es el único patio que existía.
+  update lotes        set plataforma_id = topsoil where plataforma_id is null;
+  update pilas        set plataforma_id = topsoil where plataforma_id is null;
+  update mapa_figuras set plataforma_id = topsoil where plataforma_id is null;
+
+  -- Los que estaban en estado 'plataforma' querían decir "se fue a la
+  -- Plataforma 5". Ahora eso es un SITIO, así que se mudan de verdad y
+  -- recuperan un estado normal.
+  --
+  -- NO se les escribe un evento de traslado, y es a propósito: Postgres
+  -- no deja USAR un valor de enumeración recién añadido —'traslado'— en
+  -- la misma corrida en que se añade, y si fallara aquí se desharía la
+  -- migración entera y quedaría dando vueltas. Su historial ya cuenta la
+  -- historia: tienen el cambio a 'plataforma' del día que se fueron.
+  --
+  -- Por lo mismo se compara `estado::text` y no `estado = 'plataforma'`:
+  -- si esta misma corrida es la que añade el valor —una base que venía
+  -- de una versión más vieja—, nombrarlo aquí sería el mismo error.
+  -- Leerlo como texto mira lo que YA tienen las filas y nunca falla.
+  update lotes set plataforma_id = plat5, estado = 'facturado'
+   where estado::text = 'plataforma';
+
+  perform set_config('app.desde_evento', 'off', true);
+end $$;
 
 -- El plano de hoy pasa a ser el plano de Topsoil.
 do $$ begin

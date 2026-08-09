@@ -204,4 +204,27 @@ ok(/where estado::text = 'plataforma'/.test(mig),
    "el estado viejo se busca como texto (estado::text), no como valor de la enumeración");
 ok(!/where estado = 'plataforma'/.test(mig), 'y en ningún sitio se nombra a secas');
 
+// ---------------------------------------------------------------------
+titulo('La migración le pide permiso al disparador antes de rellenar.');
+
+// Esto reventó de verdad al correrla:
+//   ERROR 23502: column "plataforma_id" of relation "lotes"
+//                contains null values
+// `trg_proteger_derivados` devuelve estado, pila y plataforma a lo que ya
+// tenían en CADA update de `lotes`, venga de donde venga. El relleno se
+// aplicaba y el disparador lo deshacía en el acto, así que la columna
+// seguía vacía y el `set not null` de después fallaba.
+const relleno = mig.slice(mig.indexOf('do $$\ndeclare\n  topsoil'),
+                          mig.indexOf('-- El plano de hoy pasa a ser el plano de Topsoil'));
+ok(relleno.length > 100, 'se encontró el bloque que rellena la plataforma de lo que ya existe');
+ok(relleno.indexOf("set_config('app.desde_evento', 'on', true)") >= 0
+   && relleno.indexOf("set_config('app.desde_evento', 'on', true)")
+      < relleno.indexOf('update lotes'),
+   'la marca se enciende ANTES de tocar los lotes, o el disparador borra el relleno');
+ok(/set_config\('app\.desde_evento', 'off', true\)/.test(relleno),
+   'y se apaga al terminar: fuera de aquí el disparador tiene que seguir protegiendo');
+ok(relleno.indexOf('update lotes set plataforma_id = plat5, estado')
+   > relleno.indexOf("set_config('app.desde_evento', 'on', true)"),
+   'el cambio de estado de los de Plataforma 5 va dentro del mismo bloque');
+
 cerrar();
