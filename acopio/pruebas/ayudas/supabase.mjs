@@ -4,7 +4,7 @@
 export const servidor = {
   tablas: { lotes: new Map(), pilas: new Map(), eventos: new Map(), perfiles: new Map(),
             proveedores: new Map(), mapa_figuras: new Map(), mapa_config: new Map(),
-            tareas: new Map() },
+            tareas: new Map(), plataformas: new Map(), puntos_alimentacion: new Map() },
   reglas: {},          // tabla -> fn(fila) => error | null
   intentos: [],        // lo que se mandó, en orden
   bajado: []           // { tabla, filas } de cada consulta de lectura
@@ -33,11 +33,13 @@ export const createClient = () => ({
         if (tabla === 'eventos' && !servidor.tablas.lotes.has(fila.lote_id))
           return { error: err('23503', 'insert or update on table "eventos" violates foreign key constraint "eventos_lote_id_fkey"') };
         // `codigo` es único en lotes siempre, y en pilas SOLO entre las
-        // abiertas: una pila archivada suelta su nombre (ver el índice
-        // ux_pilas_codigo_abierta en el esquema).
+        // abiertas DE LA MISMA PLATAFORMA: una pila archivada suelta su
+        // nombre, y puede haber una "pila 1" en Topsoil y otra en
+        // Plataforma 5 (ver ux_pilas_codigo_abierta en el esquema).
         if (tabla === 'lotes' || tabla === 'pilas') {
           const choca = (f) => String(f.codigo) === String(fila.codigo)
-            && (tabla === 'lotes' || (f.estado === 'abierta' && fila.estado === 'abierta'));
+            && (tabla === 'lotes' || (f.estado === 'abierta' && fila.estado === 'abierta'
+                && f.plataforma_id === fila.plataforma_id));
           for (const [id, f] of servidor.tablas[tabla])
             if (id !== fila.id && choca(f))
               return { error: err('23505', `duplicate key value violates unique constraint "${

@@ -200,4 +200,35 @@ const rango = (fuente.match(/<input type="range" id="h-cuando"[^>]*/) || [''])[0
 ok(/min="0"/.test(rango) && /max="\$\{h\.dias\}"/.test(rango),
    'el deslizador va de cero al número de DÍAS, no en minutos');
 
+// ---------------------------------------------------------------------
+titulo('Un lote que cambió de plataforma sale donde estaba ENTONCES.');
+
+// Si no, mirar el Topsoil del martes escondería justo los lotes que ese
+// martes SÍ estaban ahí, por el simple hecho de que hoy están en Ye.
+const viajero = { id: 'l4', codigo: 'PG4', estado: 'facturado', pila_id: null,
+                  plataforma_id: 'YE', forma: 'elipse', x: 50, y: 50,
+                  rx: 40, ry: 40, rot: 0, creado_en: T(8) };
+const viaje = [
+  { lote_id: 'l4', tipo: 'recepcion', ocurrido_en: T(8) },
+  { lote_id: 'l4', tipo: 'traslado', plataforma_id: 'TOPSOIL', ocurrido_en: T(10) },
+  { lote_id: 'l4', tipo: 'traslado', plataforma_id: 'YE', ocurrido_en: T(20) }
+];
+const donde = (d) => planoEn(T(d), { lotes: [viajero], pilas: [], eventos: viaje })
+  .lotes[0]?.plataforma_id;
+ok(donde(12) === 'TOPSOIL', 'el 12 estaba en Topsoil, aunque hoy esté en Ye');
+ok(donde(25) === 'YE', 'y el 25 ya se había ido a Ye');
+ok(viajero.plataforma_id === 'YE', 'el lote de verdad no se toca');
+
+// Sin ningún traslado apuntado, la de hoy es la de siempre.
+const quieto2 = { ...viajero, id: 'l5', codigo: 'PG5' };
+ok(planoEn(T(12), { lotes: [quieto2], pilas: [], eventos: [] }).lotes[0].plataforma_id === 'YE',
+   'y un lote que nunca se movió sale en la suya de hoy');
+
+// Si lo trasladaron DESPUÉS pero no antes, no se puede saber dónde
+// estaba: se deja la de hoy y se marca, como todo lo que se supone.
+const soloDespues = [{ lote_id: 'l6', tipo: 'traslado', plataforma_id: 'YE', ocurrido_en: T(20) }];
+const dudoso = planoEn(T(12), { lotes: [{ ...viajero, id: 'l6', codigo: 'PG6' }],
+                                pilas: [], eventos: soloDespues }).lotes[0];
+ok(dudoso._aprox === true, 'y si solo hay traslados posteriores, el lote va marcado');
+
 cerrar();

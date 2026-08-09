@@ -42,8 +42,11 @@
   --remuestreo:    #8a5cd6;
   --facturado:     #2b5ca8;
   --devolucion:    #b8352a;
-  --plataforma:    #0f6d78;
+  --alimentado:    #0f6d78;
   --despachado:    #5f6863;
+  /* Estado retirado: ya no se pone a nadie, pero un lote viejo que se
+     quedara con él tiene que seguir pintándose de algo. */
+  --plataforma:    #0f6d78;
   --vencida:       #7a1f16;
 
   /* El acento de la interfaz es SUYO, no el color de un estado: el admin
@@ -356,6 +359,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .lote[data-estado="remuestreo"]    .barra { background: var(--remuestreo); }
 .lote[data-estado="facturado"]     .barra { background: var(--facturado); }
 .lote[data-estado="devolucion"]    .barra { background: var(--devolucion); }
+.lote[data-estado="alimentado"]    .barra { background: var(--alimentado); }
 .lote[data-estado="despachado"]    .barra { background: var(--despachado); }
 .lote[data-vencida="si"] .barra {
   background: repeating-linear-gradient(-45deg,
@@ -410,6 +414,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .acciones button[data-estado="remuestreo"]    { background: var(--remuestreo);    color: var(--txt-remuestreo, #fff); }
 .acciones button[data-estado="facturado"]     { background: var(--facturado);     color: var(--txt-facturado, #fff); }
 .acciones button[data-estado="devolucion"]    { background: var(--devolucion);    color: var(--txt-devolucion, #fff); }
+.acciones button[data-estado="alimentado"]    { background: var(--alimentado);    color: var(--txt-alimentado, #fff); }
 .acciones button[data-estado="plataforma"]    { background: var(--plataforma);    color: var(--txt-plataforma, #fff); }
 .acciones button[data-estado="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
 
@@ -418,6 +423,7 @@ main:not(.a-sangre) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); 
 .etiqueta[data-e="remuestreo"]    { background: var(--remuestreo);    color: var(--txt-remuestreo, #fff); }
 .etiqueta[data-e="facturado"]     { background: var(--facturado);     color: var(--txt-facturado, #fff); }
 .etiqueta[data-e="devolucion"]    { background: var(--devolucion);    color: var(--txt-devolucion, #fff); }
+.etiqueta[data-e="alimentado"]    { background: var(--alimentado);    color: var(--txt-alimentado, #fff); }
 .etiqueta[data-e="plataforma"]    { background: var(--plataforma);    color: var(--txt-plataforma, #fff); }
 .etiqueta[data-e="despachado"]    { background: var(--despachado);    color: var(--txt-despachado, #fff); }
 
@@ -1416,3 +1422,53 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 /* los lotes y pilas que señala una tarea, en su ficha */
 .senalados { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .senalados .btn-ubicar { flex: 1 1 auto; }
+
+/* --------------------------------------------------------- plataformas */
+/* El nombre de la plataforma va SIEMPRE a la vista en la cabecera: sin
+   él, mirando un plano vacío no hay forma de saber si la plataforma está
+   vacía o es que estás en otra. */
+.chip-plat {
+  background: var(--amarillo); color: var(--tinta); border: 2px solid #fff;
+  font: inherit; font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; padding: 6px 11px; cursor: pointer;
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip-plat[hidden] { display: none; }
+
+/* el tablero: cuánta carga hay en cada patio, sin abrir ninguno */
+.tablero-plat { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
+.patio {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  border: 2px solid var(--tinta); background: var(--superficie);
+  padding: 12px; cursor: pointer; font: inherit; text-align: left;
+}
+.patio.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
+.patio .fila1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.patio .fila1 strong { font-size: 16px; letter-spacing: -.01em; }
+.patio .tot { font-family: var(--mono); font-weight: 800; font-size: 15px; }
+.patio .uds { font-size: 11px; color: var(--apagado); font-family: inherit; font-weight: 600; }
+.patio .barra-est { display: flex; height: 11px; border: 1px solid var(--tinta); }
+.patio .barra-est.vacia { background: repeating-linear-gradient(
+  45deg, transparent, transparent 4px, var(--linea-suave) 4px, var(--linea-suave) 8px); }
+.patio .barra-est > span { display: block; min-width: 3px; }
+.patio .pie { display: flex; gap: 12px; align-items: center; color: var(--apagado); font-size: 11.5px; }
+.patio .pie .alerta { color: var(--devolucion); font-weight: 700; }
+.patio .flecha { font-size: 18px; line-height: 1; }
+
+/* el selector rápido: las cinco en miniatura */
+.mini-plats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.mini {
+  border: 2px solid var(--tinta); background: var(--superficie); padding: 0;
+  cursor: pointer; font: inherit; display: flex; flex-direction: column;
+}
+.mini.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
+.mini svg { width: 100%; height: 92px; display: block; border-bottom: 2px solid var(--tinta); }
+.mini .nom { padding: 7px 9px 2px; font-weight: 800; font-size: 13px; text-align: left; }
+.mini .cnt { padding: 0 9px 8px; font-size: 11px; color: var(--apagado); text-align: left; }
+
+/* elegir a qué plataforma se manda algo */
+.acciones-plat { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.acciones-plat .btn { width: 100%; }
+
+/* en qué plataforma está cada lote, en la lista */
+.dnd-plat { font-weight: 700; }

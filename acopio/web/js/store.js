@@ -12,15 +12,16 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const DB = 'acopio';
 const TIENDAS = ['lotes', 'pilas', 'proveedores', 'eventos', 'figuras',
-                 'config', 'perfiles', 'tareas', 'cola', 'fallidos', 'meta'];
+                 'config', 'perfiles', 'tareas', 'plataformas', 'puntos',
+                 'cola', 'fallidos', 'meta'];
 let db = null;
 
 // ------------------------------------------------------------ IndexedDB
 function abrir() {
   return new Promise((res, rej) => {
-    // La 5 añadió la tienda de tareas. Subir el número es lo que hace
-    // que se cree en los celulares que ya tenían la app instalada.
-    const req = indexedDB.open(DB, 5);
+    // La 5 añadió las tareas y la 6 las plataformas. Subir el número es
+    // lo que crea las tiendas nuevas en los celulares que ya tienen la app.
+    const req = indexedDB.open(DB, 6);
     req.onupgradeneeded = () => {
       const d = req.result;
       for (const t of TIENDAS)
@@ -81,6 +82,8 @@ async function meta(k, v) {
 // -------------------------------------------------------------- lecturas
 export const lotes = () => idb.todos('lotes');
 export const tareas = () => idb.todos('tareas');
+export const plataformas = () => idb.todos('plataformas');
+export const puntos = () => idb.todos('puntos');
 export const pilas = () => idb.todos('pilas');
 export const proveedores = () => idb.todos('proveedores');
 export const figuras = () => idb.todos('figuras');
@@ -302,7 +305,8 @@ async function encolar(clave, tabla, modo, fila) {
   });
 }
 
-export async function crearLote({ codigo, proveedor_id, placa, material, forma, x, y, usuario_id }) {
+export async function crearLote({ codigo, proveedor_id, placa, material, forma, x, y,
+                                  plataforma_id, usuario_id }) {
   const cod = codigo.trim().toUpperCase();
   // Tocar "Poner en el mapa" diez veces tiene que dejar UN lote. El código
   // es único en el servidor: si ya está guardado aquí, se devuelve ese
@@ -322,6 +326,7 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   const fila = {
     id: uuid(), codigo: cod, proveedor_id,
     placa: (placa || '').trim().toUpperCase(), fecha_recepcion: hoyLocal(),
+    plataforma_id,
     material: material || 'granel', forma: fma,
     puntos: null, x, y, ...tam, rot: 0,
     estado: 'por_muestrear', estado_desde: t, fecha_recogida: null,
@@ -337,15 +342,45 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   return fila;
 }
 
-export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, usuario_id }) {
+export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, plataforma_id, usuario_id }) {
   const t = ahora();
   const fila = {
     id: uuid(), codigo: codigo.trim().toUpperCase(), tipo, estado: 'abierta',
+    plataforma_id,
     nota: nota || null, x, y, rx: rx || 100, ry: ry || 70, rot: 0,
     creado_por: usuario_id, creado_en: t, actualizado_en: t
   };
   await idb.guardar('pilas', fila);
   await encolar(`pilas:${fila.id}`, 'pilas', 'insertar', fila);
+  return fila;
+}
+
+// ----------------------------------------------------------- traslados
+// Pasar un lote a otra plataforma es un EVENTO, no una escritura: así el
+// historial dice cuándo se movió y quién lo movió, que es justo para lo
+// que se pidió. El estado no se toca —un lote facturado que se pasa a Ye
+// sigue facturado— y la pila tampoco.
+export async function trasladarLote(loteId, plataformaId, usuarioId) {
+  const l = await idb.uno('lotes', loteId);
+  if (!l || l.plataforma_id === plataformaId) return l;
+  await registrarEvento({ lote_id: loteId, tipo: 'traslado',
+                          plataforma_id: plataformaId, usuario_id: usuarioId });
+  return idb.uno('lotes', loteId);
+}
+
+// Una pila entera. La pila cambia de sitio como cambia de posición —es un
+// dato suyo, no derivado— y cada lote de dentro recibe su propio evento,
+// para que en su historial se lea que se movió y no aparezca en otro
+// patio de la nada.
+export async function trasladarPila(pilaId, plataformaId, usuarioId) {
+  const p = await idb.uno('pilas', pilaId);
+  if (!p || p.plataforma_id === plataformaId) return p;
+  const fila = { ...p, plataforma_id: plataformaId };
+  await idb.guardar('pilas', fila);
+  await encolar(`pilas:${fila.id}`, 'pilas', 'guardar', fila);
+  for (const l of (await idb.todos('lotes')).filter((x) => x.pila_id === pilaId))
+    await registrarEvento({ lote_id: l.id, tipo: 'traslado',
+                            plataforma_id: plataformaId, usuario_id: usuarioId });
   return fila;
 }
 
@@ -394,10 +429,25 @@ export async function borrarFiguraFondo(id) {
   await encolar(`del:mapa_figuras:${id}`, 'mapa_figuras', 'borrar', { id });
 }
 
+// La PALETA es de la empresa: un solo color por estado en todas las
+// plataformas. Por eso sigue en `mapa_config`.
+// Se manda SOLO la paleta, y no la fila entera que hubiera guardada: en
+// un celular que todavía no ha vuelto a sincronizar desde la migración,
+// esa fila trae el tamaño y la imagen de cuando el patio era uno solo, y
+// esas columnas ya no existen. Mandarlas devolvería un error de columna
+// desconocida en vez de guardar los colores.
 export async function guardarConfig(cfg) {
-  const fila = { ...cfg, id: 'unico' };
+  const fila = { id: 'unico', colores: cfg.colores };
   await idb.guardar('config', fila);
   await encolar('fig:mapa_config:unico', 'mapa_config', 'guardar', fila);
+}
+
+// El TAMAÑO, el color y la imagen son de CADA plataforma: cambiar el
+// plano de Ye no puede tocar el de Topsoil.
+export async function guardarPlataforma(fila) {
+  await idb.guardar('plataformas', fila);
+  await encolar(`fig:plataformas:${fila.id}`, 'plataformas', 'guardar', fila);
+  return fila;
 }
 
 export async function actualizarLote(id, cambios) {
@@ -417,12 +467,14 @@ export async function renombrarPila(id, cambios) {
 }
 
 export async function registrarEvento({
-  lote_id, tipo, estado_nuevo, pila_id, fecha_recogida, x, y, nota, usuario_id
+  lote_id, tipo, estado_nuevo, pila_id, plataforma_id, punto_id,
+  fecha_recogida, x, y, nota, usuario_id
 }) {
   const t = ahora();
   const fila = {
     id: uuid(), lote_id, tipo,
     estado_nuevo: estado_nuevo || null, pila_id: pila_id || null,
+    plataforma_id: plataforma_id || null, punto_id: punto_id || null,
     fecha_recogida: fecha_recogida || null,
     x: x ?? null, y: y ?? null, nota: nota || null,
     usuario_id, ocurrido_en: t
@@ -441,9 +493,14 @@ async function aplicarLocal(e) {
     l.estado = e.estado_nuevo;
     l.estado_desde = e.ocurrido_en;
     l.fecha_recogida = e.fecha_recogida || null;
+    // por dónde se alimentó y cuándo, igual que el disparador del servidor
+    const comido = e.estado_nuevo === 'alimentado';
+    l.punto_id = comido ? (e.punto_id || null) : null;
+    l.alimentado_en = comido ? e.ocurrido_en : null;
   } else if (e.tipo === 'programar_recogida') l.fecha_recogida = e.fecha_recogida;
   else if (e.tipo === 'ingreso_pila') l.pila_id = e.pila_id;
   else if (e.tipo === 'salida_pila') l.pila_id = null;
+  else if (e.tipo === 'traslado') l.plataforma_id = e.plataforma_id;
   l.ultimo_evento_en = e.ocurrido_en;
   await idb.guardar('lotes', l);
 }
@@ -524,13 +581,18 @@ async function subir() {
 // pila (con los lotes que alguien ya le metió) por un nombre repetido no
 // tiene sentido. Se le da el siguiente libre y se avisa.
 async function renombrarPorChoque(op) {
-  const { data, error } = await sb.from('pilas').select('codigo').eq('estado', 'abierta');
+  // Solo chocan las pilas de LA MISMA plataforma: puede haber una "pila 1"
+  // en Topsoil y otra en Plataforma 5, que son planos distintos.
+  const suya = op.fila.plataforma_id;
+  const { data, error } = await sb.from('pilas').select('codigo')
+    .eq('estado', 'abierta').eq('plataforma_id', suya);
   if (error || !data) return false;
   // Las archivadas no cuentan ni aquí ni en el servidor: su nombre está
   // libre. Contarlas hacía que el número siguiera subiendo para siempre.
   const usados = new Set([
     ...data.map((p) => String(p.codigo)),
-    ...(await idb.todos('pilas')).filter((p) => p.estado === 'abierta')
+    ...(await idb.todos('pilas'))
+      .filter((p) => p.estado === 'abierta' && p.plataforma_id === suya)
       .map((p) => String(p.codigo))
   ]);
   let n = 1;
@@ -728,6 +790,8 @@ async function bajar() {
   // preguntar por ellos sería gastar por nada.
   const extras = completo ? [
     sb.from('proveedores').select('*').eq('activo', true),
+    sb.from('plataformas').select('*'),
+    sb.from('puntos_alimentacion').select('*'),
     sb.from('mapa_figuras').select('*'),
     sb.from('mapa_config').select('*').eq('id', 'unico').maybeSingle(),
     sb.from('perfiles').select('id, nombre, rol, activo'),
@@ -738,7 +802,7 @@ async function bajar() {
 
   const r = await Promise.all([qPilas, qLotes, qEventos, qTareas, ...extras]);
   for (const x of r) if (x.error) throw new Error(x.error.message);
-  const [pil, lot, eve, tar, prov, fig, cfg, per, idLotes, idPilas, idTareas] = r;
+  const [pil, lot, eve, tar, prov, plat, pun, fig, cfg, per, idLotes, idPilas, idTareas] = r;
 
   if (completo) {
     // Segundo cerrojo: si no podemos leer NI UN perfil —ni el nuestro—,
@@ -749,6 +813,8 @@ async function bajar() {
 
     // Catálogos: son pocos y cambian poco, se reemplazan enteros.
     await idb.vaciar('proveedores'); await idb.varios('proveedores', prov.data);
+    await idb.vaciar('plataformas'); await idb.varios('plataformas', plat.data);
+    await idb.vaciar('puntos');      await idb.varios('puntos', pun.data);
     await idb.vaciar('figuras');     await idb.varios('figuras', fig.data);
     await idb.vaciar('perfiles');    await idb.varios('perfiles', per.data);
     if (cfg.data) { await idb.vaciar('config'); await idb.guardar('config', cfg.data); }

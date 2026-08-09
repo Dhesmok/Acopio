@@ -46,6 +46,7 @@ function aplicar(l, e) {
   } else if (e.tipo === 'programar_recogida') l.fecha_recogida = e.fecha_recogida;
   else if (e.tipo === 'ingreso_pila') l.pila_id = e.pila_id;
   else if (e.tipo === 'salida_pila') l.pila_id = null;
+  else if (e.tipo === 'traslado') l.plataforma_id = e.plataforma_id;
   else if (e.tipo === 'movimiento' && e.x != null) { l.x = Number(e.x); l.y = Number(e.y); }
   l.ultimo_evento_en = e.ocurrido_en;
 }
@@ -146,6 +147,13 @@ export function planoEn(t, { lotes = [], pilas = [], eventos = [], indice = null
     arrancar('estado', 'por_muestrear', ['cambio_estado']);
     arrancar('pila_id', null, ['ingreso_pila', 'salida_pila']);
     arrancar('fecha_recogida', null, ['cambio_estado', 'programar_recogida']);
+    // La plataforma es distinta de los demás campos: NO tiene valor de
+    // nacimiento apuntado, porque la recepción no dice en qué patio
+    // entró. Así que si lo trasladaron después del momento pedido pero no
+    // antes, no hay forma de saber dónde estaba: se deja la de hoy y el
+    // lote sale marcado, como todo lo que se supone.
+    if (mios.some((e) => e.tipo === 'traslado' && e.ocurrido_en > t)
+        && !mios.some((e) => e.tipo === 'traslado' && e.ocurrido_en <= t)) aprox = true;
     if (aprox) { copia._aprox = true; aproximados++; }
 
     for (const e of mios) { if (e.ocurrido_en > t) break; aplicar(copia, e); }

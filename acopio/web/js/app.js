@@ -11,11 +11,23 @@ const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// 'plataforma' ya no se ofrece: Plataforma 5 dejó de ser un estado y es
+// un sitio más, con su plano. Sigue en la lista para que los lotes
+// viejos que lo tengan escrito se sepan nombrar.
+//
+// 'alimentado' es el final en planta: el lote se consumió y sale del
+// plano. Por dónde entró —Batch, Tolva Naranja, Reempaque…— se elige al
+// marcarlo y se guarda aparte.
 const ESTADOS = {
   por_muestrear: 'Por muestrear', muestreado: 'Muestreado', remuestreo: 'Remuestreo',
-  facturado: 'Facturado', devolucion: 'Devolución',
-  plataforma: 'Plataforma 5', despachado: 'Despachado'
+  facturado: 'Facturado', devolucion: 'Devolución', alimentado: 'Alimentado',
+  despachado: 'Despachado', plataforma: 'Plataforma 5'
 };
+// los que se pueden elegir a mano en la ficha de un lote
+const ESTADOS_ELEGIBLES = ['por_muestrear', 'muestreado', 'remuestreo',
+                           'facturado', 'devolucion', 'alimentado', 'despachado'];
+// para ordenar la barra de colores del tablero de plataformas
+const ORDEN_ESTADO = Object.fromEntries(ESTADOS_ELEGIBLES.map((k, i) => [k, i]));
 const MATERIALES = { granel: 'Granel', bigbag: 'Bigbag' };
 // el material define con qué figura se dibuja
 const FORMA_DE = { granel: 'elipse', bigbag: 'rectangulo' };
@@ -41,11 +53,50 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             recorrido: null,
             // mirar el patio de otro día: solo se mira, no se toca nada
             historia: null,
-            // encargos del admin. `avisadas` recuerda cuáles ya hicieron
-            // vibrar el celular, para no repetir el aviso en cada vuelta
-            tareas: [], avisadas: new Set(),
+            // Encargos del admin. `avisadas` recuerda cuáles ya hicieron
+            // vibrar el celular, para no repetir el aviso en cada vuelta.
+            // Se guarda en el celular: si viviera solo en memoria, cada vez
+            // que se abre la app volvería a sonar por las tareas de ayer.
+            tareas: [],
+            avisadas: new Set(JSON.parse(localStorage.getItem('acopio-avisadas') || '[]')),
             // los avisos se pueden apagar; queda guardado en el celular
-            mudo: localStorage.getItem('acopio-mudo') === '1' };
+            mudo: localStorage.getItem('acopio-mudo') === '1',
+            // el patio es de CINCO plataformas. Se recuerda en cuál
+            // estaba cada persona: el de Topsoil entra a Topsoil.
+            plataformas: [], puntos: [],
+            plataforma: localStorage.getItem('acopio-plataforma') || null };
+
+// --------------------------------------------------------- plataformas
+// El patio son cinco sitios —Topsoil, Plataforma 2, Plataforma 3, Ye,
+// Plataforma 5— y cada uno tiene su propio plano. Casi toda la app
+// trabaja sobre UNA a la vez: la que se esté mirando.
+const plataformaActual = () =>
+  S.plataformas.find((p) => p.id === S.plataforma) || S.plataformas[0] || null;
+
+const irAPlataforma = (id) => {
+  S.plataforma = id;
+  localStorage.setItem('acopio-plataforma', id);
+};
+
+// Un lote alimentado se consumió en planta: sigue en la base con todo su
+// historial, pero deja de estorbar en el plano. Para el contratista
+// desaparece también de la lista; el admin lo sigue viendo, que para eso
+// es la trazabilidad.
+const alimentado = (l) => l.estado === 'alimentado';
+const nombrePlataforma = (id) => S.plataformas.find((p) => p.id === id)?.nombre || '—';
+const nombrePunto = (id) => S.puntos.find((p) => p.id === id)?.nombre || '—';
+const seVeEnLaLista = (l) => !alimentado(l) || esAdmin();
+
+// Lo que se dibuja: solo lo de la plataforma que se está mirando.
+//
+// Si NO hay plataformas cargadas —la app publicada antes de correr la
+// migración, o la primera sincronización todavía en marcha— no se filtra
+// nada. Sin esto el patio saldría vacío y parecería que se perdió todo,
+// que es la peor cara posible para un despiste de despliegue.
+const enEstaPlataforma = (x) => !S.plataforma || x.plataforma_id === S.plataforma;
+const misLotes = () => S.lotes.filter((l) => enEstaPlataforma(l) && !alimentado(l));
+const misPilas = () => S.pilas.filter(enEstaPlataforma);
+const misFiguras = () => S.figuras.filter(enEstaPlataforma);
 
 const esAdmin = () => S.perfil?.rol === 'admin';
 const soloLectura = () => S.perfil?.rol === 'empresa';
@@ -318,12 +369,22 @@ function contraste(hex) {
 }
 
 async function recargar() {
-  const [lotes, pilas, prov, figuras, config, cola, gente, malos, tareas] = await Promise.all([
+  const [lotes, pilas, prov, figuras, config, cola, gente, malos, tareas,
+         plats, puntos] = await Promise.all([
     Store.lotes(), Store.pilas(), Store.proveedores(),
     Store.figuras(), Store.config(), Store.pendientes(),
-    Store.perfiles(), Store.fallidos(), Store.tareas()
+    Store.perfiles(), Store.fallidos(), Store.tareas(),
+    Store.plataformas(), Store.puntos()
   ]);
   S.gente = gente; S.rechazados = malos.length; S.tareas = tareas;
+  S.plataformas = plats.filter((p) => p.activa !== false)
+    .sort((x, y) => (x.orden || 0) - (y.orden || 0));
+  S.puntos = puntos.filter((p) => p.activo !== false)
+    .sort((x, y) => (x.orden || 0) - (y.orden || 0));
+  // La guardada puede haber desaparecido, o ser la primera vez: se cae a
+  // la primera de la lista en vez de dejar la pantalla en blanco.
+  if (!S.plataformas.some((p) => p.id === S.plataforma))
+    S.plataforma = S.plataformas[0]?.id || null;
   pintarTareas();
   S.lotes = lotes; S.pilas = pilas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   S.proveedores = prov.sort((a, b) => a.abreviatura.localeCompare(b.abreviatura));
@@ -475,6 +536,7 @@ function pantallaPrincipal() {
       <header>
         <h1>Acopio</h1>
         <span class="crece"></span>
+        <button class="chip-plat" id="chip-plat" aria-label="Cambiar de plataforma"></button>
         <button class="icono campana" id="campana" aria-label="Tareas" hidden
           >${ICO.campana}<span class="cuenta" id="campana-n"></span></button>
         <button class="chip-sync" id="chip"><span class="punto"></span><span id="chip-txt">—</span></button>
@@ -482,6 +544,7 @@ function pantallaPrincipal() {
       </header>
       <nav class="pestanas">
         <button data-t="mapa" aria-selected="true">Mapa</button>
+        <button data-t="plataformas" aria-selected="false">Plataformas</button>
         <button data-t="lotes" aria-selected="false">Lotes</button>
       </nav>
     </div>
@@ -501,6 +564,7 @@ function pantallaPrincipal() {
   $('#chip').onclick = sincronizar;
   $('#menu').onclick = menuCuenta;
   $('#campana').onclick = panelTareas;
+  $('#chip-plat').onclick = panelPlataformas;
   document.querySelectorAll('nav.pestanas button').forEach((b) => {
     b.onclick = () => {
       S.pestana = b.dataset.t;
@@ -515,12 +579,14 @@ function pantallaPrincipal() {
 function pintar() {
   pintarSync();
   pintarTareas();
+  pintarChipPlataforma();
   // El mapa va a sangre completa: sin márgenes ni tope de ancho. La
   // lista sí se centra, porque un renglón de texto muy largo se lee mal.
   const m = $('#main');
   if (m) m.className = S.pestana === 'mapa' ? 'a-sangre' : '';
   // las barras del mapa flotan sobre TODA la pantalla, así que hay que
   // recogerlas al salir de la pestaña o se quedarían sobre la lista
+  if (S.pestana === 'plataformas') { limpiarBarrasMapa(); return pintarPlataformas(); }
   if (S.pestana !== 'mapa') { limpiarBarrasMapa(); return pintarLista(); }
   // Solo se monta la primera vez: repintar no puede perder el zoom ni el encuadre
   if (!document.querySelector('#lienzo-caja')) montarMapa();
@@ -683,6 +749,108 @@ function montarMapa() {
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
 }
 
+// Mandar algo a otra plataforma. Lo puede hacer cualquiera que trabaje
+// en el patio, no solo el admin: quien mueve el material es quien está
+// ahí. Queda apuntado en el historial de cada lote, con quién y cuándo.
+function hojaTrasladar({ titulo, detalle, desde, alSoltar }) {
+  const otras = S.plataformas.filter((p) => p.id !== desde);
+  abrirHoja(`
+    <p class="pista">${esc(detalle)}</p>
+    <div class="acciones acciones-plat">
+      ${otras.map((p) => `<button class="btn btn-ancho" data-id="${p.id}"
+        >${esc(p.nombre)}</button>`).join('')}
+    </div>
+    <div class="acciones"><button id="tr-cancelar">Cancelar</button></div>`,
+    `<h2>${esc(titulo)}</h2>`);
+  $('#tr-cancelar').onclick = cerrarHoja;
+  for (const b of document.querySelectorAll('.acciones-plat button'))
+    b.onclick = accion(() => alSoltar(b.dataset.id), { ocupado: 'Moviendo…' });
+}
+
+// ------------------------------------------------- pantalla de plataformas
+// El nombre de la plataforma va SIEMPRE a la vista, en la cabecera: sin
+// eso, mirando un plano vacío no hay manera de saber si es que la
+// plataforma está vacía o es que estás en otra.
+function pintarChipPlataforma() {
+  const c = $('#chip-plat');
+  if (!c) return;
+  const p = plataformaActual();
+  c.hidden = S.plataformas.length < 2;
+  c.textContent = p ? p.nombre : '—';
+}
+
+// Cuántos lotes hay en cada plataforma y cómo están. Los alimentados no
+// cuentan: ya no están en el patio.
+const resumen = (id) => {
+  const suyos = S.lotes.filter((l) => l.plataforma_id === id && !alimentado(l));
+  const porEstado = {};
+  for (const l of suyos) porEstado[l.estado] = (porEstado[l.estado] || 0) + 1;
+  return { total: suyos.length, porEstado,
+           pilas: S.pilas.filter((p) => p.plataforma_id === id && p.estado === 'abierta').length,
+           // Lo que ya se pasó de fecha va en rojo; lo que está citado
+           // para más adelante se cuenta, pero sin alarma: pintar de rojo
+           // una recogida de la semana que viene enseña a no mirar el rojo.
+           sinRecoger: suyos.filter(vencido).length,
+           porRecoger: suyos.filter((l) => enDevolucion(l) && l.fecha_recogida).length };
+};
+
+function pintarPlataformas() {
+  const m = $('#main');
+  if (!m) return;
+  m.innerHTML = `<div class="tablero-plat">${S.plataformas.map((p) => {
+    const r = resumen(p.id);
+    const trozos = Object.entries(r.porEstado)
+      .sort((a, b) => (ORDEN_ESTADO[a[0]] ?? 9) - (ORDEN_ESTADO[b[0]] ?? 9));
+    return `<button class="patio${p.id === S.plataforma ? ' viva' : ''}" data-id="${p.id}">
+      <span class="fila1"><strong>${esc(p.nombre)}</strong>
+        <span class="tot">${r.total}<span class="uds"> lotes</span></span></span>
+      ${r.total ? `<span class="barra-est">${trozos.map(([k, n]) =>
+        `<span style="background:var(--${k});flex:${n}" title="${esc(ESTADOS[k] || k)}"></span>`).join('')}</span>`
+        : '<span class="barra-est vacia"></span>'}
+      <span class="pie">
+        ${r.pilas ? `<span>${r.pilas} pila${r.pilas === 1 ? '' : 's'}</span>` : ''}
+        ${r.sinRecoger ? `<span class="alerta">${r.sinRecoger} sin recoger</span>`
+          : r.porRecoger ? `<span>${r.porRecoger} por recoger</span>` : ''}
+        <span class="crece"></span><span class="flecha">›</span></span>
+    </button>`;
+  }).join('')}</div>`;
+
+  for (const b of m.querySelectorAll('.patio')) b.onclick = () => {
+    irAPlataforma(b.dataset.id);
+    S.recorrido = null; S.historia = null;
+    irAlMapa();
+    Mapa.encuadrar();
+  };
+}
+
+// El selector rápido: las cinco en miniatura, para saltar sin salir del
+// mapa. Es SOLO para escoger; los lotes no se arrastran de aquí.
+function panelPlataformas() {
+  abrirHoja(`<div class="mini-plats">${S.plataformas.map((p) => {
+    const r = resumen(p.id);
+    return `<button class="mini${p.id === S.plataforma ? ' viva' : ''}" data-id="${p.id}">
+      <svg viewBox="0 0 ${p.ancho || 1000} ${p.alto || 700}" preserveAspectRatio="xMidYMid meet">
+        <rect width="${p.ancho || 1000}" height="${p.alto || 700}"
+          fill="${esc(p.color_fondo || '#e4e7e2')}"/>
+        ${S.lotes.filter((l) => l.plataforma_id === p.id && !alimentado(l) && !l.pila_id)
+          .slice(0, 60).map((l) => `<circle cx="${l.x}" cy="${l.y}" r="${Math.max(l.rx || 40, 26)}"
+            fill="${paletaActual()[l.estado] || '#5f6863'}"/>`).join('')}
+        ${S.pilas.filter((x) => x.plataforma_id === p.id && x.estado === 'abierta')
+          .map((x) => `<ellipse cx="${x.x}" cy="${x.y}" rx="${x.rx}" ry="${x.ry}"
+            fill="none" stroke="#14171a" stroke-width="8" stroke-dasharray="26 14"/>`).join('')}
+      </svg>
+      <span class="nom">${esc(p.nombre)}</span>
+      <span class="cnt">${r.total}</span>
+    </button>`;
+  }).join('')}</div>`, '<h2>Plataformas</h2>');
+
+  for (const b of document.querySelectorAll('.mini')) b.onclick = () => {
+    irAPlataforma(b.dataset.id);
+    S.recorrido = null; S.historia = null;
+    cerrarHoja(); irAlMapa(); Mapa.encuadrar();
+  };
+}
+
 // --------------------------------------------------------------- tareas
 // Encargos del admin a los contratistas.
 //
@@ -719,7 +887,10 @@ function pintarTareas() {
   // Se avisa UNA vez por tarea, la primera que se ve. Sin esto, cada
   // vuelta de sincronización volvería a sonar por lo mismo.
   const nuevas = abiertas.filter((t) => !S.avisadas.has(t.id));
-  for (const t of abiertas) S.avisadas.add(t.id);
+  // Solo se recuerdan las que siguen pendientes: una tarea cerrada ya no
+  // puede volver a avisar, y así la lista no crece para siempre.
+  S.avisadas = new Set(abiertas.map((t) => t.id));
+  try { localStorage.setItem('acopio-avisadas', JSON.stringify([...S.avisadas])); } catch { /* sin sitio */ }
   if (nuevas.length && !esAdmin()) {
     sonar('tarea');
     // dos toques cortos para lo normal, tres largos para lo urgente
@@ -913,10 +1084,12 @@ async function hojaNuevaTarea() {
   // celular va lenta, y si hace falta bajar de quince es que hay que
   // escribir una letra más.
   const catalogo = [
-    ...S.lotes.filter((l) => l.estado !== 'despachado')
-      .map((l) => ({ k: `l:${l.id}`, txt: l.codigo, sub: ESTADOS[l.estado] || '' })),
+    ...S.lotes.filter((l) => l.estado !== 'despachado' && !alimentado(l))
+      .map((l) => ({ k: `l:${l.id}`, txt: l.codigo,
+                     sub: `${ESTADOS[l.estado] || ''} · ${nombrePlataforma(l.plataforma_id)}` })),
     ...S.pilas.filter((p) => p.estado === 'abierta')
-      .map((p) => ({ k: `p:${p.id}`, txt: `Pila ${p.codigo}`, sub: 'pila' }))
+      .map((p) => ({ k: `p:${p.id}`, txt: `Pila ${p.codigo}`,
+                     sub: `pila · ${nombrePlataforma(p.plataforma_id)}` }))
   ].sort((x, y) => x.txt.localeCompare(y.txt, 'es', { numeric: true }));
   const elegidos = new Set();
 
@@ -1104,11 +1277,19 @@ function pintarHistoria() {
   const h = S.historia;
   if (!h || !document.querySelector('#lienzo')) return;
   const t = instanteDelDia(h, h.dia);
-  const { lotes, pilas, aproximados } = planoEn(t, {
-    lotes: S.lotes, pilas: S.pilas, indice: h.indice
-  });
+  // Mirar atrás se hace SOBRE LA PLATAFORMA que se está viendo: rehacer
+  // las cinco a la vez no diría nada, y el plano es el de esta.
+  // Se rehacen TODOS y se filtra DESPUÉS: un lote que entonces estaba en
+  // Topsoil y hoy está en Ye tiene que salir en el Topsoil de entonces.
+  // Filtrar antes lo escondería justo del día en que sí estaba ahí.
+  const rehecho = planoEn(t, { lotes: S.lotes, pilas: S.pilas, indice: h.indice });
+  const lotes = rehecho.lotes.filter((l) => l.plataforma_id === S.plataforma);
+  const suyas = new Set(lotes.map((l) => l.pila_id).filter(Boolean));
+  const pilas = rehecho.pilas.filter((p) => suyas.has(p.id));
+  const aproximados = lotes.filter((l) => l._aprox).length;
   if (aproximados !== h.aproximados) { h.aproximados = aproximados; rotularHistoria(); }
-  Mapa.pintar({ config: S.config, figuras: S.figuras, pilas, lotes });
+  Mapa.pintar({ config: { ...S.config, ...(plataformaActual() || {}) },
+                figuras: misFiguras(), pilas, lotes });
 }
 
 // El filtro activo se ve sobre el mapa y se quita de un toque, sin
@@ -1147,9 +1328,12 @@ function abrirEdicion(tipo, obj) {
 // Lleva el plano hasta un lote y lo deja latiendo unos segundos. Llegar
 // no basta: al llegar hay que saber cuál de las figuras era.
 function ubicarEnMapa(l) {
-  if (l.estado === 'despachado' || l.estado === 'plataforma') {
+  if (l.estado === 'despachado' || l.estado === 'plataforma' || alimentado(l)) {
     return avisar(`${l.codigo}: ${ESTADOS[l.estado]}. Ya salió del patio, no se dibuja en el plano.`);
   }
+  // Puede estar en OTRA plataforma: se cambia de plano antes de buscarlo,
+  // o se acabaría mirando un patio donde ese lote no está.
+  if (l.plataforma_id && l.plataforma_id !== S.plataforma) irAPlataforma(l.plataforma_id);
   const figura = figurasEnElPlano([l])[0];
   if (!figura) return avisar(`${l.codigo} no se está dibujando en el plano.`);
 
@@ -1191,7 +1375,9 @@ const lotesQueCoinciden = () => {
   const q = S.busquedaMapa.trim().toUpperCase();
   const f = S.mapaFiltro;
   if (!q && f.campo === 'ninguno') return null;
-  return S.lotes.filter((l) => {
+  // Solo lo que está dibujado: resaltar un lote de otra plataforma no
+  // serviría de nada, porque en este plano no se ve.
+  return misLotes().filter((l) => {
     // Solo por código. La pregunta que responde este buscador es "¿dónde
     // está el PG1042?"; buscar por volqueta ya lo hace el botón de
     // filtros de al lado, y teniéndolo ahí, aceptar placas aquí solo
@@ -1218,12 +1404,12 @@ function calcularDestacados() {
 }
 
 // Un lote metido en una pila no se dibuja: lo que se ve es la pila. Y uno
-// despachado o en plataforma ya no está en el patio. Para encuadrar hay
+// despachado o alimentado ya no está en el patio. Para encuadrar hay
 // que traducir de lote a la figura que de verdad está en el plano.
 function figurasEnElPlano(lotes) {
   const vistas = new Map();
   for (const l of lotes || []) {
-    if (l.estado === 'despachado' || l.estado === 'plataforma') continue;
+    if (l.estado === 'despachado' || alimentado(l)) continue;
     const f = l.pila_id ? S.pilas.find((p) => p.id === l.pila_id && p.estado === 'abierta') : l;
     if (f) vistas.set(f.id, f);
   }
@@ -1231,7 +1417,7 @@ function figurasEnElPlano(lotes) {
 }
 
 function panelFiltro() {
-  const placas = [...new Set(S.lotes.flatMap(placasDe))].sort();
+  const placas = [...new Set(misLotes().flatMap(placasDe))].sort();
   abrirHoja(`
     <h2>Filtrar el mapa</h2>
     <div class="sub">Lo que coincide se resalta; el resto queda atenuado.</div>
@@ -1245,9 +1431,9 @@ function panelFiltro() {
 
     <h3>Por estado</h3>
     <div class="filtros filtros-hoja">
-      ${Object.entries(ESTADOS).map(([k, v]) => `<button data-campo="estado" data-valor="${k}"
+      ${ESTADOS_ELEGIBLES.map((k) => `<button data-campo="estado" data-valor="${k}"
         aria-pressed="${S.mapaFiltro.campo === 'estado' && S.mapaFiltro.valor === k}"
-        >${v}</button>`).join('')}
+        >${ESTADOS[k]}</button>`).join('')}
     </div>
 
     <h3>Por material</h3>
@@ -1350,7 +1536,8 @@ function refrescarMapa() {
   // salto al presente sin que nadie lo pidiera.
   if (S.historia) return pintarHistoria();
   Mapa.pintar({
-    config: S.config, figuras: S.figuras, pilas: S.pilas, lotes: S.lotes,
+    config: { ...S.config, ...(plataformaActual() || {}) },
+    figuras: misFiguras(), pilas: misPilas(), lotes: misLotes(),
     destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado,
     naciendo: S.naciendo
   });
@@ -1522,7 +1709,7 @@ async function manejarSoltar(lote, blanco, antes) {
   const pila = await Store.crearPila({
     codigo, tipo: 'otro', nota: null, x: cx, y: cy,
     rx: Math.max(lote.rx, otro.rx) + 46, ry: Math.max(lote.ry, otro.ry) + 34,
-    usuario_id: S.perfil.id
+    plataforma_id: S.plataforma, usuario_id: S.perfil.id
   });
   for (const l of [otro, lote]) {
     await Store.registrarEvento({
@@ -1553,7 +1740,7 @@ async function anotarRecorrido(lote, origen) {
 // pilas en el patio la siguiente ya se llamaba "4", y en un año, "40".
 function siguienteCodigoPila() {
   const usados = S.pilas
-    .filter((p) => p.estado === 'abierta')
+    .filter((p) => p.estado === 'abierta' && p.plataforma_id === S.plataforma)
     .map((p) => parseInt(p.codigo, 10)).filter((n) => !isNaN(n));
   let n = 1;
   while (usados.includes(n)) n++;
@@ -1565,10 +1752,17 @@ function pintarLista() {
   const prov = Object.fromEntries(S.proveedores.map((p) => [p.id, p.abreviatura]));
   const pilas = Object.fromEntries(S.pilas.map((p) => [p.id, p.codigo]));
   const q = S.busqueda.trim().toUpperCase();
-  const conteo = (e) => S.lotes.filter((l) => l.estado === e).length;
-  const nVenc = S.lotes.filter(vencido).length;
+  // La lista es de TODAS las plataformas a propósito: es donde se viene a
+  // buscar un lote que no se sabe dónde está. Cada tarjeta dice en cuál.
+  //
+  // Los alimentados ya no están en el patio: para el contratista
+  // desaparecen, y el admin los sigue viendo porque de eso se trata la
+  // trazabilidad.
+  const alcance = S.lotes.filter(seVeEnLaLista);
+  const conteo = (e) => alcance.filter((l) => l.estado === e).length;
+  const nVenc = alcance.filter(vencido).length;
 
-  const visibles = S.lotes.filter((l) => {
+  const visibles = alcance.filter((l) => {
     if (S.filtro === 'vencidas') { if (!vencido(l)) return false; }
     else if (S.filtro !== 'todos' && l.estado !== S.filtro) return false;
     return !q || l.codigo.includes(q) || (pilas[l.pila_id] || '').includes(q);
@@ -1577,15 +1771,15 @@ function pintarLista() {
   $('#main').innerHTML = `
     <input class="buscador" id="q" placeholder="Buscar lote o pila…" value="${esc(S.busqueda)}">
     <div class="filtros">
-      <button data-f="todos" aria-pressed="${S.filtro === 'todos'}">Todos · ${S.lotes.length}</button>
+      <button data-f="todos" aria-pressed="${S.filtro === 'todos'}">Todos · ${alcance.length}</button>
       ${nVenc ? `<button data-f="vencidas" aria-pressed="${S.filtro === 'vencidas'}">Sin recoger · ${nVenc}</button>` : ''}
-      ${Object.entries(ESTADOS).map(([k, v]) =>
+      ${Object.entries(ESTADOS).filter(([k]) => conteo(k)).map(([k, v]) =>
         `<button data-f="${k}" aria-pressed="${S.filtro === k}">${v} · ${conteo(k)}</button>`).join('')}
     </div>
     <div class="lista">
       ${visibles.length ? visibles.map((l) => tarjeta(l, prov, pilas)).join('')
         : `<div class="vacio"><strong>No hay lotes que coincidan</strong>
-             ${S.lotes.length ? 'Cambia el filtro o la búsqueda.' : 'Agrega el primero desde el mapa.'}</div>`}
+             ${alcance.length ? 'Cambia el filtro o la búsqueda.' : 'Agrega el primero desde el mapa.'}</div>`}
     </div>`;
 
   const q_ = $('#q');
@@ -1609,6 +1803,11 @@ function tarjeta(l, prov, pilas) {
         <span>${esc(prov[l.proveedor_id] || '—')}</span>
         ${l.placa ? `<span>${esc(placasTexto(l))}</span>` : ''}
         <span class="dias" data-alerta="${v ? 'si' : 'no'}">${r || (d === 0 ? 'hoy' : `hace ${d} d`)}</span>
+      </span>
+      <span class="meta">
+        <span class="dnd-plat">${esc(nombrePlataforma(l.plataforma_id))}</span>
+        ${alimentado(l) ? `<span class="dias">alimentado${
+          l.punto_id ? ` por ${esc(nombrePunto(l.punto_id))}` : ''}</span>` : ''}
       </span>
     </span>
     <span class="lado">
@@ -1739,6 +1938,9 @@ const COLUMNAS_INFORME = [
   { clave: 'codigo',     titulo: 'Código',            ancho: 14 },
   { clave: 'proveedor',  titulo: 'Proveedor',         ancho: 28 },
   { clave: 'estado',     titulo: 'Estado',            ancho: 15 },
+  { clave: 'plataforma', titulo: 'Plataforma',        ancho: 16 },
+  { clave: 'punto',      titulo: 'Alimentado por',    ancho: 16 },
+  { clave: 'cuandoAlim', titulo: 'Fecha alimentado',  ancho: 18 },
   { clave: 'diasEstado', titulo: 'Días en el estado', ancho: 16 },
   { clave: 'ingreso',    titulo: 'Fecha de ingreso',  ancho: 16 },
   { clave: 'diasPatio',  titulo: 'Días en el patio',  ancho: 16 },
@@ -1769,6 +1971,9 @@ function filasDelInforme(notas) {
       diasEstado: l.estado_desde ? dias(l.estado_desde) : '',
       ingreso: l.fecha_recepcion || '',
       diasPatio: diasEntreFechas(l.fecha_recepcion),
+      plataforma: nombrePlataforma(l.plataforma_id),
+      punto: l.punto_id ? nombrePunto(l.punto_id) : '',
+      cuandoAlim: l.alimentado_en ? fechaLocal(l.alimentado_en) : '',
       volqueta: placasTexto(l, ' / '),
       material: MATERIALES[l.material || 'granel'],
       enPila: l.pila_id ? 'Sí' : 'No',
@@ -1867,8 +2072,8 @@ async function fichaLote(id) {
     ${lectura ? '' : `
     <h3>Cambiar estado</h3>
     <div class="acciones">
-      ${Object.entries(ESTADOS).filter(([k]) => k !== l.estado)
-        .map(([k, v]) => `<button data-estado="${k}">${v}</button>`).join('')}
+      ${ESTADOS_ELEGIBLES.filter((k) => k !== l.estado)
+        .map((k) => `<button data-estado="${k}">${ESTADOS[k]}</button>`).join('')}
     </div>
 
     ${esAdmin() && enDevolucion(l) ? `
@@ -1879,6 +2084,12 @@ async function fichaLote(id) {
     </div>
     <p class="pista">El compromiso de recogida lo fija y lo cambia solo el administrador,
        aunque cualquiera pueda declarar la devolución.</p>` : ''}
+
+    ${lectura || S.plataformas.length < 2 ? '' : `
+    <h3>Plataforma</h3>
+    <button class="btn btn-ancho" id="mover-plat" style="width:100%"
+      >Está en ${esc(nombrePlataforma(l.plataforma_id))} · mover a otra</button>
+    ${pila ? '<p class="pista">Va dentro de una pila: para moverlo con toda la pila, hazlo desde la ficha de la pila.</p>' : ''}`}
 
     ${pila ? `<h3>Pila</h3>
       <button class="btn btn-ancho" id="sacar" style="width:100%">Sacar de la pila ${esc(pila.codigo)}</button>`
@@ -1935,9 +2146,24 @@ async function fichaLote(id) {
   $('#ver-en-mapa').onclick = () => { cerrarHoja(); ubicarEnMapa(l); };
   if (lectura) return;
 
+  const mp = $('#mover-plat');
+  if (mp) mp.onclick = () => hojaTrasladar({
+    titulo: `Mover ${l.codigo}`,
+    detalle: `Está en ${nombrePlataforma(l.plataforma_id)}. Su estado y su pila no cambian: `
+      + 'solo cambia de patio, y queda apuntado en su historial.',
+    desde: l.plataforma_id,
+    alSoltar: async (id) => {
+      await Store.trasladarLote(l.id, id, S.perfil.id);
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
+    }
+  });
+
   document.querySelectorAll('.hoja .acciones button[data-estado]').forEach((b) => {
     b.onclick = accion(async () => {
       if (b.dataset.estado === 'devolucion') return pedirRecogida(l);
+      // Alimentar no es solo un estado: hay que decir POR DÓNDE entró,
+      // que es lo que se consulta después en el informe.
+      if (b.dataset.estado === 'alimentado') return pedirPunto(l);
       // Un cambio de estado es un evento, y los eventos no se borran: la
       // única forma de corregirlo es otro evento encima. Se pregunta.
       const ok = await confirmar({
@@ -2062,6 +2288,35 @@ async function revisarPila(pila) {
   await Store.renombrarPila(pila.id, { estado: 'consumida' });
 }
 
+// Por dónde entró el material a la planta. La lista la maneja el
+// administrador desde la base, así que si mañana hay una tolva más, sale
+// aquí sola.
+function pedirPunto(l) {
+  if (!S.puntos.length) {
+    return avisar('No hay puntos de alimentación configurados todavía. '
+      + 'Se añaden en la tabla `puntos_alimentacion`.');
+  }
+  abrirHoja(`
+    <div class="sub">¿Por dónde se alimentó?</div>
+    <div class="acciones acciones-plat" id="pt-lista">
+      ${S.puntos.map((x) => `<button class="btn btn-ancho" data-id="${x.id}"
+        >${esc(x.nombre)}</button>`).join('')}
+    </div>
+    <p class="pista">El lote deja de verse en el plano, pero no se borra: queda su
+       historial completo y en el informe sale por dónde y cuándo se alimentó.</p>
+    <div class="acciones"><button id="pt-cancelar">Cancelar</button></div>`,
+    `<h2>${codigoHTML(l.codigo)} · alimentado</h2>`);
+  $('#pt-cancelar').onclick = () => fichaLote(l.id);
+  for (const b of document.querySelectorAll('#pt-lista button'))
+    b.onclick = accion(async () => {
+      await Store.registrarEvento({
+        lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'alimentado',
+        punto_id: b.dataset.id, usuario_id: S.perfil.id
+      });
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
+    }, { ocupado: 'Guardando…' });
+}
+
 function pedirRecogida(l) {
   abrirHoja(`
     <h2>${codigoHTML(l.codigo)} · devolución</h2>
@@ -2144,10 +2399,13 @@ async function fichaPila(id) {
 
     <h3>Destino</h3>
     <div class="acciones">
-      <button id="a-plataforma" class="btn-lleno btn-ancho">Llevar a plataforma 5</button>
+      ${S.plataformas.length > 1 ? `<button id="a-plataforma" class="btn-lleno btn-ancho"
+        >Mover la pila a otra plataforma</button>` : ''}
       <button id="archivar-pila" class="btn-ancho btn-peligro">Quitar la pila del mapa</button>
     </div>
-    <p class="pista">Llevarla a plataforma 5 pasa todos sus lotes a ese estado y cierra la pila. Quitarla del mapa devuelve los lotes al patio y la archiva; su historial se conserva.</p>`}
+    <p class="pista">Moverla se lleva la pila entera con sus ${dentro.length} lote${
+      dentro.length === 1 ? '' : 's'}: siguen dentro y con el estado que tengan, solo cambian de patio.
+      Quitarla del mapa devuelve los lotes al patio y la archiva; su historial se conserva.</p>`}
 
     <h3>Lotes en esta pila</h3>
     <div class="lista">
@@ -2205,22 +2463,22 @@ async function fichaPila(id) {
     abrirEdicion('pila', { ...p, ...cambios });
   });
 
+  // Antes esto decía "Llevar a plataforma 5" y ponía a todos los lotes en
+  // un ESTADO llamado así. Ahora Plataforma 5 es un sitio con su propio
+  // plano, así que la pila se mueve de verdad: entera, con sus lotes
+  // dentro y con el estado que cada uno tenga.
   const ap = $('#a-plataforma');
-  if (ap) ap.onclick = accion(async () => {
-    const ok = await confirmar({
-      titulo: `¿Llevar la pila ${p.codigo} a plataforma 5?`,
-      detalle: `Sus ${dentro.length} lote${dentro.length === 1 ? '' : 's'} pasan a ese estado y salen del mapa, y la pila se cierra. Queda en el historial de cada lote.`,
-      aceptar: 'Llevarla'
-    });
-    if (!ok) return fichaPila(id);
-    for (const l of dentro) {
-      await Store.registrarEvento({
-        lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'plataforma', usuario_id: S.perfil.id
-      });
+  if (ap) ap.onclick = () => hojaTrasladar({
+    titulo: `Mover la pila ${p.codigo}`,
+    detalle: `Está en ${nombrePlataforma(p.plataforma_id)} con ${dentro.length} lote${
+      dentro.length === 1 ? '' : 's'} dentro. Se va entera: nadie sale de la pila `
+      + 'y nadie cambia de estado.',
+    desde: p.plataforma_id,
+    alSoltar: async (destino) => {
+      await Store.trasladarPila(id, destino, S.perfil.id);
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
     }
-    await Store.renombrarPila(id, { estado: 'consumida' });
-    cerrarHoja(); await recargar(); sincronizar();
-  }, { ocupado: 'Llevando…' });
+  });
 
   const arch = $('#archivar-pila');
   if (arch) arch.onclick = accion(async () => {
@@ -2311,6 +2569,9 @@ function formLote() {
     if (S.lotes.some((l) => l.codigo === codigo)) return falla(`El lote ${codigo} ya está registrado.`);
     const nuevo = await Store.crearLote({
       codigo, proveedor_id, placa,
+      // el lote nace donde estás parado: para meter uno en Ye se abre el
+      // plano de Ye y se le da a "Nuevo lote" allí
+      plataforma_id: S.plataforma,
       material, forma: FORMA_DE[material],
       x: c.x + (Math.random() - 0.5) * 90, y: c.y + (Math.random() - 0.5) * 70,
       usuario_id: S.perfil.id
@@ -2327,10 +2588,15 @@ function formLote() {
 const paletaActual = () => ({ ...Mapa.COLORES_BASE, ...(S.config?.colores || {}) });
 
 function panelFondo() {
-  const c = S.config;
+  // El tamaño, el color y la imagen son de ESTA plataforma. Los colores
+  // de los estados, en cambio, son de la empresa y valen para las cinco.
+  const plat = plataformaActual();
+  if (!plat) return avisar('Todavía no hay plataformas cargadas. Sincroniza y vuelve a intentarlo.');
+  const c = { ...S.config, ...plat };
   abrirHoja(`
     <h2>Fondo del mapa</h2>
-    <div class="sub">Solo tú puedes cambiarlo. Los contratistas lo ven, no lo editan.</div>
+    <div class="sub">Estás editando el plano de <strong>${esc(plat.nombre)}</strong>.
+      Cada plataforma tiene el suyo; los colores de abajo sí son de todas.</div>
 
     <h3>Tamaño del patio</h3>
     <div class="campo">
@@ -2363,7 +2629,8 @@ function panelFondo() {
     <div class="rejilla-color">
       ${[['por_muestrear', 'Por muestrear'], ['muestreado', 'Muestreado'],
          ['remuestreo', 'Remuestreo'], ['facturado', 'Facturado'],
-         ['devolucion', 'Devolución'], ['despachado', 'Despachado'],
+         ['devolucion', 'Devolución'], ['alimentado', 'Alimentado'],
+         ['despachado', 'Despachado'],
          ['pila_alimentacion', 'Pila · alimentación'], ['pila_devolucion', 'Pila · devolución'],
          ['pila_espera', 'Pila · espera'], ['pila_otro', 'Pila · otro']]
         .map(([k, etq]) => `<label class="color-item">
@@ -2390,9 +2657,9 @@ function panelFondo() {
   const agregar = (forma) => accion(async () => {
     const c2 = Mapa.centroVista();
     await Store.guardarFigura('mapa_figuras', {
-      id: Store.uuid(), forma, etiqueta: null,
+      id: Store.uuid(), forma, etiqueta: null, plataforma_id: S.plataforma,
       x: c2.x, y: c2.y, rx: forma === 'rectangulo' ? 110 : 80, ry: 70, rot: 0,
-      color: '#c7cdc5', orden: S.figuras.length
+      color: '#c7cdc5', orden: misFiguras().length
     });
     cerrarHoja(); await recargar(); sincronizar();
   }, { ocupado: 'Agregando…' });
@@ -2401,7 +2668,7 @@ function panelFondo() {
 
   const quitar = $('#quitar-img');
   if (quitar) quitar.onclick = accion(async () => {
-    await Store.guardarConfig({ ...S.config, imagen_url: null });
+    await Store.guardarPlataforma({ ...plat, imagen_url: null });
     cerrarHoja(); await recargar(); sincronizar();
   }, { ocupado: 'Quitando…' });
 
@@ -2413,12 +2680,13 @@ function panelFondo() {
   $('#guardar-fondo').onclick = accion(async () => {
     const colores = { ...paletaActual() };
     document.querySelectorAll('[data-color]').forEach((i) => { colores[i.dataset.color] = i.value; });
+    // Dos cosas distintas y a dos sitios distintos: la paleta a la
+    // configuración de la empresa, y el plano a esta plataforma.
     const cfg = {
-      ...S.config, colores,
       ancho: Number($('#c-ancho').value) || 1000,
       alto: Number($('#c-alto').value) || 700,
       color_fondo: $('#c-color').value,
-      imagen_opacidad: $('#c-op') ? Number($('#c-op').value) : (S.config.imagen_opacidad ?? 1)
+      imagen_opacidad: $('#c-op') ? Number($('#c-op').value) : (plat.imagen_opacidad ?? 1)
     };
     const archivo = $('#c-img').files[0];
     if (archivo) {
@@ -2433,8 +2701,9 @@ function panelFondo() {
         return;
       }
     }
-    await Store.guardarConfig(cfg);
-    cerrarHoja(); await recargar(); Mapa.encuadrar(); sincronizar();
+    await Store.guardarConfig({ ...S.config, colores });
+    await Store.guardarPlataforma({ ...plat, ...cfg });
+    cerrarHoja(); await recargar(); refrescarMapa(); Mapa.encuadrar(); sincronizar();
   }, { alFallar: (e) => {
     const p = $('#fondo-error');
     if (p) { p.hidden = false; p.textContent = `No se pudo guardar: ${e?.message || e}`; } else decirError(e);

@@ -1,11 +1,11 @@
-// Corre las siete tandas, cada una en su propio proceso: comparten
+// Corre las ocho tandas, cada una en su propio proceso: comparten
 // globales (indexedDB, el reloj) y mezclarlas daría resultados falsos.
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
-const tandas = ['cola.mjs', 'pilas-y-fechas.mjs', 'mapa.mjs', 'sincronizacion.mjs', 'informe.mjs', 'historia.mjs', 'tareas.mjs'];
+const tandas = ['cola.mjs', 'pilas-y-fechas.mjs', 'mapa.mjs', 'sincronizacion.mjs', 'informe.mjs', 'historia.mjs', 'tareas.mjs', 'plataformas.mjs'];
 
 let mal = 0;
 for (const t of tandas) {

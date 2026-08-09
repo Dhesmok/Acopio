@@ -472,14 +472,24 @@ ok(/inset:\s*0/.test(bloque), 'y cubre el plano entero, que es donde se colocan'
 // ---------------------------------------------------------------------
 titulo('Los botones de cambiar estado llevan el color de su estado.');
 
-// Seis opciones en una rejilla: leerlas todas cuesta más que dar con la
-// que se busca por el color, que además es el color con el que ese lote
-// va a quedar pintado en el plano.
-for (const e of ['por_muestrear', 'muestreado', 'remuestreo', 'facturado',
-                 'devolucion', 'plataforma', 'despachado']) {
-  const regla = new RegExp(
-    `\\.acciones button\\[data-estado="${e}"\\][^}]*background:\\s*var\\(--${e}\\)`);
-  ok(regla.test(css), `el botón de "${e}" se pinta con var(--${e})`);
+// Leerlas todas cuesta más que dar con la que se busca por el color, que
+// además es el color con el que ese lote va a quedar pintado en el plano.
+//
+// La lista NO se escribe aquí a mano: se saca de la propia app. Al
+// agregar "alimentado" el estado se quedó sin color en las tres partes
+// —la variable, el botón y la etiqueta— y salió gris sobre gris sin que
+// nada se quejara. Así, un estado nuevo sin color rompe la prueba.
+const fuenteApp = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+const elegibles = (fuenteApp.match(/const ESTADOS_ELEGIBLES = \[([^\]]+)\]/) || [])[1]
+  .match(/'([a-z_]+)'/g).map((s) => s.replace(/'/g, ''));
+ok(elegibles.length >= 7, `se leyeron los ${elegibles.length} estados elegibles de app.js`);
+
+for (const e of elegibles) {
+  ok(new RegExp(`--${e}:\\s*#`).test(css), `"${e}" tiene su color en :root`);
+  ok(new RegExp(`\\.acciones button\\[data-estado="${e}"\\][^}]*background:\\s*var\\(--${e}\\)`)
+     .test(css), `el botón de "${e}" se pinta con var(--${e})`);
+  ok(new RegExp(`\\.etiqueta\\[data-e="${e}"\\][^}]*background:\\s*var\\(--${e}\\)`)
+     .test(css), `y su etiqueta también, que es lo que se ve en la lista`);
 }
 // La regla genérica de hover repintaba el botón de gris y se perdía el
 // color justo al tocarlo, que es cuando hace falta verlo.
@@ -501,7 +511,6 @@ titulo('El texto encima de un color se lee: ámbar con letra oscura.');
 // Si se separan, el mismo lote sale con letra blanca en el plano y
 // oscura en su ficha.
 const fuenteMapa = await readFile(new URL('../web/js/mapa.js', import.meta.url), 'utf8');
-const fuenteApp  = await readFile(new URL('../web/js/app.js',  import.meta.url), 'utf8');
 const corte = (t) => (t.match(/\(r \* 299 \+ g \* 587 \+ b \* 114\) \/ 1000 > (\d+)/) || [])[1];
 ok(corte(fuenteMapa) && corte(fuenteMapa) === corte(fuenteApp),
    `plano y ficha usan el mismo corte de claridad (${corte(fuenteMapa)})`);

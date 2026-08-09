@@ -14,9 +14,18 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------- tipos
+--  'plataforma' ya no se usa: Plataforma 5 dejó de ser un estado y pasó
+--  a ser un sitio más, con su propio plano. Se deja en la lista porque
+--  los lotes viejos lo tienen escrito en su historial y los eventos no
+--  se tocan nunca.
+--
+--  'alimentado' es el final del camino en planta: el lote se consumió y
+--  deja de verse en el plano, pero no se borra. Por dónde entró —Batch,
+--  Tolva Naranja, Reempaque…— va aparte, en `puntos_alimentacion`,
+--  porque esa lista la maneja el administrador y va a crecer.
 create type estado_lote as enum
   ('por_muestrear', 'muestreado', 'remuestreo', 'facturado',
-   'devolucion', 'plataforma', 'despachado');
+   'devolucion', 'plataforma', 'despachado', 'alimentado');
 
 --  granel = material suelto;  bigbag = sacos
 create type tipo_material as enum ('granel', 'bigbag');
@@ -27,7 +36,8 @@ create type estado_pila as enum ('abierta', 'cerrada', 'consumida');
 
 create type tipo_evento as enum
   ('recepcion', 'cambio_estado', 'ingreso_pila', 'salida_pila',
-   'observacion', 'programar_recogida', 'movimiento', 'renombrado', 'anulacion');
+   'observacion', 'programar_recogida', 'movimiento', 'renombrado', 'anulacion',
+   'traslado');
 
 create type forma_figura as enum ('elipse', 'rectangulo', 'poligono');
 
@@ -68,12 +78,51 @@ create table proveedores (
   creado_en   timestamptz not null default now()
 );
 
+-- --------------------------------------------------------- plataformas
+--  El patio no es uno: son cinco sitios distintos —Topsoil, Plataforma 2,
+--  Plataforma 3, Ye, Plataforma 5— y un lote se mueve entre ellos. Cada
+--  uno tiene su propio plano, con su tamaño, su fondo y sus figuras.
+--
+--  Los proveedores, los códigos de lote y la gente son los mismos para
+--  todas: es la misma empresa. Lo único que cambia es dónde está cada
+--  montón.
+create table plataformas (
+  id              uuid primary key,
+  nombre          text not null unique,
+  orden           int not null default 0,       -- en qué orden se enseñan
+  activa          boolean not null default true,
+  -- el plano de esta plataforma
+  ancho           numeric not null default 1000,
+  alto            numeric not null default 700,
+  color_fondo     text not null default '#e4e7e2',
+  imagen_url      text,
+  imagen_x        numeric not null default 0,
+  imagen_y        numeric not null default 0,
+  imagen_ancho    numeric not null default 1000,
+  imagen_alto     numeric not null default 700,
+  imagen_opacidad numeric not null default 1,
+  creado_en       timestamptz not null default now(),
+  actualizado_en  timestamptz not null default now()
+);
+
+-- Por dónde entró el material a la planta. Es una lista que crece —de
+-- Batch y Tolva Naranja salió Reempaque en la misma conversación—, así
+-- que la maneja el administrador desde la app y no el código.
+create table puntos_alimentacion (
+  id             uuid primary key,
+  nombre         text not null unique,
+  orden          int not null default 0,
+  activo         boolean not null default true,
+  creado_en      timestamptz not null default now(),
+  actualizado_en timestamptz not null default now()
+);
+
 -- --------------------------------------------------------------- pilas
 --  x, y = centro sobre el plano;  rx, ry = semiejes;  rot = grados
 create table pilas (
   id             uuid primary key,
-  -- único solo entre las ABIERTAS, ver el índice más abajo: una pila
-  -- archivada suelta su nombre para que se pueda volver a usar
+  plataforma_id  uuid not null references plataformas (id),
+  -- único entre las ABIERTAS DE SU PLATAFORMA, ver el índice más abajo
   codigo         text not null,
   tipo           tipo_pila not null default 'otro',
   estado         estado_pila not null default 'abierta',
@@ -90,13 +139,17 @@ create table pilas (
   actualizado_en timestamptz not null default now()
 );
 
--- El nombre no puede repetirse ENTRE LAS ABIERTAS, que es donde importa:
--- en el plano nunca hay dos pilas que se llamen igual. Una pila
--- archivada suelta el suyo y el número se vuelve a usar; si no, la
--- numeración sube para siempre y con tres pilas en el patio ya se va por
--- la 4. El historial no se enreda porque cada apunte guarda el id, no el
--- nombre, y en la ficha del lote cada línea va con su fecha.
-create unique index ux_pilas_codigo_abierta on pilas (codigo) where estado = 'abierta';
+-- El nombre no puede repetirse entre las ABIERTAS DE UNA MISMA
+-- PLATAFORMA, que es donde importa: en un plano nunca hay dos pilas que
+-- se llamen igual. Puede haber una "pila 1" en Topsoil y otra "pila 1"
+-- en Plataforma 5, que son planos distintos y nadie las confunde.
+--
+-- Una pila archivada suelta su nombre y el número se vuelve a usar; si
+-- no, la numeración sube para siempre y con tres pilas en el patio ya se
+-- va por la 4. El historial no se enreda porque cada apunte guarda el
+-- id, no el nombre, y en la ficha del lote cada línea va con su fecha.
+create unique index ux_pilas_codigo_abierta on pilas (plataforma_id, codigo)
+  where estado = 'abierta';
 
 -- --------------------------------------------------------------- lotes
 create table lotes (
@@ -116,6 +169,15 @@ create table lotes (
   ry               numeric not null default 40,
   rot              numeric not null default 0,
   -- derivados del log de eventos (protegidos por trigger)
+  --
+  -- La plataforma es DERIVADA, como el estado y la pila: un lote se pasa
+  -- de sitio con un evento 'traslado', no escribiendo la columna. Así el
+  -- historial dice cuándo se movió y quién lo movió, que es justo lo que
+  -- se pide para la trazabilidad.
+  plataforma_id    uuid not null references plataformas (id),
+  -- por dónde se alimentó, cuando el estado es 'alimentado'
+  punto_id         uuid references puntos_alimentacion (id),
+  alimentado_en    timestamptz,
   estado           estado_lote not null default 'por_muestrear',
   estado_desde     timestamptz not null default now(),
   fecha_recogida   date,
@@ -156,6 +218,10 @@ create table eventos (
   tipo           tipo_evento not null,
   estado_nuevo   estado_lote,
   pila_id        uuid references pilas (id),
+  -- a qué plataforma se llevó, en los eventos de tipo 'traslado'
+  plataforma_id  uuid references plataformas (id),
+  -- por dónde entró a planta, al pasar a 'alimentado'
+  punto_id       uuid references puntos_alimentacion (id),
   fecha_recogida date,
   x              numeric,
   y              numeric,
@@ -167,6 +233,8 @@ create table eventos (
     check (tipo <> 'cambio_estado' or estado_nuevo is not null),
   constraint ck_pila_requerida
     check (tipo <> 'ingreso_pila' or pila_id is not null),
+  constraint ck_plataforma_requerida
+    check (tipo <> 'traslado' or plataforma_id is not null),
   constraint ck_recogida_requerida
     check (tipo <> 'programar_recogida' or fecha_recogida is not null)
 );
@@ -182,9 +250,24 @@ begin
   perform set_config('app.desde_evento', 'on', true);
 
   if new.tipo = 'cambio_estado' then
+    -- Alimentar es el final del camino: se apunta POR DÓNDE entró y
+    -- CUÁNDO, que es lo que se consulta después. Si el estado cambia a
+    -- otra cosa, esos dos datos se limpian: el lote ya no está
+    -- alimentado y dejarlos puestos mentiría en el informe.
     update lotes set estado = new.estado_nuevo,
                      estado_desde = new.ocurrido_en,
                      fecha_recogida = new.fecha_recogida,
+                     punto_id = case when new.estado_nuevo = 'alimentado'
+                                     then new.punto_id else null end,
+                     alimentado_en = case when new.estado_nuevo = 'alimentado'
+                                          then new.ocurrido_en else null end,
+                     ultimo_evento_en = greatest(ultimo_evento_en, new.ocurrido_en)
+     where id = new.lote_id;
+  elsif new.tipo = 'traslado' then
+    -- Cambiar de plataforma NO cambia el estado ni saca de la pila: un
+    -- lote facturado que se pasa a Ye sigue facturado. Si iba dentro de
+    -- una pila, la pila entera se mueve y él va con ella.
+    update lotes set plataforma_id = new.plataforma_id,
                      ultimo_evento_en = greatest(ultimo_evento_en, new.ocurrido_en)
      where id = new.lote_id;
   elsif new.tipo = 'programar_recogida' then
@@ -225,6 +308,12 @@ begin
     new.estado_desde   := old.estado_desde;
     new.fecha_recogida := old.fecha_recogida;
     new.pila_id        := old.pila_id;
+    -- La plataforma se cambia con un evento 'traslado', no escribiendo
+    -- la columna: si no, mover un lote por el plano podría teletransportarlo
+    -- de patio sin dejar rastro de quién lo hizo.
+    new.plataforma_id  := old.plataforma_id;
+    new.punto_id       := old.punto_id;
+    new.alimentado_en  := old.alimentado_en;
     new.creado_en      := old.creado_en;
     new.creado_por     := old.creado_por;
   end if;
@@ -334,17 +423,11 @@ create table mapa_figuras (
 );
 
 --  Una sola fila, id = 'unico'
+--  Lo que es igual en TODAS las plataformas. El tamaño del plano, el
+--  fondo y la imagen se mudaron a `plataformas`: cada una tiene el suyo.
+--  Aquí solo queda la paleta, que es de la empresa, no de un patio.
 create table mapa_config (
   id           text primary key default 'unico' check (id = 'unico'),
-  ancho        numeric not null default 1000,
-  alto         numeric not null default 700,
-  color_fondo  text not null default '#e4e7e2',
-  imagen_url   text,
-  imagen_x     numeric not null default 0,
-  imagen_y     numeric not null default 0,
-  imagen_ancho numeric not null default 1000,
-  imagen_alto  numeric not null default 700,
-  imagen_opacidad numeric not null default 1,
   -- colores editables desde la app, sin tocar el código
   colores      jsonb not null default '{
     "por_muestrear": "#d99a06",
@@ -389,6 +472,8 @@ alter table eventos      enable row level security;
 alter table mapa_figuras enable row level security;
 alter table mapa_config  enable row level security;
 alter table tareas       enable row level security;
+alter table plataformas  enable row level security;
+alter table puntos_alimentacion enable row level security;
 
 -- Lectura: solo perfiles activos
 create policy p_leer_perfiles    on perfiles     for select to authenticated using (fn_mi_rol() is not null);
@@ -399,6 +484,8 @@ create policy p_leer_eventos     on eventos      for select to authenticated usi
 create policy p_leer_figuras     on mapa_figuras for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_config      on mapa_config  for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_tareas      on tareas       for select to authenticated using (fn_mi_rol() is not null);
+create policy p_leer_plataformas on plataformas  for select to authenticated using (fn_mi_rol() is not null);
+create policy p_leer_puntos      on puntos_alimentacion for select to authenticated using (fn_mi_rol() is not null);
 
 -- Escritura de operación
 create policy p_crear_lotes on lotes for insert to authenticated
@@ -424,6 +511,13 @@ create policy p_cerrar_tareas on tareas for update to authenticated
   using (fn_mi_rol() is not null) with check (fn_mi_rol() is not null);
 create policy p_borrar_tareas on tareas for delete to authenticated
   using (fn_mi_rol() = 'admin');
+
+-- Las plataformas y los puntos de alimentación los define el admin. Un
+-- contratista los lee para trabajar, pero no los crea ni los cambia.
+create policy p_admin_plataformas on plataformas for all to authenticated
+  using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
+create policy p_admin_puntos on puntos_alimentacion for all to authenticated
+  using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
 
 -- El fondo del mapa y los proveedores: solo admin
 create policy p_admin_figuras on mapa_figuras for all to authenticated
