@@ -797,6 +797,15 @@ const resumen = (id) => {
 function pintarPlataformas() {
   const m = $('#main');
   if (!m) return;
+  // Una pantalla en blanco no dice nada. Si las plataformas todavía no
+  // han bajado —la primera vez, o sin señal— hay que decirlo, porque
+  // desde fuera se lee como "se perdieron las cinco".
+  if (!S.plataformas.length) {
+    m.innerHTML = `<div class="vacio"><strong>Todavía no han llegado las plataformas</strong>
+      ${navigator.onLine ? 'Se están bajando; en cuanto lleguen salen aquí.'
+        : 'Hace falta señal para bajarlas la primera vez.'}</div>`;
+    return;
+  }
   m.innerHTML = `<div class="tablero-plat">${S.plataformas.map((p) => {
     const r = resumen(p.id);
     const trozos = Object.entries(r.porEstado)
@@ -1283,7 +1292,11 @@ function pintarHistoria() {
   // Topsoil y hoy está en Ye tiene que salir en el Topsoil de entonces.
   // Filtrar antes lo escondería justo del día en que sí estaba ahí.
   const rehecho = planoEn(t, { lotes: S.lotes, pilas: S.pilas, indice: h.indice });
-  const lotes = rehecho.lotes.filter((l) => l.plataforma_id === S.plataforma);
+  // Se filtra con la misma regla que el plano de hoy —`enEstaPlataforma`—
+  // y no comparando a pelo: si todavía no han llegado las plataformas,
+  // esa regla deja pasar todo. Comparando a pelo no pasaba NI UN lote y
+  // "otro día" salía en blanco, como si no hubiera historia.
+  const lotes = rehecho.lotes.filter(enEstaPlataforma);
   const suyas = new Set(lotes.map((l) => l.pila_id).filter(Boolean));
   const pilas = rehecho.pilas.filter((p) => suyas.has(p.id));
   const aproximados = lotes.filter((l) => l._aprox).length;

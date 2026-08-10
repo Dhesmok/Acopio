@@ -81,6 +81,32 @@ ok(servidor.bajado.find((b) => b.tabla === 'tareas')?.filas === 0,
    'y la de tareas no trae nada mientras no haya ninguna nueva');
 
 // ---------------------------------------------------------------------
+titulo('Al actualizar la app, un catálogo NUEVO se baja en el acto.');
+
+// Esto llegó a producción. Los catálogos van en la vuelta lenta, de hora
+// en hora, y un celular que ya tenía la app abierta lleva su marca de
+// "hace poco pasé lista": al actualizar se quedaba HASTA UNA HORA sin
+// bajar las plataformas, que era una tabla que no existía antes.
+//
+// Y sin plataformas la app no puede filtrar por plataforma: el plano
+// enseñaba los lotes de las cinco encima del mismo patio, la pantalla de
+// Plataformas salía vacía y "otro día" no dibujaba ni un lote. Parecía
+// que se había perdido todo, y lo que faltaba era una consulta.
+tiendas.get('meta').set('forma_catalogos', { id: 'forma_catalogos', valor: 1 });
+servidor.bajado.length = 0;
+await Store.sincronizar();
+ok(consultoA('plataformas'), 'la versión nueva pide las plataformas sin esperar a la hora');
+ok(consultoA('puntos_alimentacion'), 'y los puntos de alimentación con ellas');
+
+// Pero UNA sola vez: en cuanto se bajan queda apuntado, o cada vuelta
+// volvería a bajar los catálogos enteros, que es lo que se quitó.
+servidor.bajado.length = 0;
+await Store.sincronizar();
+ok(!consultoA('plataformas'), 'y la vuelta siguiente ya no las vuelve a pedir');
+ok(servidor.bajado.length === 4,
+   `se vuelve a las cuatro consultas de siempre (fueron ${servidor.bajado.length})`);
+
+// ---------------------------------------------------------------------
 titulo('El historial viejo ya no desaparece en silencio.');
 
 // un lote cuyo evento de recepción quedó fuera del tope de la descarga
