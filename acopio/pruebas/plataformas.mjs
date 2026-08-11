@@ -196,6 +196,90 @@ ok(/enElPatio\(l\) && !l\.pila_id/.test(mini),
    'y la miniatura del selector dibuja lo mismo que la cuenta');
 
 // ---------------------------------------------------------------------
+titulo('Las cuentas de la tarjeta salen bien, no solo están escritas.');
+
+// `resumen` se saca de app.js TAL CUAL y se ejecuta con lotes de
+// mentira. Comprobar que el texto está en su sitio no dice si la cuenta
+// es correcta, y esta pantalla es justo eso: cuentas.
+const trozo = (desde, hasta) => {
+  const a = app.indexOf(desde), b = app.indexOf(hasta, a);
+  if (a < 0 || b < 0) throw new Error(`no se encontró el trozo ${desde}`);
+  return app.slice(a, b);
+};
+const armar = new Function('S', `
+  ${trozo('const hoyISO = (mas = 0)', '// La recogida es un compromiso')}
+  ${trozo('const enDevolucion = (l) =>', 'function textoRecogida(')}
+  ${trozo('const alimentado = (l) =>', 'const nombrePlataforma =')}
+  ${trozo('const diasEntreFechas =', 'function filasDelInforme(')}
+  ${trozo('const DIAS_NUEVO = 7;', 'function pintarPlataformas()')}
+  return { resumen, DIAS_QUIETO };
+`);
+
+// Un patio de mentira: hoy, hace 3 días, hace 40 y uno atascado.
+const hoy = new Date();
+const haceDias = (n) => {
+  const d = new Date(hoy); d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const cuando = (n) => `${haceDias(n)}T12:00:00.000Z`;
+const S = { lotes: [
+  // en el patio, recién llegados
+  { id: 'a', plataforma_id: 'X', estado: 'por_muestrear', fecha_recepcion: haceDias(0),
+    estado_desde: cuando(0), pila_id: null },
+  { id: 'b', plataforma_id: 'X', estado: 'muestreado', fecha_recepcion: haceDias(3),
+    estado_desde: cuando(3), pila_id: 'P1' },
+  // viejo y atascado: 40 días sin que le pase nada
+  { id: 'c', plataforma_id: 'X', estado: 'facturado', fecha_recepcion: haceDias(40),
+    estado_desde: cuando(40), pila_id: 'P1' },
+  // devolución con la fecha ya pasada
+  { id: 'd', plataforma_id: 'X', estado: 'devolucion', fecha_recepcion: haceDias(20),
+    estado_desde: cuando(20), pila_id: null, fecha_recogida: haceDias(5) },
+  // estos DOS ya no están en el patio y no pueden contar para nada
+  { id: 'e', plataforma_id: 'X', estado: 'despachado', fecha_recepcion: haceDias(2),
+    estado_desde: cuando(2), pila_id: null },
+  { id: 'f', plataforma_id: 'X', estado: 'alimentado', fecha_recepcion: haceDias(2),
+    estado_desde: cuando(2), pila_id: null },
+  // y este es de otra plataforma
+  { id: 'g', plataforma_id: 'Y', estado: 'por_muestrear', fecha_recepcion: haceDias(1),
+    estado_desde: cuando(1), pila_id: null }
+], pilas: [
+  { id: 'P1', plataforma_id: 'X', estado: 'abierta' },
+  { id: 'P2', plataforma_id: 'X', estado: 'consumida' },   // archivada: no cuenta
+  { id: 'P3', plataforma_id: 'Y', estado: 'abierta' }
+] };
+
+const { resumen: calcular, DIAS_QUIETO } = armar(S);
+const x = calcular('X');
+
+ok(x.total === 4, `cuenta los 4 que están en el patio (contó ${x.total})`);
+ok(x.porEstado.despachado === undefined && x.porEstado.alimentado === undefined,
+   'y lo despachado y lo alimentado no aparecen ni en el desglose');
+ok(x.pilas === 1, `una sola pila abierta; la archivada no se dibuja ni se cuenta (contó ${x.pilas})`);
+ok(x.enPila === 2 && x.sueltos === 2,
+   `dos dentro de pila y dos sueltos (${x.enPila} y ${x.sueltos})`);
+ok(x.nuevos === 2, `dos llegaron esta semana (contó ${x.nuevos})`);
+ok(x.viejo === 40, `el más viejo lleva 40 días (dijo ${x.viejo})`);
+ok(x.media === Math.round((0 + 3 + 40 + 20) / 4),
+   `la media sale de los cuatro que están, no de los siete (dijo ${x.media})`);
+// Solo el de 40 días. El de devolución lleva 20 y el corte está en 21:
+// se deja justo por debajo a propósito, para que la prueba se entere si
+// alguien cambia el umbral o el "mayor o igual" por un "mayor".
+ok(x.quietos === 1,
+   `atascado solo el de 40 días; el de 20 no llega al corte de ${DIAS_QUIETO} (dijo ${x.quietos})`);
+ok(x.sinRecoger === 1, `uno se pasó de la fecha de recogida (dijo ${x.sinRecoger})`);
+
+// La otra plataforma se cuenta sola: si se colaran los lotes de al lado,
+// el tablero mentiría justo en lo que se mira para comparar.
+const y = calcular('Y');
+ok(y.total === 1 && y.pilas === 1, `la otra plataforma va por su cuenta (${y.total} lote, ${y.pilas} pila)`);
+
+// Una plataforma vacía no puede dar NaN ni dividir por cero: al empezar,
+// cuatro de las cinco están así.
+const vacia = calcular('Z');
+ok(vacia.total === 0 && vacia.media === 0 && vacia.viejo === 0,
+   'una plataforma vacía da ceros, no NaN');
+
+// ---------------------------------------------------------------------
 titulo('El informe dice en qué plataforma está y por dónde se alimentó.');
 
 // Se pidió textualmente: "al momento de explotar el excel debería
