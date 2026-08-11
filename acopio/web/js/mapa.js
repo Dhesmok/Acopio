@@ -46,6 +46,14 @@ export const COLORES_BASE = {
 };
 const paleta = () => ({ ...COLORES_BASE, ...(datos.config?.colores || {}) });
 
+// Ya no está en el patio: despachado se lo llevaron, alimentado se
+// consumió en planta. 'plataforma' es el estado retirado, por si queda
+// alguno suelto. Ni se dibuja ni se le puede soltar nada encima —lo
+// segundo importa: una figura invisible que sigue atrapando el dedo es
+// de las cosas más difíciles de entender desde el patio.
+const fuera = (l) => l.estado === 'despachado' || l.estado === 'alimentado'
+                  || l.estado === 'plataforma';
+
 // Deja la interacción en cero. Es CRÍTICO: si queda un puntero apuntado
 // de un arrastre que se interrumpió (por ejemplo porque el lienzo se
 // rearmó mientras el dedo seguía abajo), interactuando() sigue dando
@@ -219,7 +227,6 @@ export function pintar(d) {
   if (!repintadoPropio) repintadoPendiente = null;
   if (!svg.getAttribute('viewBox')) encuadrar();
   const c = datos.config;
-  const fuera = (l) => l.estado === 'despachado' || l.estado === 'plataforma';
   // `naciendo` es el lote que la volqueta está descargando en la capa de
   // encima: no se dibuja hasta que el material cae, o se vería aparecer
   // antes de que lo traigan.
@@ -681,8 +688,8 @@ export function blancoEn(pt, excluirId) {
   const p = datos.pilas.filter((x) =>
     x.estado === 'abierta' && x.id !== excluirId && contiene(x, pt));
   if (p.length) return { tipo: 'pila', obj: p[0] };
-  const l = datos.lotes.filter((x) => !x.pila_id && x.id !== excluirId &&
-    x.estado !== 'despachado' && x.estado !== 'plataforma' && contiene(x, pt));
+  const l = datos.lotes.filter((x) =>
+    !x.pila_id && x.id !== excluirId && !fuera(x) && contiene(x, pt));
   if (l.length) return { tipo: 'lote', obj: l[0] };
   return null;
 }

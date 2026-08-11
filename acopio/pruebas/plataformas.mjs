@@ -180,6 +180,22 @@ ok(/plataforma_id: S\.plataforma/.test(fondo),
    'y una figura nueva del fondo nace en esta plataforma');
 
 // ---------------------------------------------------------------------
+titulo('La tarjeta de la plataforma cuenta lo mismo que dibuja su plano.');
+
+// Contaba los despachados, que ya se los llevó el camión y el plano no
+// dibuja: la tarjeta decía más lotes de los que se ven al entrar.
+ok(/const enElPatio = \(l\) => !alimentado\(l\)\s*\n\s*&& l\.estado !== 'despachado'/.test(app),
+   'hay una sola definición de "está en el patio", y deja fuera lo despachado');
+const res = app.slice(app.indexOf('const resumen = (id) =>'),
+                      app.indexOf('function pintarPlataformas()'));
+ok(/l\.plataforma_id === id && enElPatio\(l\)/.test(res),
+   'la cuenta de la tarjeta la usa');
+const mini = app.slice(app.indexOf('function panelPlataformas()'),
+                       app.indexOf('function panelPlataformas()') + 2500);
+ok(/enElPatio\(l\) && !l\.pila_id/.test(mini),
+   'y la miniatura del selector dibuja lo mismo que la cuenta');
+
+// ---------------------------------------------------------------------
 titulo('El informe dice en qué plataforma está y por dónde se alimentó.');
 
 // Se pidió textualmente: "al momento de explotar el excel debería

@@ -73,9 +73,15 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
 const plataformaActual = () =>
   S.plataformas.find((p) => p.id === S.plataforma) || S.plataformas[0] || null;
 
+// El nombre de la plataforma se repinta AQUÍ, y no en cada sitio que
+// cambia de plataforma: el chip de la cabecera se quedaba con el nombre
+// anterior porque los dos caminos que llevan al mapa —la pestaña y el
+// selector— no pasan por `pintar`. Repintarlo donde cambia el dato es el
+// único sitio donde no se puede olvidar.
 const irAPlataforma = (id) => {
   S.plataforma = id;
   localStorage.setItem('acopio-plataforma', id);
+  pintarChipPlataforma();
 };
 
 // Un lote alimentado se consumió en planta: sigue en la base con todo su
@@ -83,6 +89,11 @@ const irAPlataforma = (id) => {
 // desaparece también de la lista; el admin lo sigue viendo, que para eso
 // es la trazabilidad.
 const alimentado = (l) => l.estado === 'alimentado';
+// Lo que de verdad está en el patio, que es lo que el plano dibuja. Un
+// lote despachado o alimentado ya se fue: contarlo hacía que la tarjeta
+// de la plataforma dijera más lotes de los que se ven en su plano.
+const enElPatio = (l) => !alimentado(l)
+  && l.estado !== 'despachado' && l.estado !== 'plataforma';
 const nombrePlataforma = (id) => S.plataformas.find((p) => p.id === id)?.nombre || '—';
 const nombrePunto = (id) => S.puntos.find((p) => p.id === id)?.nombre || '—';
 const seVeEnLaLista = (l) => !alimentado(l) || esAdmin();
@@ -779,10 +790,11 @@ function pintarChipPlataforma() {
   c.textContent = p ? p.nombre : '—';
 }
 
-// Cuántos lotes hay en cada plataforma y cómo están. Los alimentados no
-// cuentan: ya no están en el patio.
+// Cuántos lotes hay en cada plataforma y cómo están. Se cuenta lo mismo
+// que se dibuja: los despachados y los alimentados ya salieron del patio
+// y no cuentan, igual que no se pintan en el plano.
 const resumen = (id) => {
-  const suyos = S.lotes.filter((l) => l.plataforma_id === id && !alimentado(l));
+  const suyos = S.lotes.filter((l) => l.plataforma_id === id && enElPatio(l));
   const porEstado = {};
   for (const l of suyos) porEstado[l.estado] = (porEstado[l.estado] || 0) + 1;
   return { total: suyos.length, porEstado,
@@ -841,7 +853,7 @@ function panelPlataformas() {
       <svg viewBox="0 0 ${p.ancho || 1000} ${p.alto || 700}" preserveAspectRatio="xMidYMid meet">
         <rect width="${p.ancho || 1000}" height="${p.alto || 700}"
           fill="${esc(p.color_fondo || '#e4e7e2')}"/>
-        ${S.lotes.filter((l) => l.plataforma_id === p.id && !alimentado(l) && !l.pila_id)
+        ${S.lotes.filter((l) => l.plataforma_id === p.id && enElPatio(l) && !l.pila_id)
           .slice(0, 60).map((l) => `<circle cx="${l.x}" cy="${l.y}" r="${Math.max(l.rx || 40, 26)}"
             fill="${paletaActual()[l.estado] || '#5f6863'}"/>`).join('')}
         ${S.pilas.filter((x) => x.plataforma_id === p.id && x.estado === 'abierta')
@@ -1368,6 +1380,14 @@ function irAlMapa() {
   S.pestana = 'mapa';
   document.querySelectorAll('nav.pestanas button')
     .forEach((x) => x.setAttribute('aria-selected', String(x.dataset.t === 'mapa')));
+  // El plano va de borde a borde, y esa clase es la que lo consigue.
+  // Sin ponerla aquí, llegar al mapa desde Plataformas o desde "ver en el
+  // mapa" lo dejaba metido dentro de los márgenes de la lista —encogido y
+  // con barra de desplazamiento— hasta que la siguiente sincronización
+  // pasaba por `pintar` y lo enderezaba. De ahí el "carga y se ajusta
+  // solo a los pocos segundos".
+  const m = $('#main');
+  if (m) m.className = 'a-sangre';
   montarMapa();
 }
 
