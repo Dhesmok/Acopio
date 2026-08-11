@@ -800,10 +800,11 @@ const DIAS_QUIETO = 21;
 // despachados y los alimentados ya salieron del patio y no cuentan,
 // igual que no se pintan en el plano.
 //
-// La tarjeta contesta tres preguntas, en este orden: QUÉ HAY (cuántos y
-// en qué estado), CÓMO ESTÁ PUESTO (en pilas o suelto, qué entró esta
-// semana) y QUÉ CORRE PRISA (sin recoger, atascado). Antes solo decía el
-// total y una barra de colores sin números, que es mirar sin ver.
+// La TARJETA de cada plataforma enseña solo el total y el desglose por
+// estado: se probó con más datos —pilas, sueltos, antigüedad, porcentaje
+// del patio— y era demasiado para lo que se viene a hacer aquí, que es
+// escoger plataforma. El resto se usa arriba, en el total del patio, y
+// en el selector rápido.
 const resumen = (id) => {
   const suyos = S.lotes.filter((l) => l.plataforma_id === id && enElPatio(l));
   const porEstado = {};
@@ -812,22 +813,13 @@ const resumen = (id) => {
   // cuándo llegó el material al patio, no cuándo se tecleó.
   const edades = suyos.map((l) => diasEntreFechas(l.fecha_recepcion))
                       .filter((n) => Number.isFinite(n));
-  const suma = edades.reduce((a, b) => a + b, 0);
   return {
     total: suyos.length, porEstado,
     pilas: S.pilas.filter((p) => p.plataforma_id === id && p.estado === 'abierta').length,
-    enPila: suyos.filter((l) => l.pila_id).length,
-    sueltos: suyos.filter((l) => !l.pila_id).length,
     nuevos: edades.filter((d) => d <= DIAS_NUEVO).length,
-    viejo: edades.length ? Math.max(...edades) : 0,
-    media: edades.length ? Math.round(suma / edades.length) : 0,
     // Lleva tres semanas en el mismo estado: nadie lo ha tocado.
     quietos: suyos.filter((l) => l.estado_desde && dias(l.estado_desde) >= DIAS_QUIETO).length,
-    // Lo que ya se pasó de fecha va en rojo; lo que está citado
-    // para más adelante se cuenta, pero sin alarma: pintar de rojo
-    // una recogida de la semana que viene enseña a no mirar el rojo.
-    sinRecoger: suyos.filter(vencido).length,
-    porRecoger: suyos.filter((l) => enDevolucion(l) && l.fecha_recogida).length
+    sinRecoger: suyos.filter(vencido).length
   };
 };
 
@@ -867,12 +859,10 @@ function pintarPlataformas() {
     const r = todos[i];
     const trozos = Object.entries(r.porEstado)
       .sort((a, b) => (ORDEN_ESTADO[a[0]] ?? 9) - (ORDEN_ESTADO[b[0]] ?? 9));
-    // El porcentaje del patio: es lo que dice de un vistazo si una
-    // plataforma está cargada o vacía comparada con las demás.
-    const parte = patio.total ? Math.round((r.total / patio.total) * 100) : 0;
     return `<button class="patio${p.id === S.plataforma ? ' viva' : ''}" data-id="${p.id}">
       <span class="fila1"><strong>${esc(p.nombre)}</strong>
-        <span class="tot">${r.total}<span class="uds"> lote${r.total === 1 ? '' : 's'}</span></span></span>
+        <span class="tot">${r.total}<span class="uds"> lote${r.total === 1 ? '' : 's'}</span></span>
+        <span class="flecha">›</span></span>
 
       ${r.total ? `<span class="barra-est">${trozos.map(([k, n]) =>
         `<span style="background:var(--${k});flex:${n}" title="${esc(ESTADOS[k] || k)}"></span>`).join('')}</span>`
@@ -883,21 +873,6 @@ function pintarPlataformas() {
            <b>${n}</b></span>`).join('')}</span>`
         : '<span class="pie"><span>Sin material en este momento</span></span>'}
 
-      ${r.total ? `<span class="cifras">
-        <span><b>${r.pilas}</b><i>pila${r.pilas === 1 ? '' : 's'}</i></span>
-        <span><b>${r.sueltos}</b><i>suelto${r.sueltos === 1 ? '' : 's'}</i></span>
-        <span><b>${r.nuevos}</b><i>esta semana</i></span>
-        <span><b>${r.media}</b><i>días de media</i></span>
-        <span><b>${r.viejo}</b><i>días el más viejo</i></span>
-        <span><b>${parte}%</b><i>del patio</i></span>
-      </span>` : ''}
-
-      <span class="pie">
-        ${r.sinRecoger ? `<span class="alerta">${r.sinRecoger} sin recoger</span>` : ''}
-        ${!r.sinRecoger && r.porRecoger ? `<span>${r.porRecoger} por recoger</span>` : ''}
-        ${r.quietos ? `<span>${r.quietos} sin moverse en ${
-          Math.round(DIAS_QUIETO / 7)} semanas</span>` : ''}
-        <span class="crece"></span><span class="flecha">›</span></span>
     </button>`;
   }).join('')}</div>`;
 
