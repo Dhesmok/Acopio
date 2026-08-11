@@ -1443,6 +1443,28 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .chip-plat[hidden] { display: none; }
 
 /* el tablero: cuánta carga hay en cada patio, sin abrir ninguno */
+
+/* El patio entero, arriba del todo. Sin un total no hay con qué comparar
+   una plataforma: "18" no dice nada, "18 de 42" sí. */
+.patio-total {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 2px solid var(--tinta); background: var(--tinta); color: var(--superficie);
+  padding: 14px 14px 12px; margin-top: 12px;
+}
+.patio-total .cifra {
+  font-family: var(--mono); font-size: 34px; font-weight: 800;
+  line-height: 1; letter-spacing: -.03em;
+}
+.patio-total .txt { font-size: 12.5px; font-weight: 600; opacity: .82; }
+.patio-total .mini-datos {
+  display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 9px;
+  font-size: 11.5px; font-weight: 600; opacity: .82;
+}
+.patio-total .mini-datos b { font-family: var(--mono); font-size: 13px; opacity: 1; }
+/* En la franja oscura el rojo de alarma no se lee: se avisa con el
+   amarillo de señalización, que sobre negro sí salta. */
+.patio-total .alerta { color: var(--amarillo); opacity: 1; }
+
 .tablero-plat { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
 .patio {
   display: flex; flex-direction: column; gap: 8px; width: 100%;
@@ -1458,8 +1480,38 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .patio .barra-est.vacia { background: repeating-linear-gradient(
   45deg, transparent, transparent 4px, var(--linea-suave) 4px, var(--linea-suave) 8px); }
 .patio .barra-est > span { display: block; min-width: 3px; }
-.patio .pie { display: flex; gap: 12px; align-items: center; color: var(--apagado); font-size: 11.5px; }
+
+/* La barra sola es mirar sin ver: no dice qué color es qué ni cuántos
+   hay. Debajo va la misma información con su nombre y su número. */
+.patio .leyenda {
+  display: flex; flex-wrap: wrap; gap: 3px 12px;
+  font-size: 11.5px; font-weight: 600; color: var(--apagado);
+}
+.patio .leyenda > span { display: inline-flex; align-items: center; gap: 5px; }
+.patio .leyenda i {
+  width: 9px; height: 9px; flex: 0 0 9px;
+  border: 1px solid var(--tinta); font-style: normal;
+}
+.patio .leyenda b { font-family: var(--mono); font-size: 12.5px; color: var(--tinta); }
+
+/* Las cifras de cómo está puesto el material. En rejilla y no en fila:
+   en un celular al sol, seis datos seguidos se leen como una frase larga
+   y ninguno destaca; en columnas se encuentra el que se busca. */
+.patio .cifras {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 6px;
+  border-top: 1px solid var(--linea-suave); padding-top: 9px;
+}
+.patio .cifras > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.patio .cifras b { font-family: var(--mono); font-size: 16px; font-weight: 800; line-height: 1; }
+.patio .cifras i {
+  font-style: normal; font-size: 10.5px; font-weight: 600; color: var(--apagado);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.patio .pie { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; color: var(--apagado); font-size: 11.5px; }
 .patio .pie .alerta { color: var(--devolucion); font-weight: 700; }
+/* empuja la flecha al borde derecho, quede lo que quede a su izquierda */
+.patio .crece { flex: 1 0 0; }
 .patio .flecha { font-size: 18px; line-height: 1; }
 
 /* el selector rápido: las cinco en miniatura */
@@ -1471,7 +1523,17 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .mini.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
 .mini svg { width: 100%; height: 92px; display: block; border-bottom: 2px solid var(--tinta); }
 .mini .nom { padding: 7px 9px 2px; font-weight: 800; font-size: 13px; text-align: left; }
-.mini .cnt { padding: 0 9px 8px; font-size: 11px; color: var(--apagado); text-align: left; }
+/* El número grande es lo que se busca al saltar de plataforma; debajo,
+   en pequeño, lo que decide si hay que ir: pilas abiertas y retrasos. */
+.mini .cnt {
+  padding: 0 9px 8px; text-align: left;
+  font-family: var(--mono); font-size: 17px; font-weight: 800; line-height: 1.1;
+}
+.mini .cnt-sub {
+  display: block; font-family: var(--sans); font-size: 10.5px;
+  font-weight: 600; color: var(--apagado); margin-top: 2px;
+}
+.mini .cnt-sub .alerta { color: var(--devolucion); }
 
 /* elegir a qué plataforma se manda algo */
 .acciones-plat { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }

@@ -790,20 +790,45 @@ function pintarChipPlataforma() {
   c.textContent = p ? p.nombre : '—';
 }
 
-// Cuántos lotes hay en cada plataforma y cómo están. Se cuenta lo mismo
-// que se dibuja: los despachados y los alimentados ya salieron del patio
-// y no cuentan, igual que no se pintan en el plano.
+// Cuánto tiene que llevar un lote para contar como recién llegado, y
+// cuánto sin que le pase nada para contar como atascado. Tres semanas
+// quietos es material del que alguien se olvidó.
+const DIAS_NUEVO = 7;
+const DIAS_QUIETO = 21;
+
+// Cómo está una plataforma. Se cuenta lo mismo que se dibuja: los
+// despachados y los alimentados ya salieron del patio y no cuentan,
+// igual que no se pintan en el plano.
+//
+// La tarjeta contesta tres preguntas, en este orden: QUÉ HAY (cuántos y
+// en qué estado), CÓMO ESTÁ PUESTO (en pilas o suelto, qué entró esta
+// semana) y QUÉ CORRE PRISA (sin recoger, atascado). Antes solo decía el
+// total y una barra de colores sin números, que es mirar sin ver.
 const resumen = (id) => {
   const suyos = S.lotes.filter((l) => l.plataforma_id === id && enElPatio(l));
   const porEstado = {};
   for (const l of suyos) porEstado[l.estado] = (porEstado[l.estado] || 0) + 1;
-  return { total: suyos.length, porEstado,
-           pilas: S.pilas.filter((p) => p.plataforma_id === id && p.estado === 'abierta').length,
-           // Lo que ya se pasó de fecha va en rojo; lo que está citado
-           // para más adelante se cuenta, pero sin alarma: pintar de rojo
-           // una recogida de la semana que viene enseña a no mirar el rojo.
-           sinRecoger: suyos.filter(vencido).length,
-           porRecoger: suyos.filter((l) => enDevolucion(l) && l.fecha_recogida).length };
+  // Por la fecha de recepción, no por `creado_en`: lo que importa es
+  // cuándo llegó el material al patio, no cuándo se tecleó.
+  const edades = suyos.map((l) => diasEntreFechas(l.fecha_recepcion))
+                      .filter((n) => Number.isFinite(n));
+  const suma = edades.reduce((a, b) => a + b, 0);
+  return {
+    total: suyos.length, porEstado,
+    pilas: S.pilas.filter((p) => p.plataforma_id === id && p.estado === 'abierta').length,
+    enPila: suyos.filter((l) => l.pila_id).length,
+    sueltos: suyos.filter((l) => !l.pila_id).length,
+    nuevos: edades.filter((d) => d <= DIAS_NUEVO).length,
+    viejo: edades.length ? Math.max(...edades) : 0,
+    media: edades.length ? Math.round(suma / edades.length) : 0,
+    // Lleva tres semanas en el mismo estado: nadie lo ha tocado.
+    quietos: suyos.filter((l) => l.estado_desde && dias(l.estado_desde) >= DIAS_QUIETO).length,
+    // Lo que ya se pasó de fecha va en rojo; lo que está citado
+    // para más adelante se cuenta, pero sin alarma: pintar de rojo
+    // una recogida de la semana que viene enseña a no mirar el rojo.
+    sinRecoger: suyos.filter(vencido).length,
+    porRecoger: suyos.filter((l) => enDevolucion(l) && l.fecha_recogida).length
+  };
 };
 
 function pintarPlataformas() {
@@ -818,20 +843,60 @@ function pintarPlataformas() {
         : 'Hace falta señal para bajarlas la primera vez.'}</div>`;
     return;
   }
-  m.innerHTML = `<div class="tablero-plat">${S.plataformas.map((p) => {
-    const r = resumen(p.id);
+  // Arriba del todo, el patio entero: sin esto no hay con qué comparar
+  // una plataforma. "18 de 42" dice mucho más que "18".
+  const todos = S.plataformas.map((p) => resumen(p.id));
+  const suma = (c) => todos.reduce((a, r) => a + r[c], 0);
+  const patio = { total: suma('total'), pilas: suma('pilas'),
+                  sinRecoger: suma('sinRecoger'), quietos: suma('quietos'),
+                  nuevos: suma('nuevos') };
+
+  m.innerHTML = `
+    <div class="patio-total">
+      <span class="cifra">${patio.total}</span>
+      <span class="txt">lote${patio.total === 1 ? '' : 's'} en el patio,
+        repartidos en ${S.plataformas.length} plataformas</span>
+      <span class="mini-datos">
+        <span><strong>${patio.pilas}</strong> pila${patio.pilas === 1 ? '' : 's'} abierta${patio.pilas === 1 ? '' : 's'}</span>
+        <span><strong>${patio.nuevos}</strong> esta semana</span>
+        ${patio.sinRecoger ? `<span class="alerta"><strong>${patio.sinRecoger}</strong> sin recoger</span>` : ''}
+        ${patio.quietos ? `<span><strong>${patio.quietos}</strong> sin moverse</span>` : ''}
+      </span>
+    </div>
+    <div class="tablero-plat">${S.plataformas.map((p, i) => {
+    const r = todos[i];
     const trozos = Object.entries(r.porEstado)
       .sort((a, b) => (ORDEN_ESTADO[a[0]] ?? 9) - (ORDEN_ESTADO[b[0]] ?? 9));
+    // El porcentaje del patio: es lo que dice de un vistazo si una
+    // plataforma está cargada o vacía comparada con las demás.
+    const parte = patio.total ? Math.round((r.total / patio.total) * 100) : 0;
     return `<button class="patio${p.id === S.plataforma ? ' viva' : ''}" data-id="${p.id}">
       <span class="fila1"><strong>${esc(p.nombre)}</strong>
-        <span class="tot">${r.total}<span class="uds"> lotes</span></span></span>
+        <span class="tot">${r.total}<span class="uds"> lote${r.total === 1 ? '' : 's'}</span></span></span>
+
       ${r.total ? `<span class="barra-est">${trozos.map(([k, n]) =>
         `<span style="background:var(--${k});flex:${n}" title="${esc(ESTADOS[k] || k)}"></span>`).join('')}</span>`
         : '<span class="barra-est vacia"></span>'}
+
+      ${r.total ? `<span class="leyenda">${trozos.map(([k, n]) =>
+        `<span><i style="background:var(--${k})"></i>${esc(ESTADOS[k] || k)}
+           <b>${n}</b></span>`).join('')}</span>`
+        : '<span class="pie"><span>Sin material en este momento</span></span>'}
+
+      ${r.total ? `<span class="cifras">
+        <span><b>${r.pilas}</b><i>pila${r.pilas === 1 ? '' : 's'}</i></span>
+        <span><b>${r.sueltos}</b><i>suelto${r.sueltos === 1 ? '' : 's'}</i></span>
+        <span><b>${r.nuevos}</b><i>esta semana</i></span>
+        <span><b>${r.media}</b><i>días de media</i></span>
+        <span><b>${r.viejo}</b><i>días el más viejo</i></span>
+        <span><b>${parte}%</b><i>del patio</i></span>
+      </span>` : ''}
+
       <span class="pie">
-        ${r.pilas ? `<span>${r.pilas} pila${r.pilas === 1 ? '' : 's'}</span>` : ''}
-        ${r.sinRecoger ? `<span class="alerta">${r.sinRecoger} sin recoger</span>`
-          : r.porRecoger ? `<span>${r.porRecoger} por recoger</span>` : ''}
+        ${r.sinRecoger ? `<span class="alerta">${r.sinRecoger} sin recoger</span>` : ''}
+        ${!r.sinRecoger && r.porRecoger ? `<span>${r.porRecoger} por recoger</span>` : ''}
+        ${r.quietos ? `<span>${r.quietos} sin moverse en ${
+          Math.round(DIAS_QUIETO / 7)} semanas</span>` : ''}
         <span class="crece"></span><span class="flecha">›</span></span>
     </button>`;
   }).join('')}</div>`;
@@ -861,7 +926,9 @@ function panelPlataformas() {
             fill="none" stroke="#14171a" stroke-width="8" stroke-dasharray="26 14"/>`).join('')}
       </svg>
       <span class="nom">${esc(p.nombre)}</span>
-      <span class="cnt">${r.total}</span>
+      <span class="cnt">${r.total}
+        <span class="cnt-sub">${r.pilas ? `${r.pilas} pila${r.pilas === 1 ? '' : 's'}` : 'sin pilas'}${
+          r.sinRecoger ? ` · <b class="alerta">${r.sinRecoger} sin recoger</b>` : ''}</span></span>
     </button>`;
   }).join('')}</div>`, '<h2>Plataformas</h2>');
 
