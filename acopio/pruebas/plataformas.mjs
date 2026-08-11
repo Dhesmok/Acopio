@@ -255,12 +255,7 @@ ok(x.total === 4, `cuenta los 4 que están en el patio (contó ${x.total})`);
 ok(x.porEstado.despachado === undefined && x.porEstado.alimentado === undefined,
    'y lo despachado y lo alimentado no aparecen ni en el desglose');
 ok(x.pilas === 1, `una sola pila abierta; la archivada no se dibuja ni se cuenta (contó ${x.pilas})`);
-ok(x.enPila === 2 && x.sueltos === 2,
-   `dos dentro de pila y dos sueltos (${x.enPila} y ${x.sueltos})`);
 ok(x.nuevos === 2, `dos llegaron esta semana (contó ${x.nuevos})`);
-ok(x.viejo === 40, `el más viejo lleva 40 días (dijo ${x.viejo})`);
-ok(x.media === Math.round((0 + 3 + 40 + 20) / 4),
-   `la media sale de los cuatro que están, no de los siete (dijo ${x.media})`);
 // Solo el de 40 días. El de devolución lleva 20 y el corte está en 21:
 // se deja justo por debajo a propósito, para que la prueba se entere si
 // alguien cambia el umbral o el "mayor o igual" por un "mayor".
@@ -273,11 +268,12 @@ ok(x.sinRecoger === 1, `uno se pasó de la fecha de recogida (dijo ${x.sinRecoge
 const y = calcular('Y');
 ok(y.total === 1 && y.pilas === 1, `la otra plataforma va por su cuenta (${y.total} lote, ${y.pilas} pila)`);
 
-// Una plataforma vacía no puede dar NaN ni dividir por cero: al empezar,
-// cuatro de las cinco están así.
+// Una plataforma vacía no puede dar NaN: al empezar, cuatro de las
+// cinco están así.
 const vacia = calcular('Z');
-ok(vacia.total === 0 && vacia.media === 0 && vacia.viejo === 0,
+ok(vacia.total === 0 && vacia.nuevos === 0 && vacia.quietos === 0 && vacia.pilas === 0,
    'una plataforma vacía da ceros, no NaN');
+ok(Object.keys(vacia.porEstado).length === 0, 'y su desglose por estado sale vacío');
 
 // ---------------------------------------------------------------------
 titulo('El informe dice en qué plataforma está y por dónde se alimentó.');
