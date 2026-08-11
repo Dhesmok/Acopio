@@ -456,6 +456,13 @@ input.placa { text-transform: uppercase; }
   font-family: var(--mono); font-size: 12px; font-weight: 800;
   border: 2px solid var(--tinta); border-radius: 0; padding: 1.5px 7px;
 }
+/* La plataforma, debajo del estado: dice DÓNDE está el lote, que es la
+   misma pregunta que contesta el estado. Va en letra normal y sin filo
+   para que no compita con el bloque de color de arriba. */
+.plat-tag {
+  font-size: 11.5px; font-weight: 700; color: var(--apagado);
+  white-space: nowrap; text-align: right;
+}
 .dias { font-size: 11.5px; color: var(--apagado); }
 .dias[data-alerta="si"] { color: var(--vencida); font-weight: 700; }
 .sin-subir { font-size: 11px; color: var(--por_muestrear); font-weight: 700; }
@@ -1469,6 +1476,3 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 /* elegir a qué plataforma se manda algo */
 .acciones-plat { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
 .acciones-plat .btn { width: 100%; }
-
-/* en qué plataforma está cada lote, en la lista */
-.dnd-plat { font-weight: 700; }

@@ -1826,6 +1826,15 @@ function pintarLista() {
   document.querySelectorAll('.lote').forEach((c) => { c.onclick = () => fichaLote(c.dataset.id); });
 }
 
+// La tarjeta tiene DOS columnas, y cada una responde a una pregunta
+// distinta: la izquierda es "cuál es este lote" —código, proveedor,
+// volqueta, cuánto lleva— y la derecha "dónde y cómo está" —estado,
+// plataforma, pila—.
+//
+// La plataforma estaba a la izquierda, en un renglón para ella sola, y
+// era el cuarto de la columna: cuatro renglones apretados a un lado y el
+// estado solo al otro. Contesta a "dónde está", así que su sitio es
+// debajo del estado, y de paso la izquierda se queda en dos renglones.
 function tarjeta(l, prov, pilas) {
   const v = vencido(l), r = textoRecogida(l), d = dias(l.estado_desde);
   return `<button class="lote" data-id="${l.id}" data-estado="${l.estado}" data-vencida="${v ? 'si' : 'no'}">
@@ -1836,15 +1845,14 @@ function tarjeta(l, prov, pilas) {
         <span>${esc(prov[l.proveedor_id] || '—')}</span>
         ${l.placa ? `<span>${esc(placasTexto(l))}</span>` : ''}
         <span class="dias" data-alerta="${v ? 'si' : 'no'}">${r || (d === 0 ? 'hoy' : `hace ${d} d`)}</span>
-      </span>
-      <span class="meta">
-        <span class="dnd-plat">${esc(nombrePlataforma(l.plataforma_id))}</span>
         ${alimentado(l) ? `<span class="dias">alimentado${
           l.punto_id ? ` por ${esc(nombrePunto(l.punto_id))}` : ''}</span>` : ''}
       </span>
     </span>
     <span class="lado">
       <span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span>
+      ${S.plataformas.length > 1
+        ? `<span class="plat-tag">${esc(nombrePlataforma(l.plataforma_id))}</span>` : ''}
       ${l.pila_id ? `<span class="pila-tag">Pila ${esc(pilas[l.pila_id] || '?')}</span>` : ''}
       ${l._rechazado ? '<span class="sin-subir" data-error="si">rechazado</span>'
         : S.idsPendientes.has(l.id) ? '<span class="sin-subir">sin subir</span>' : ''}
