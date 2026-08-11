@@ -646,4 +646,50 @@ ok(Math.abs(trasArrastre.w - trasPellizco.w) < 0.01,
    'y arrastrar no cambia el acercamiento');
 disparar('pointerup', dedo(1, 300, 300));
 
+// ---------------------------------------------------------------------
+titulo('Un lote alimentado ya no está en el patio: ni se dibuja ni estorba.');
+
+// Alimentado quiere decir que se consumió en planta. En la vuelta normal
+// la app ya no se lo pasa al plano, pero mirando otro día sí llegan
+// lotes con el estado que tenían ese día, y ahí el plano tiene que
+// saberlo por su cuenta.
+const comido = { id: 'lc', codigo: 'PG9001', estado: 'alimentado', pila_id: null,
+                 forma: 'elipse', x: 300, y: 300, rx: 46, ry: 34, rot: 0 };
+const sigue  = { id: 'ls', codigo: 'PG9002', estado: 'por_muestrear', pila_id: null,
+                 forma: 'elipse', x: 600, y: 300, rx: 46, ry: 34, rot: 0 };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+              lotes: [comido, sigue] });
+unoAUno();
+ok(!lienzo.innerHTML.includes('PG9001'), 'el alimentado no se dibuja');
+ok(lienzo.innerHTML.includes('PG9002'), 'y el que sigue en el patio sí');
+
+// Y lo que no se ve tampoco puede atrapar el dedo: soltar un lote encima
+// de una figura invisible es de lo más difícil de entender desde el patio.
+ok(Mapa.blancoEn({ x: 300, y: 300 }) === null,
+   'soltar algo sobre donde estaba no lo encuentra');
+ok(Mapa.blancoEn({ x: 600, y: 300 })?.obj?.id === 'ls',
+   'y sobre el que sí está, lo encuentra normal');
+
+// ---------------------------------------------------------------------
+titulo('Llegar al mapa por cualquier camino lo deja a sangre completa.');
+
+// El plano va de borde a borde: esa clase es la que le quita los
+// márgenes de la lista. `pintar` la ponía, pero `irAlMapa` —el camino que
+// usan Plataformas y "ver en el mapa"— no, así que el plano llegaba
+// encogido y con barra de desplazamiento hasta que la sincronización
+// siguiente pasaba por `pintar` y lo enderezaba solo a los pocos
+// segundos.
+const irAlMapaSrc = fuenteApp.slice(fuenteApp.indexOf('function irAlMapa()'),
+                                    fuenteApp.indexOf('function textoFiltro()'));
+ok(/m\.className = 'a-sangre'/.test(irAlMapaSrc),
+   'irAlMapa deja el plano a sangre, sin esperar a la vuelta siguiente');
+
+// Y el nombre de la plataforma se repinta donde cambia el dato, no en
+// cada pantalla: los dos caminos que llevan al mapa no pasan por
+// `pintar`, así que el chip de arriba se quedaba con el nombre anterior.
+const irAPlat = fuenteApp.slice(fuenteApp.indexOf('const irAPlataforma = '),
+                                fuenteApp.indexOf('const alimentado = '));
+ok(/pintarChipPlataforma\(\)/.test(irAPlat),
+   'y cambiar de plataforma repinta su nombre en la cabecera');
+
 cerrar();

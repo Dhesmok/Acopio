@@ -698,6 +698,16 @@ const RECONCILIAR_CADA = 60 * 60_000;
 // —que es lo normal en el patio— hacía treinta reconciliaciones: los
 // catálogos enteros cada vez, para nada.
 let ultimoCompleto = null;           // sin leer todavía; en cero: toca
+
+// Qué catálogos se bajan. Sube este número al AÑADIR uno.
+//
+// Sin esto, las plataformas no llegaban. Un celular que ya tenía la app
+// abierta lleva su marca de "hace poco pasé lista", así que al actualizar
+// se quedaba hasta una hora sin bajar la tabla nueva. Y sin plataformas
+// la app no puede filtrar nada: el plano enseñaba los lotes de las cinco
+// encima del mismo patio, la pantalla de Plataformas salía vacía y "otro
+// día" no dibujaba ni un lote. Todo eso era lo mismo.
+const FORMA_CATALOGOS = 2;
 let marcados = [];                   // filas pintadas como rechazadas la vuelta pasada
 
 // La marca de agua sale de las filas RECIBIDAS, no del reloj del celular:
@@ -762,7 +772,12 @@ async function bajar() {
     // no volvería a reconciliar nunca. Si está por delante, no vale.
     if (ultimoCompleto > Date.now()) ultimoCompleto = 0;
   }
-  const completo = Date.now() - ultimoCompleto > RECONCILIAR_CADA;
+  // Se pasa lista cada hora, y ADEMÁS la primera vez que este celular
+  // corre una versión de la app que baja un catálogo nuevo. Esperar a la
+  // hora dejaba la app a medias justo después de actualizarla, que es
+  // cuando peor se ve. Pasa UNA vez: en cuanto se baja, queda apuntado.
+  const nuevos = Number(await meta('forma_catalogos') || 0) < FORMA_CATALOGOS;
+  const completo = nuevos || Date.now() - ultimoCompleto > RECONCILIAR_CADA;
   const mLotes   = await meta('marca_lotes');
   const mPilas   = await meta('marca_pilas');
   const mEventos = await meta('marca_eventos');
@@ -820,6 +835,7 @@ async function bajar() {
     if (cfg.data) { await idb.vaciar('config'); await idb.guardar('config', cfg.data); }
     ultimoCompleto = Date.now();
     await meta('ultimo_completo', ultimoCompleto);
+    await meta('forma_catalogos', FORMA_CATALOGOS);
   }
 
   await idb.varios('pilas', pil.data);
