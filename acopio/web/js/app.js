@@ -148,7 +148,7 @@ const fechaLocal = (t) => {
 };
 const dias = (t) => Math.round((Date.parse(hoyISO()) - Date.parse(fechaLocal(t))) / 86_400_000);
 // La recogida es un compromiso de la DEVOLUCIÓN: el proveedor tiene
-// hasta tal día para venir por su material. Si el lote pasó a otro
+// hasta tal día para venir por su material. Si el lote pas�� a otro
 // estado, la fecha que quedó guardada en la fila ya no compromete a
 // nadie, así que ni se muestra ni cuenta como vencida. Antes seguía
 // saliendo en la ficha, en la lista y como borde de alarma en el plano
@@ -435,6 +435,9 @@ function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
     if (this.disabled) return;
     const etiqueta = this.textContent;
     this.disabled = true;
+    // `aria-busy` enciende la cinta de obra en marcha del botón (styles.css)
+    // y avisa al lector de pantalla de que está trabajando.
+    this.setAttribute('aria-busy', 'true');
     this.textContent = ocupado;
     try {
       await fn.call(this, ev);
@@ -443,6 +446,7 @@ function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
     } finally {
       // si la hoja ya se cerró el nodo está suelto y esto no molesta
       this.disabled = false;
+      this.removeAttribute('aria-busy');
       this.textContent = etiqueta;
     }
   };
@@ -519,7 +523,7 @@ function pantallaIngreso() {
   $('#clave').onkeydown = (e) => { if (e.key === 'Enter') $('#entrar').click(); };
   $('#entrar').onclick = async () => {
     const b = $('#entrar');
-    b.disabled = true; b.textContent = 'Entrando…';
+    b.disabled = true; b.setAttribute('aria-busy', 'true'); b.textContent = 'Entrando…';
     const v = $('#correo').value.trim().toLowerCase();
     const { data, error } = await sb.auth.signInWithPassword({
       email: v.includes('@') ? v : `${v}@${DOMINIO_USUARIOS}`,
@@ -533,7 +537,7 @@ function pantallaIngreso() {
         : /invalid login/i.test(error.message)
           ? 'Usuario o contraseña incorrectos.'
           : 'No se pudo entrar. Avisa al encargado del sistema.';
-      b.disabled = false; b.textContent = 'Entrar';
+      b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = 'Entrar';
       return;
     }
     abrirSesion(data.user);

@@ -612,6 +612,25 @@ input.placa { text-transform: uppercase; }
 .btn:not(.btn-lleno):not(.btn-peligro):not(.btn-guardar):hover { background: var(--piso); }
 .btn-lleno:hover { background: var(--tinta-2); }
 
+/* Ocupado: un botón que está escribiendo no se apaga como uno deshabilitado
+   —sigue encendido— y le nace una cinta de obra que AVANZA en el canto
+   inferior. No es un giro genérico de "software": es la misma cinta de
+   peligro de la cabecera, ahora en marcha, diciendo "trabajando". Es la
+   única señal de progreso que necesita alguien mirando de reojo con el
+   celular en la mano. */
+:where(.acciones) button[aria-busy="true"], .btn[aria-busy="true"] {
+  opacity: 1; cursor: progress; position: relative; overflow: hidden;
+  transform: none;
+}
+:where(.acciones) button[aria-busy="true"]::after, .btn[aria-busy="true"]::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+  background: repeating-linear-gradient(135deg,
+    var(--amarillo) 0 10px, var(--tinta) 10px 20px);
+  background-size: 28.28px 100%;
+  animation: cinta-marcha 520ms linear infinite;
+}
+@keyframes cinta-marcha { to { background-position: 28.28px 0; } }
+
 .campo { margin-bottom: 13px; }
 .campo label {
   display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em;
@@ -677,7 +696,14 @@ input.placa { text-transform: uppercase; }
   content: ''; display: block; height: 9px; margin-top: 22px;
   background: repeating-linear-gradient(135deg,
     var(--amarillo) 0 12px, var(--tinta) 12px 24px);
+  /* la cinta se DIBUJA de izquierda a derecha al abrir, como quien
+     desenrolla la cinta de peligro sobre la mesa. Un solo gesto, después
+     se queda quieta: la portada es lo único que no está resolviendo una
+     tarea, así que se permite este respiro. */
+  transform: scaleX(0); transform-origin: left center;
+  animation: desenrollar-cinta 520ms var(--curva-firme) 240ms both;
 }
+@keyframes desenrollar-cinta { to { transform: scaleX(1); } }
 
 .vacio {
   text-align: center; padding: 48px 20px; color: var(--apagado);
