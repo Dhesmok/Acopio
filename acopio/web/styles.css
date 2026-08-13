@@ -1375,6 +1375,31 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   padding: 3px 6px;
 }
 
+/* En qué OTRAS plataformas está lo que se busca. Va pegado debajo del
+   buscador, en amarillo de señalización: es la respuesta a "aquí no", y
+   tiene que verse antes de que a nadie le dé tiempo a rendirse. */
+.otras-plat {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  width: min(280px, calc(100vw - 110px));
+  margin-top: 6px;
+}
+.otras-plat:empty { display: none; }
+.otras-plat .rot {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--tinta);
+  background: var(--superficie); border: 2px solid var(--tinta); padding: 3px 6px;
+  box-shadow: var(--sombra-media);
+}
+.otras-plat button {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 2px solid var(--tinta); border-radius: 0; padding: 4px 8px;
+  background: var(--amarillo); color: var(--tinta);
+  font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+  box-shadow: var(--sombra-media);
+}
+.otras-plat button b { font-family: var(--mono); font-size: 12.5px; }
+.otras-plat button:active { transform: scale(.95); }
+
 .cerrar-buscar {
   flex: none; display: grid; place-items: center;
   width: 26px; height: 26px; padding: 0;

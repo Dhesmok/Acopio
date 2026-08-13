@@ -80,7 +80,7 @@ const plataformaActual = () =>
 // único sitio donde no se puede olvidar.
 const irAPlataforma = (id) => {
   S.plataforma = id;
-  localStorage.setItem('acopio-plataforma', id);
+  recordar('acopio-plataforma', id);
   pintarChipPlataforma();
 };
 
@@ -133,6 +133,17 @@ const ICO = {
   diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
   campana:   ico('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
   visto:     ico('<path d="M20 6L9 17l-5-5"/>')
+};
+
+// Recordar una preferencia en el celular NUNCA puede tumbar lo que se
+// estaba haciendo. `localStorage` lanza cuando el navegador va en modo
+// privado, cuando el sitio tiene el almacenamiento bloqueado o cuando
+// está lleno; y como esto se llama en medio de acciones —cambiar de
+// plataforma, apagar los sonidos—, ese error se llevaba por delante el
+// resto de la acción. Es una comodidad: si no se puede guardar, se
+// pierde la preferencia al cerrar y ya.
+const recordar = (clave, valor) => {
+  try { localStorage.setItem(clave, valor); } catch { /* sin sitio o sin permiso */ }
 };
 
 const hoyISO = (mas = 0) => {
@@ -953,7 +964,7 @@ function pintarTareas() {
   // Solo se recuerdan las que siguen pendientes: una tarea cerrada ya no
   // puede volver a avisar, y así la lista no crece para siempre.
   S.avisadas = new Set(abiertas.map((t) => t.id));
-  try { localStorage.setItem('acopio-avisadas', JSON.stringify([...S.avisadas])); } catch { /* sin sitio */ }
+  recordar('acopio-avisadas', JSON.stringify([...S.avisadas]));
   if (nuevas.length && !esAdmin()) {
     sonar('tarea');
     // dos toques cortos para lo normal, tres largos para lo urgente
@@ -1446,26 +1457,57 @@ function textoFiltro() {
 // Lo que coincide se ve normal; lo demás se atenúa, no se esconde.
 // La búsqueda y el filtro se acumulan: buscar dentro de un filtro puesto
 // es lo que uno espera, no que el segundo borre al primero.
-const lotesQueCoinciden = () => {
+//
+// El criterio va aparte de la lista sobre la que se aplica, porque se
+// usa dos veces: sobre esta plataforma, para resaltar en el plano, y
+// sobre las demás, para poder decir en cuál está lo que se busca.
+const cumpleBusqueda = (l) => {
   const q = S.busquedaMapa.trim().toUpperCase();
   const f = S.mapaFiltro;
-  if (!q && f.campo === 'ninguno') return null;
+  // Solo por código. La pregunta que responde este buscador es "¿dónde
+  // está el PG1042?"; buscar por volqueta ya lo hace el botón de
+  // filtros de al lado, y teniéndolo ahí, aceptar placas aquí solo
+  // servía para que un código tecleado a medias trajera lotes que no
+  // se estaban buscando.
+  if (q && !l.codigo.toUpperCase().includes(q)) return false;
+  return f.campo === 'ninguno' ? true
+    : f.campo === 'proveedor' ? l.proveedor_id === f.valor
+    : f.campo === 'estado' ? l.estado === f.valor
+    : f.campo === 'placa' ? placasDe(l).includes(f.valor)
+    : f.campo === 'material' ? (l.material || 'granel') === f.valor
+    : true;
+};
+
+const lotesQueCoinciden = () => {
+  if (!S.busquedaMapa.trim() && S.mapaFiltro.campo === 'ninguno') return null;
   // Solo lo que está dibujado: resaltar un lote de otra plataforma no
-  // serviría de nada, porque en este plano no se ve.
-  return misLotes().filter((l) => {
-    // Solo por código. La pregunta que responde este buscador es "¿dónde
-    // está el PG1042?"; buscar por volqueta ya lo hace el botón de
-    // filtros de al lado, y teniéndolo ahí, aceptar placas aquí solo
-    // servía para que un código tecleado a medias trajera lotes que no
-    // se estaban buscando.
-    if (q && !l.codigo.toUpperCase().includes(q)) return false;
-    return f.campo === 'ninguno' ? true
-      : f.campo === 'proveedor' ? l.proveedor_id === f.valor
-      : f.campo === 'estado' ? l.estado === f.valor
-      : f.campo === 'placa' ? placasDe(l).includes(f.valor)
-      : f.campo === 'material' ? (l.material || 'granel') === f.valor
-      : true;
-  });
+  // serviría de nada, porque en este plano no se ve. Dónde está se dice
+  // aparte, debajo del buscador.
+  return misLotes().filter(cumpleBusqueda);
+};
+
+// Lo mismo, pero en las OTRAS plataformas, agrupado por plataforma.
+//
+// Buscar solo en el plano abierto contestaba "aquí no hay ninguno", que
+// es verdad y no sirve: el lote existe, está a dos plataformas, y para
+// dar con él había que ir abriéndolas una por una. Ahora se busca en el
+// patio entero y se dice en cuál está, con un toque para ir.
+//
+// Solo con texto escrito. Con un filtro a secas —"devolución"— habría
+// coincidencias en casi todas y el renglón estaría siempre puesto,
+// diciendo lo que ya se sabe.
+const coincidenEnOtras = () => {
+  if (!S.busquedaMapa.trim()) return [];
+  const porPlataforma = new Map();
+  for (const l of S.lotes) {
+    if (alimentado(l) || enEstaPlataforma(l) || !cumpleBusqueda(l)) continue;
+    porPlataforma.set(l.plataforma_id, (porPlataforma.get(l.plataforma_id) || 0) + 1);
+  }
+  // En el orden de la pantalla de Plataformas, no en el que vinieran los
+  // lotes: dos búsquedas seguidas tienen que dar la misma fila.
+  return S.plataformas
+    .filter((p) => porPlataforma.has(p.id))
+    .map((p) => ({ id: p.id, nombre: p.nombre, cuantos: porPlataforma.get(p.id) }));
 };
 
 function calcularDestacados() {
@@ -1567,7 +1609,8 @@ function pintarBuscadorMapa() {
              placeholder="Código del lote" value="${esc(S.busquedaMapa)}">
       <span class="conteo" id="q-conteo"></span>
       <button class="cerrar-buscar" id="q-cerrar" aria-label="Cerrar la búsqueda">${ICO.cerrar}</button>
-    </div>`;
+    </div>
+    <div class="otras-plat" id="q-otras"></div>`;
 
   const campo = $('#q-mapa');
   campo.oninput = () => {
@@ -1589,10 +1632,33 @@ function pintarBuscadorMapa() {
 function actualizarConteoBusqueda() {
   const n = $('#q-conteo');
   if (!n) return;
-  if (!S.busquedaMapa.trim()) { n.textContent = ''; n.dataset.vacio = 'no'; return; }
-  const cuantos = (lotesQueCoinciden() || []).length;
-  n.textContent = cuantos === 0 ? 'ninguno' : String(cuantos);
-  n.dataset.vacio = cuantos === 0 ? 'si' : 'no';
+  const aqui = S.busquedaMapa.trim() ? (lotesQueCoinciden() || []).length : 0;
+  if (!S.busquedaMapa.trim()) { n.textContent = ''; n.dataset.vacio = 'no'; }
+  else {
+    n.textContent = aqui === 0 ? 'aquí no' : String(aqui);
+    n.dataset.vacio = aqui === 0 ? 'si' : 'no';
+  }
+  pintarOtrasPlataformas(aqui);
+}
+
+// El renglón de "y en las demás está aquí". Cada plataforma con
+// coincidencias es un botón que lleva hasta ella SIN perder lo escrito:
+// se llega al otro plano con la búsqueda puesta y el lote ya encuadrado.
+function pintarOtrasPlataformas(aqui) {
+  const caja = $('#q-otras');
+  if (!caja) return;
+  const otras = coincidenEnOtras();
+  if (!otras.length) { caja.innerHTML = ''; return; }
+  caja.innerHTML = `<span class="rot">${aqui ? 'También en' : 'Está en'}</span>
+    ${otras.map((o) => `<button data-plat="${o.id}">${esc(o.nombre)}
+      <b>${o.cuantos}</b></button>`).join('')}`;
+  for (const b of caja.querySelectorAll('button')) b.onclick = () => {
+    irAPlataforma(b.dataset.plat);
+    S.recorrido = null; S.historia = null;
+    irAlMapa();               // remonta el plano; la búsqueda sigue puesta
+    Mapa.encuadrar();
+    enfocarBusqueda();        // y va hasta lo que se estaba buscando
+  };
 }
 
 // El plano se mueve mientras se escribe. Con muchas coincidencias no
@@ -1992,7 +2058,7 @@ function menuCuenta() {
   $('#cerrar').onclick = cerrarHoja;
   $('#mudo').onclick = () => {
     S.mudo = !S.mudo;
-    localStorage.setItem('acopio-mudo', S.mudo ? '1' : '0');
+    recordar('acopio-mudo', S.mudo ? '1' : '0');
     if (!S.mudo) sonar('tarea', .6);     // para oír que ya suena
     menuCuenta();
   };
@@ -2406,7 +2472,14 @@ function pedirRecogida(l) {
     <div class="sub">¿Hasta qué día tiene el proveedor para recoger el material?</div>
     <div class="campo" style="margin-top:14px">
       <label for="r-fecha">Fecha de recogida</label>
-      <input type="date" id="r-fecha" value="${hoyISO(DIAS_RECOGIDA_SUGERIDOS)}" min="${hoyISO()}">
+      <!-- Sin tope por abajo. Estaba cerrado a partir de hoy, y eso daba
+           por hecho que el compromiso se apunta el mismo día en que se
+           toma. En el patio no pasa: se declara la devolución de un lote
+           cuyo plazo se acordó —o se venció— hace semanas, y el
+           calendario no dejaba ni elegir el día. Una fecha pasada es un
+           dato correcto: quiere decir que ya va con retraso, y la app lo
+           enseña como tal. -->
+      <input type="date" id="r-fecha" value="${hoyISO(DIAS_RECOGIDA_SUGERIDOS)}">
     </div>
     <div class="campo">
       <label for="r-nota">Motivo</label>

@@ -276,6 +276,76 @@ ok(vacia.total === 0 && vacia.nuevos === 0 && vacia.quietos === 0 && vacia.pilas
 ok(Object.keys(vacia.porEstado).length === 0, 'y su desglose por estado sale vacío');
 
 // ---------------------------------------------------------------------
+titulo('La lupa del plano busca en TODO el patio, no solo en lo que se ve.');
+
+// Buscar solo en el plano abierto contestaba "aquí no hay ninguno", que
+// es verdad y no sirve de nada: el lote existe, está a dos plataformas,
+// y para dar con él había que ir abriéndolas una por una.
+const buscador = new Function('S', `
+  const placasDe = (l) => (l.placa || '').split(',').filter(Boolean);
+  ${trozo('const alimentado = (l) =>', 'const nombrePlataforma =')}
+  ${trozo('const enEstaPlataforma = (x) =>', 'const esAdmin =')}
+  ${trozo('const cumpleBusqueda = (l) =>', 'function calcularDestacados()')}
+  return { lotesQueCoinciden, coincidenEnOtras };
+`);
+
+const patio = {
+  plataformas: [{ id: 'T', nombre: 'Topsoil' }, { id: 'Y', nombre: 'Ye' },
+                { id: 'C', nombre: 'Plataforma 5' }],
+  plataforma: 'T',
+  mapaFiltro: { campo: 'ninguno', valor: null },
+  busquedaMapa: 'PG1042',
+  lotes: [
+    { id: '1', codigo: 'PG1001', estado: 'por_muestrear', plataforma_id: 'T' },
+    { id: '2', codigo: 'PG1042', estado: 'muestreado',    plataforma_id: 'Y' },
+    { id: '3', codigo: 'PG1042(2)', estado: 'facturado',  plataforma_id: 'Y' },
+    { id: '4', codigo: 'PG1042(3)', estado: 'devolucion', plataforma_id: 'C' },
+    // alimentado: se consumió en planta, mandar a nadie a buscarlo sería
+    // mandarlo a un patio donde ya no está
+    { id: '5', codigo: 'PG1042(4)', estado: 'alimentado', plataforma_id: 'C' }
+  ]
+};
+const { lotesQueCoinciden, coincidenEnOtras } = buscador(patio);
+
+ok((lotesQueCoinciden() || []).length === 0,
+   'en la plataforma abierta no hay ninguno, y eso no cambia');
+const otras = coincidenEnOtras();
+ok(otras.length === 2, `pero se encuentra en otras dos plataformas (encontró ${otras.length})`);
+ok(otras[0].nombre === 'Ye' && otras[0].cuantos === 2,
+   `en Ye hay 2 (dijo ${otras[0]?.nombre} ${otras[0]?.cuantos})`);
+ok(otras[1].nombre === 'Plataforma 5' && otras[1].cuantos === 1,
+   `y en Plataforma 5 uno, sin contar el alimentado (dijo ${otras[1]?.cuantos})`);
+ok(otras.map((o) => o.id).join() === 'Y,C',
+   'y salen en el orden de la pantalla de Plataformas, no en el que vengan los lotes');
+
+// Estando ya en Ye, Ye deja de aparecer en el renglón: se enseña dónde
+// MÁS está, no dónde se está.
+patio.plataforma = 'Y';
+ok(coincidenEnOtras().map((o) => o.id).join() === 'C',
+   'al llegar a Ye, solo queda Plataforma 5 por visitar');
+ok((lotesQueCoinciden() || []).length === 2, 'y allí sí se resaltan los dos');
+
+// Con un filtro a secas —sin escribir nada— habría coincidencias en casi
+// todas las plataformas y el renglón estaría siempre puesto, diciendo lo
+// que ya se sabe.
+patio.busquedaMapa = '';
+patio.mapaFiltro = { campo: 'estado', valor: 'devolucion' };
+ok(coincidenEnOtras().length === 0,
+   'un filtro sin texto no llena la pantalla de plataformas');
+
+// ---------------------------------------------------------------------
+titulo('La fecha de recogida se puede poner en el pasado.');
+
+// Estaba cerrada a partir de hoy, y eso daba por hecho que el compromiso
+// se apunta el mismo día en que se toma. En el patio se declara la
+// devolución de un lote cuyo plazo se acordó —o se venció— hace semanas.
+const rec = app.slice(app.indexOf('function pedirRecogida(l)'),
+                      app.indexOf('function pedirRecogida(l)') + 1400);
+ok(/id="r-fecha"/.test(rec), 'se encontró el campo de la fecha de recogida');
+ok(!/id="r-fecha"[^>]*\smin=/.test(rec),
+   'y el calendario ya no tiene tope por abajo: se puede elegir un día pasado');
+
+// ---------------------------------------------------------------------
 titulo('El informe dice en qué plataforma está y por dónde se alimentó.');
 
 // Se pidió textualmente: "al momento de explotar el excel debería
