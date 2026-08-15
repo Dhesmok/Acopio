@@ -240,6 +240,78 @@ function sonar(cual, volumen = 1) {
   } catch { /* sin sonido se sigue trabajando igual */ }
 }
 
+// Los ruidos de la escena de muestreo se SINTETIZAN, no son archivos.
+//
+// Son cuatro golpes muy cortos —la pala, el tiro, el terronazo y el
+// casco— y grabarlos serían cuatro MP3 más que bajar, guardar en la
+// caché y mantener. Hechos con osciladores no pesan nada, no hacen
+// ninguna petición y suenan igual sin señal, que es como trabaja esta
+// app la mitad del tiempo.
+//
+// El contexto de audio se crea la PRIMERA vez que hace falta, y para
+// entonces ya hubo un toque en la pantalla —el botón de "Muestreado"—,
+// que es lo que exigen los navegadores para dejar sonar nada.
+let contextoAudio = null;
+function audio() {
+  if (!contextoAudio) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    contextoAudio = new AC();
+  }
+  if (contextoAudio.state === 'suspended') contextoAudio.resume?.();
+  return contextoAudio;
+}
+
+// Un tono que cae o sube, con su volumen apagándose. Sirve para el
+// golpe seco y para el rebote del casco.
+function tono({ tipo = 'sine', de, a, dur, vol }) {
+  const ctx = audio(); if (!ctx) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator(), gan = ctx.createGain();
+  osc.type = tipo;
+  osc.frequency.setValueAtTime(de, t);
+  osc.frequency.exponentialRampToValueAtTime(a, t + dur);
+  gan.gain.setValueAtTime(vol, t);
+  gan.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.connect(gan); gan.connect(ctx.destination);
+  osc.start(); osc.stop(t + dur);
+}
+
+// Ruido blanco filtrado: la pala entrando en la arena y el terrón
+// cruzando el aire. Un tono no sirve aquí, la tierra no tiene nota.
+function soplo({ de, a, tipo = 'bandpass', dur, vol }) {
+  const ctx = audio(); if (!ctx) return;
+  const t = ctx.currentTime;
+  const n = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const filtro = ctx.createBiquadFilter();
+  filtro.type = tipo;
+  filtro.frequency.setValueAtTime(de, t);
+  filtro.frequency.exponentialRampToValueAtTime(a, t + dur * .7);
+  const gan = ctx.createGain();
+  gan.gain.setValueAtTime(vol, t);
+  gan.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(filtro); filtro.connect(gan); gan.connect(ctx.destination);
+  src.start();
+}
+
+const RUIDOS = {
+  palada:  () => soplo({ de: 900, a: 200, tipo: 'lowpass', dur: .15, vol: .18 }),
+  tiro:    () => soplo({ de: 300, a: 1500, dur: .14, vol: .16 }),
+  golpe:   () => tono({ tipo: 'triangle', de: 240, a: 32, dur: .18, vol: .30 }),
+  casco:   () => tono({ tipo: 'sine', de: 120, a: 560, dur: .25, vol: .20 })
+};
+
+// Suena `cual` dentro de `ms` milisegundos. Devuelve el temporizador
+// para poder cancelarlo si la escena se salta de un toque.
+const ruidoEn = (cual, ms) => setTimeout(() => {
+  if (S.mudo) return;
+  try { RUIDOS[cual](); } catch { /* sin audio se ve igual, solo mudo */ }
+}, ms);
+
 // ------------------------------------------------------------ volquetas
 // Un lote puede haberlo traído MÁS DE UNA volqueta: cuando todas
 // descargan sobre el mismo montón es un solo lote, con una muestra y un
@@ -1730,8 +1802,9 @@ function animarLlegada(lote) {
   capa.innerHTML = `
     <svg viewBox="${v.x} ${v.y} ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet">
       <g transform="translate(${lote.x} ${lote.y}) scale(${s})">
+        ${polvo()}
         ${terrones(col)}
-        <circle class="vq-monton" r="40" fill="${esc(col)}" stroke="#14171a" stroke-width="2"/>
+        ${monton(col)}
         <g transform="translate(54 0)"><g class="vq-camion">${volqueta()}</g></g>
       </g>
     </svg>`;
@@ -1758,27 +1831,383 @@ function animarLlegada(lote) {
 // Volqueta de perfil, en el lenguaje de los pictogramas de obra: filo
 // negro, sin degradados. El origen (0,0) es el punto donde cae el
 // material, o sea la esquina trasera del volco a ras de suelo.
+//
+// Lleva pistón, compuerta trasera y ruedas que ruedan. No es adorno: el
+// pistón explica por qué sube el volco —sin él la caja bascula sola,
+// como si la empujara el aire— y la compuerta explica por dónde sale el
+// material.
 const volqueta = () => `
-  <g transform="translate(0 -34)"><g class="vq-volco">
-    <path d="M2 0 L98 0 L92 -36 L4 -36 Z" fill="var(--amarillo)" stroke="#14171a" stroke-width="3"/>
-    <path d="M14 -8 L86 -8" stroke="#14171a" stroke-width="2" opacity=".35"/>
+  <g transform="translate(68 -34)"><g class="vq-piston">
+    <line x1="0" y1="0" x2="-22" y2="-28" stroke="#14171a" stroke-width="6" stroke-linecap="round"/>
+    <line x1="0" y1="0" x2="-22" y2="-28" stroke="#e9e5dc" stroke-width="3" stroke-linecap="round"/>
   </g></g>
-  <path d="M0 -34 L110 -34 L110 -24 L0 -24 Z" fill="#14171a"/>
-  <path d="M102 -34 L102 -64 L116 -72 L134 -72 L134 -24 L102 -24 Z"
-        fill="var(--amarillo)" stroke="#14171a" stroke-width="3"/>
-  <path d="M110 -62 L116 -66 L128 -66 L128 -50 L110 -50 Z" fill="#e9e5dc" stroke="#14171a" stroke-width="2"/>
-  ${[32, 64, 124].map((x) => `<g><circle cx="${x}" cy="-15" r="15" fill="#14171a"/>
-    <circle cx="${x}" cy="-15" r="6" fill="#e9e5dc"/></g>`).join('')}`;
 
-// Los terrones que salen por detrás. Cada uno con su retardo y su caída,
-// para que no parezca una sola pieza bajando.
+  <g transform="translate(0 -34)"><g class="vq-volco">
+    <path d="M2 0 L102 0 L94 -40 L4 -40 Z" fill="var(--amarillo)" stroke="#14171a"
+          stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M22 -6 L20 -34 M42 -6 L40 -34 M62 -6 L60 -34 M82 -6 L80 -34"
+          stroke="#14171a" stroke-width="2.5" opacity=".85"/>
+    <path d="M12 -8 L90 -8" stroke="#14171a" stroke-width="3" stroke-dasharray="6 4"/>
+    <path d="M12 -8 L90 -8" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <g class="vq-puerta">
+      <path d="M2 0 L4 -40" stroke="#14171a" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M2 0 L4 -36" stroke="var(--amarillo)" stroke-width="2.5"/>
+      <circle cx="4" cy="-40" r="3" fill="#14171a"/>
+    </g>
+  </g></g>
+
+  <g transform="translate(108 -68)">
+    <circle class="vq-humo" r="7" fill="#14171a" opacity=".4"/>
+  </g>
+
+  <path d="M-4 -34 L114 -34 L114 -22 L-4 -22 Z" fill="#14171a"/>
+  <path d="M-2 -24 L-8 -12 L-2 -12 Z" fill="#14171a"/>
+
+  <path d="M100 -34 L100 -68 L118 -76 L138 -76 L138 -22 L100 -22 Z"
+        fill="var(--amarillo)" stroke="#14171a" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M108 -64 L116 -68 L130 -68 L130 -50 L108 -50 Z"
+        fill="#e9e5dc" stroke="#14171a" stroke-width="2.5"/>
+  <path d="M122 -65 L114 -53" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <path d="M104 -70 L122 -78" stroke="#14171a" stroke-width="3" stroke-linecap="round"/>
+  <path d="M132 -34 L142 -34 L142 -22 L132 -22 Z" fill="#14171a"/>
+  <path d="M138 -46 L138 -36" stroke="var(--amarillo)" stroke-width="3"/>
+  <path d="M108 -58 L102 -58 L102 -48" fill="none" stroke="#14171a"
+        stroke-width="2.5" stroke-linejoin="round"/>
+
+  ${[24, 58, 122].map((x) => `<g transform="translate(${x} -15)"><g class="vq-rueda">
+    <circle r="14.5" fill="#14171a"/>
+    <circle r="7" fill="#e9e5dc" stroke="#14171a" stroke-width="2"/>
+    <line x1="-5" y1="0" x2="5" y2="0" stroke="#14171a" stroke-width="2"/>
+    <line x1="0" y1="-5" x2="0" y2="5" stroke="#14171a" stroke-width="2"/>
+  </g></g>`).join('')}`;
+
+// Los terrones que salen por detrás. Cada uno con su retardo, su sitio,
+// su giro y su forma: cinco piedras iguales cayendo a la vez parecen una
+// sola pieza bajando.
 const terrones = (col) => [
-  [4, -8, 0], [-20, 6, 60], [16, 12, 110], [-8, -16, 160], [-26, -4, 210]
-].map(([dx, dy, ret], i) => `
-  <g class="vq-terron" style="--dx:${dx}px; --dy:${dy}px; animation-delay:${620 + ret}ms">
-    <path transform="rotate(${i * 47})" d="M-7 -6 L6 -8 L9 4 L-2 8 L-8 2 Z"
-      fill="${esc(col)}" stroke="#14171a" stroke-width="2"/>
+  { dx:   6, dy:  -4, ret:   0, rot:   45, d: 'M-7 -5 L5 -8 L9 3 L-1 8 L-8 2 Z' },
+  { dx: -24, dy:   8, ret:  50, rot:  110, d: 'M-9 -3 L3 -9 L10 2 L2 9 L-7 6 Z' },
+  { dx:  20, dy:  14, ret:  90, rot:  -75, d: 'M-6 -6 L8 -4 L6 7 L-4 8 L-8 -1 Z' },
+  { dx: -10, dy: -18, ret: 140, rot:  160, d: 'M-8 -2 L2 -8 L9 1 L4 9 L-6 5 Z' },
+  { dx: -32, dy:  -2, ret: 180, rot: -120, d: 'M-6 -7 L6 -5 L8 5 L-2 7 L-9 1 Z' },
+  { dx:  12, dy: -22, ret: 210, rot:   85, d: 'M-5 -5 L7 -3 L5 8 L-5 6 Z' }
+].map((t) => `
+  <g class="vq-terron" style="--dx:${t.dx}px; --dy:${t.dy}px; --rot:${t.rot}deg;
+     animation-delay:${620 + t.ret}ms">
+    <path d="${t.d}" fill="${esc(col)}" stroke="#14171a" stroke-width="2.2" stroke-linejoin="round"/>
   </g>`).join('');
+
+// La polvareda de cuando el material pega contra el suelo.
+const polvo = () => `
+  <g transform="translate(-10 0)">
+    <circle class="vq-polvo" style="--pdx:-35px; --pdy:-18px" cy="-5" r="14"
+            fill="#e4e7e2" stroke="#14171a" stroke-width="2"/>
+    <circle class="vq-polvo" style="--pdx:25px; --pdy:-22px; animation-delay:720ms" cy="-5" r="10"
+            fill="#e4e7e2" stroke="#14171a" stroke-width="2"/>
+  </g>`;
+
+// El montón que queda. Es un CÍRCULO del radio del lote y tiene que
+// seguir siéndolo: el plano se mira desde arriba, el lote es un círculo,
+// y a los 1080 ms este se releva con él. Con forma de loma de perfil se
+// vería el cambio de silueta. El relieve va por dentro, con una cresta
+// que no toca el contorno.
+const monton = (col) => `
+  <g class="vq-monton">
+    <circle r="40" fill="${esc(col)}" stroke="#14171a" stroke-width="2.5"/>
+    <path d="M-26 8 C-16 -12, 2 -20, 14 -14 C24 -9, 30 0, 32 8" fill="none"
+          stroke="#14171a" stroke-width="1.8" opacity=".35"/>
+    <path d="M-14 20 C-6 10, 8 12, 18 20" fill="none"
+          stroke="#14171a" stroke-width="1.6" opacity=".22"/>
+  </g>`;
+
+// ------------------------------------------------ los obreros muestrean
+// Muestrear un lote es el paso que mueve el patio: hasta que no está
+// muestreado no se puede facturar ni devolver nada. Se celebra con la
+// cuadrilla trabajando: uno pala, el terrón le cae en el casco al de al
+// lado, y el capataz mira desde su caja con el café.
+//
+// VA SIN FONDO —ni cielo, ni cerros, ni suelo— y es una decisión, no un
+// recorte. El plano ya tiene el suyo, que puede ser la foto aérea del
+// acopio: pintarle encima un paisaje de perfil taparía justo lo que se
+// está mirando y se vería pegado con cinta. Quedan los muñecos, sus
+// montones y sus sombras de contacto, que es lo que cuenta el chiste.
+//
+// El original traía además un topo asomándose por un agujero. Sin suelo
+// no hay agujero del que asomarse, así que no está.
+//
+// Las coordenadas son las del dibujo original, con el suelo en y=250:
+// tocarlas descuadraría el aparejo —la pala va soldada a las manos por
+// jerarquía de pivotes— así que la escena entera se recoloca desde
+// fuera, con un solo `translate`.
+const SUELO_OBREROS = 250;
+const CENTRO_OBREROS = 290;
+const DURACION_OBREROS = 1600;   // ms; dos vueltas del gag de 800
+
+// Un brazo o una pierna: el filo negro por debajo y el color encima, que
+// es como se dibuja un miembro en este lenguaje.
+const miembro = (d, gordo, fino) => `
+  <path d="${d}" fill="none" stroke="#14171a" stroke-width="${gordo}" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="${d}" fill="none" stroke="var(--traje)" stroke-width="${fino}" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+const obreroVictima = () => `
+  <g transform="translate(120 ${SUELO_OBREROS})"><g class="ob-cuerpo-victima ob-art">
+    <g class="ob-atras">
+      ${miembro('M-10 -46 L-13 -22 L-13 -7', 13, 8)}
+      <path d="M-23 -11 L-8 -11 L-8 0 L-25 0 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+    <g class="ob-atras">
+      ${miembro('M-7 -85 L-19 -72 L-15 -58', 9, 5.5)}
+      <circle cx="-15" cy="-56" r="4.6" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+    </g>
+    ${miembro('M8 -46 L12 -22 L12 -7', 13, 8)}
+    <path d="M7 -11 L22 -11 L25 0 L7 0 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+
+    <path d="M-14 -44 L-15 -88 L15 -88 L13 -44 Z" fill="var(--traje)" stroke="#14171a" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-12 -78 L12 -78 M-11.5 -62 L11 -62" stroke="#ffffff" stroke-width="5"/>
+    <path d="M-12 -78 L12 -78 M-11.5 -62 L11 -62" stroke="#14171a" stroke-width="1" stroke-dasharray="2 2" opacity=".55"/>
+
+    <g transform="translate(10 -85)"><g class="ob-brazo-balde ob-art">
+      ${miembro('M0 0 L11 13 L12 25', 9, 5.5)}
+      <g transform="translate(12 25)">
+        <g class="ob-balde ob-art">
+          <path d="M-11 9 Q0 -6 11 9" fill="none" stroke="#14171a" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M-13 9 L13 9 L10 34 L-10 34 Z" fill="#10b981" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+          <path d="M-12 16 L12 16" stroke="#14171a" stroke-width="1.6" opacity=".55"/>
+          <path d="M-8 12 C-4 26, 4 26, 8 12" fill="var(--tierra)" opacity=".9"/>
+        </g>
+        <circle cy="1" r="5" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+      </g>
+    </g></g>
+
+    <g class="ob-polvo-golpe ob-art" transform="translate(0 -96)">
+      <circle cx="-16" cy="2" r="12" fill="#cbd5e1" opacity=".55"/>
+      <circle cx="16" cy="-3" r="10" fill="#cbd5e1" opacity=".55"/>
+      <circle cy="-14" r="14" fill="#e2e8f0" opacity=".6"/>
+    </g>
+
+    <circle cx="1" cy="-101" r="11.5" fill="var(--piel)" stroke="#14171a" stroke-width="2.5"/>
+    <g class="ob-cara">
+      <circle cx="-3.5" cy="-104" r="1.9" fill="#14171a"/>
+      <circle cx="5.5" cy="-104" r="1.9" fill="#14171a"/>
+      <path d="M-3 -96 Q1.5 -93 6 -96" fill="none" stroke="#14171a" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g class="ob-cara-ida" opacity="0">
+      <path d="M-6.5 -107 L-1 -101 M-1 -107 L-6.5 -101" stroke="#14171a" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M3 -107 L8.5 -101 M8.5 -107 L3 -101" stroke="#14171a" stroke-width="2.2" stroke-linecap="round"/>
+      <ellipse cx="1.5" cy="-95" rx="3.4" ry="3" fill="#14171a"/>
+    </g>
+
+    <g class="ob-estrellas ob-art" transform="translate(1 -134)">
+      ${[0, -16, 16].map((x) => `<polygon transform="translate(${x} 0)"
+        points="0,-6 2,-2 6,-2 3,1 4,5 0,3 -4,5 -3,1 -6,-2 -2,-2"
+        fill="#facc15" stroke="#14171a" stroke-width="1"/>`).join('')}
+    </g>
+
+    <g transform="translate(1 -108)"><g class="ob-casco ob-art">
+      <path d="M-14 0 C-14 -15, 14 -15, 14 0 Z" fill="var(--casco)" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+      <line x1="-17.5" y1="0.5" x2="17.5" y2="0.5" stroke="#14171a" stroke-width="3" stroke-linecap="round"/>
+    </g></g>
+
+    <g transform="translate(34 -128)"><g class="ob-cartel ob-art">
+      <polygon points="0,0 8,-8 4,-12 16,-12 12,-20 25,-15 22,-28 35,-20 30,-8 40,0 28,4 32,15 18,10 12,20 8,8"
+               fill="#ef4444" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+      <text x="19" y="-3" text-anchor="middle" font-family="var(--sans)" font-size="11"
+            font-weight="800" fill="#ffffff">¡PLOF!</text>
+    </g></g>
+  </g></g>`;
+
+const obreroPalero = () => `
+  <g transform="translate(380 ${SUELO_OBREROS})"><g class="ob-cuerpo-palero ob-art">
+    <g class="ob-atras">
+      ${miembro('M10 -48 L18 -24 L19 -8', 14, 9)}
+      <path d="M12 -12 L30 -12 L33 0 L12 0 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+    ${miembro('M-8 -48 L-20 -26 L-22 -8', 14, 9)}
+    <path d="M-36 -12 L-16 -12 L-16 0 L-38 0 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+
+    <path d="M-14 -46 L-24 -92 L6 -96 L14 -46 Z" fill="var(--traje)" stroke="#14171a" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-18.5 -80 L6.5 -82.5 M-15 -64 L10 -65.5" stroke="#ffffff" stroke-width="5"/>
+    <path d="M-18.5 -80 L6.5 -82.5 M-15 -64 L10 -65.5" stroke="#14171a" stroke-width="1" stroke-dasharray="2 2" opacity=".55"/>
+
+    <circle cx="-14" cy="-107" r="11.5" fill="var(--piel)" stroke="#14171a" stroke-width="2.5"/>
+    <circle cx="-19" cy="-108" r="2" fill="#14171a"/>
+    <path d="M-24 -99 Q-19 -95 -13 -98" fill="none" stroke="#14171a" stroke-width="2" stroke-linecap="round"/>
+    <path class="ob-sudor ob-art" d="M-26 -114 C-29 -121, -22 -121, -26 -114 Z" fill="#38bdf8" stroke="#14171a" stroke-width="1.2"/>
+    <path d="M-27 -114 C-27 -129, 1 -129, 1 -114 Z" fill="var(--casco)" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+    <line x1="-31" y1="-113.5" x2="5" y2="-113.5" stroke="#14171a" stroke-width="3" stroke-linecap="round"/>
+
+    <g transform="translate(-8 -90)"><g class="ob-pala ob-art">
+      <g class="ob-atras">${miembro('M4 -2 L5 10 L-12 12', 9, 5.5)}</g>
+      <line x1="2" y1="2" x2="-56" y2="46" stroke="var(--madera)" stroke-width="6" stroke-linecap="round"/>
+      <line x1="2" y1="2" x2="-56" y2="46" stroke="#14171a" stroke-width="1.2" stroke-dasharray="5 4" opacity=".55"/>
+      <line x1="-2" y1="-3" x2="6" y2="7" stroke="var(--madera)" stroke-width="7" stroke-linecap="round"/>
+      <line x1="-2" y1="-3" x2="6" y2="7" stroke="#14171a" stroke-width="1.4" opacity=".45"/>
+      <path d="M-59 33 L-45 53 L-66 68 L-80 49 Z" fill="var(--metal)" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M-56 42 L-68 58" stroke="#14171a" stroke-width="1.5" opacity=".5"/>
+      <g class="ob-carga">
+        <ellipse cx="-62" cy="51" rx="11" ry="6" transform="rotate(53 -62 51)" fill="var(--tierra)" stroke="#14171a" stroke-width="2"/>
+      </g>
+      ${miembro('M-5 0 L-20 16 L-32 27', 9, 5.5)}
+      <circle cx="-12" cy="12" r="5" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+      <circle cx="-32" cy="27" r="5" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+    </g></g>
+  </g></g>`;
+
+const obreroJefe = () => `
+  <g transform="translate(505 ${SUELO_OBREROS})"><g class="ob-cuerpo-jefe ob-art">
+    <rect x="-24" y="-38" width="48" height="38" fill="#a16207" stroke="#14171a" stroke-width="2.8" rx="3"/>
+    <line x1="-24" y1="-20" x2="24" y2="-20" stroke="#14171a" stroke-width="1.8" opacity=".8"/>
+    <line x1="0" y1="-38" x2="0" y2="0" stroke="#14171a" stroke-width="1.5" opacity=".45"/>
+
+    <g transform="translate(-2 -37)"><g class="ob-pierna-b ob-art ob-atras">
+      ${miembro('M0 0 L-20 3 L-22 26', 13, 8)}
+      <path d="M-32 24 L-16 24 L-16 33 L-34 33 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+    </g></g>
+    <g transform="translate(-4 -36)"><g class="ob-pierna-a ob-art">
+      ${miembro('M0 0 L-24 5 L-26 27', 13, 8)}
+      <path d="M-37 25 L-20 25 L-20 34 L-39 34 Z" fill="#14171a" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+    </g></g>
+    <g transform="translate(8 -70)"><g class="ob-art ob-atras">
+      ${miembro('M0 0 L14 12 L13 28', 9, 5.5)}
+      <circle cx="13" cy="31" r="4.2" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+    </g></g>
+
+    <path d="M-11 -36 L-13 -72 L13 -72 L11 -36 Z" fill="var(--traje)" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+    <path d="M-10 -64 L10 -64 M-9.5 -50 L9.5 -50" stroke="#ffffff" stroke-width="4.5"/>
+    <path d="M-2 -70 Q3 -62 6 -55" fill="none" stroke="#14171a" stroke-width="1.6"/>
+    <circle cx="6" cy="-53" r="3" fill="var(--casco)" stroke="#14171a" stroke-width="1.4"/>
+
+    <circle cy="-84" r="11.5" fill="var(--piel)" stroke="#14171a" stroke-width="2.5"/>
+    <circle cx="-4.5" cy="-88" r="1.9" fill="#14171a"/>
+    <circle cx="4.5" cy="-88" r="1.9" fill="#14171a"/>
+    <path d="M-8 -81.5 Q-4 -85 0 -81.5 Q4 -85 8 -81.5 Q4 -79 0 -80.5 Q-4 -79 -8 -81.5 Z" fill="#14171a"/>
+    <path d="M-3.5 -77 Q0 -74.5 3.5 -77" fill="none" stroke="#14171a" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M-14 -91 C-14 -106, 14 -106, 14 -91 Z" fill="#ffffff" stroke="#14171a" stroke-width="2.8" stroke-linejoin="round"/>
+    <line x1="-17.5" y1="-90.5" x2="17.5" y2="-90.5" stroke="#14171a" stroke-width="3" stroke-linecap="round"/>
+
+    <g transform="translate(-9 -70)"><g class="ob-brazo-cafe ob-art">
+      ${miembro('M0 0 L-12 11 L-8 22', 9, 5.5)}
+      <g transform="translate(-8 22)">
+        <path class="ob-humo-cafe ob-art" d="M2 -10 Q7 -17 2 -24" fill="none" stroke="#e2e8f0" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="-2" r="4.6" fill="var(--piel)" stroke="#14171a" stroke-width="2"/>
+        <path d="M0 -5 C-4 -5, -4 1, 0 1" fill="none" stroke="#14171a" stroke-width="2.2"/>
+        <rect x="0" y="-8" width="11" height="12" fill="#ffffff" stroke="#14171a" stroke-width="2.2" rx="2"/>
+        <rect x="1.5" y="-6.5" width="8" height="3" fill="#78350f"/>
+      </g>
+    </g></g>
+  </g></g>`;
+
+// La escena entera. El orden importa: primero las sombras, luego los
+// montones de atrás, los muñecos, y al final el lóbulo de arena de
+// delante —para que la hoja se hunda DENTRO del montón en vez de quedar
+// flotando encima— y los terrones que vuelan por encima de todo.
+const escenaObreros = () => `
+  <g opacity=".28">
+    <ellipse cx="122" cy="251" rx="34" ry="5"/>
+    <ellipse cx="378" cy="251" rx="40" ry="5"/>
+    <ellipse cx="505" cy="251" rx="34" ry="5"/>
+  </g>
+
+  <g transform="translate(92 ${SUELO_OBREROS})"><g class="ob-pila ob-art">
+    <path d="M-46 0 C-36 -28, -10 -42, 14 -42 C34 -42, 48 -20, 54 0 Z"
+          fill="var(--tierra)" stroke="#14171a" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-26 -10 L-16 -23 L-6 -15" fill="none" stroke="var(--tierra-sombra)" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M4 -25 L17 -31 L27 -18" fill="none" stroke="var(--tierra-sombra)" stroke-width="2.5" stroke-linecap="round"/>
+  </g></g>
+
+  <g transform="translate(300 ${SUELO_OBREROS})">
+    <path d="M-80 0 C-70 -34, -30 -52, 10 -52 C45 -52, 55 -30, 60 0 Z"
+          fill="var(--tierra)" stroke="#14171a" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-48 -16 C-34 -34, -8 -42, 14 -40" fill="none" stroke="var(--tierra-sombra)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  ${obreroVictima()}
+  ${obreroJefe()}
+  ${obreroPalero()}
+
+  <g transform="translate(300 ${SUELO_OBREROS})">
+    <path d="M-20 0 C-16 -26, 4 -38, 20 -36 C32 -35, 38 -16, 42 0 Z"
+          fill="var(--tierra)" stroke="#14171a" stroke-width="3" stroke-linejoin="round"
+          style="filter: brightness(1.12)"/>
+    <path d="M-6 -14 L4 -25 L14 -16" fill="none" stroke="var(--tierra-sombra)" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(316 212)"><g class="ob-polvo-cava ob-art">
+    <circle cx="-10" r="9" fill="#e2e8f0" opacity=".5"/>
+    <circle cx="8" cy="-4" r="7" fill="#e2e8f0" opacity=".5"/>
+    <circle cy="-11" r="10" fill="#f1f5f9" opacity=".45"/>
+  </g></g>
+
+  <g transform="translate(304 116)">
+    <g class="ob-terron-1 ob-art">
+      <path d="M-10 -8 L8 -12 L12 6 L-2 12 L-12 2 Z" fill="var(--tierra)" stroke="#14171a" stroke-width="2.5" stroke-linejoin="round"/>
+      <circle cx="-2" cy="-1" r="2.4" fill="var(--tierra-sombra)"/>
+    </g>
+    <g class="ob-terron-2 ob-art">
+      <path d="M-6 -5 L6 -6 L8 4 L-1 7 L-7 1 Z" fill="var(--tierra)" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+  </g>`;
+
+// Monta la escena sobre el lote y la quita al terminar.
+//
+// Mismas reglas que la volqueta: capa aparte encima del plano —el mapa
+// se redibuja en cada sincronización y la cortaría a la mitad—, se salta
+// tocando, y con "reducir movimiento" no se monta.
+//
+// La escena se dibuja con el suelo en y=250 y midiendo unos 500 de
+// ancho. Se lleva encima del lote con un solo `translate` y se encoge a
+// la mitad: a tamaño natural taparía medio patio. Como la volqueta,
+// crece con el lote, así que en un lote grande la cuadrilla también es
+// grande.
+function animarMuestreo(lote) {
+  const caja = document.querySelector('.mapa-caja');
+  const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!caja || sinMovimiento || S.pestana !== 'mapa' || S.historia) return Promise.resolve();
+
+  const v = Mapa.obtenerVista();
+  const r = Math.max(lote.rx || 40, lote.ry || 40);
+  // A tamaño natural la escena mide 500 de ancho y taparía medio patio;
+  // a la mitad, la cara del que recibe el terronazo no se distingue en
+  // un celular. 0,8 es donde el chiste se lee y el plano sigue viéndose.
+  const s = (r / 40) * 0.8;
+
+  const capa = document.createElement('div');
+  capa.className = 'capa-obreros';
+  capa.innerHTML = `
+    <svg viewBox="${v.x} ${v.y} ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet">
+      <g transform="translate(${lote.x} ${lote.y}) scale(${s})
+                    translate(${-CENTRO_OBREROS} ${-SUELO_OBREROS})">
+        ${escenaObreros()}
+      </g>
+    </svg>`;
+  caja.appendChild(capa);
+
+  // Los ruidos van con los fotogramas, no al bulto. Dentro de cada
+  // vuelta de 800 ms: clava la pala al 15 %, la suelta al 57 %, el
+  // terrón le llega al casco al 78 % y el casco rebota justo después.
+  const relojes = [];
+  for (const vuelta of [0, 800]) {
+    relojes.push(ruidoEn('palada', vuelta + 120));
+    relojes.push(ruidoEn('tiro', vuelta + 456));
+    relojes.push(ruidoEn('golpe', vuelta + 624));
+    relojes.push(ruidoEn('casco', vuelta + 664));
+  }
+
+  return new Promise((listo) => {
+    let acabado = false;
+    const terminar = () => {
+      if (acabado) return;
+      acabado = true;
+      for (const t of relojes) clearTimeout(t);
+      clearTimeout(fin);
+      capa.remove();
+      listo();
+    };
+    const fin = setTimeout(terminar, DURACION_OBREROS);
+    capa.style.pointerEvents = 'auto';
+    capa.onpointerdown = terminar;          // un toque la salta
+  });
+}
 
 function barraEdicion() {
   $('#barra-forma').innerHTML = `
@@ -2325,6 +2754,16 @@ async function fichaLote(id) {
         lote_id: id, tipo: 'cambio_estado', estado_nuevo: b.dataset.estado, usuario_id: S.perfil.id
       });
       cerrarHoja(); await recargar(); sincronizar();
+      // Muestrear es el paso que destraba el lote: hasta que no está
+      // muestreado no se puede facturar ni devolver nada. Es el único
+      // cambio de estado que se celebra, y por lo mismo que la volqueta
+      // —si cada uno de los veinte cambios del día trajera escena,
+      // estorbarían todas. Va DESPUÉS de guardar: la escena no puede
+      // retrasar el apunte, solo ocupa la espera que ya había.
+      if (b.dataset.estado === 'muestreado') {
+        const fresco = (await Store.lote(id)) || l;
+        if (enEstaPlataforma(fresco)) await animarMuestreo(fresco);
+      }
     }, { ocupado: 'Cambiando…' });
   });
 
