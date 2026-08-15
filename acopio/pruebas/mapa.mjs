@@ -731,25 +731,63 @@ ok(/ob-cuerpo-palero|obreroPalero/.test(escena) && /obreroVictima/.test(escena)
    && /obreroJefe/.test(escena), 'pero sí los tres muñecos, que son el chiste');
 
 // El gag original dura 1,2 s por vuelta. Se pidió 1,5 veces más rápido
-// o más: 1,2 / 1,5 = 0,8 s. Y se dan dos vueltas, 1,6 s en total, que es
-// lo que dura la volqueta.
+// o más: 1,2 / 1,5 = 0,8 s.
 const gag = css.slice(css.indexOf('.ob-cuerpo-palero'), css.indexOf('@keyframes ob-pal-cuerpo'));
 const dur = (gag.match(/(\d?\.?\d+)s/) || [])[1];
 ok(dur === '.8', `cada vuelta del gag dura ${dur}s, o sea 1,5 veces más rápido que el original`);
-ok(/animation: ob-pal-cuerpo \.8s [^;]*\b2;/.test(css), 'y se dan dos vueltas, no una ni infinitas');
-ok(/const DURACION_OBREROS = 1600;/.test(fuenteApp),
-   'la escena se retira a los 1600 ms, que son las dos vueltas exactas');
 
-// Los ruidos van CON los fotogramas. En una vuelta de 800 ms: la pala
-// se clava al 15 % (120 ms), se suelta al 57 % (456), el terrón llega al
-// 78 % (624) y el casco rebota al 83 % (664).
-for (const [ruido, ms, pct] of [['palada', 120, 15], ['tiro', 456, 57],
-                                ['golpe', 624, 78], ['casco', 664, 83]]) {
-  ok(new RegExp(`ruidoEn\\('${ruido}', vuelta \\+ ${ms}\\)`).test(fuenteApp),
-     `el ruido de "${ruido}" suena a los ${ms} ms, que es el ${pct} % de la vuelta`);
-  ok(Math.round(800 * pct / 100) === ms || Math.abs(800 * pct / 100 - ms) <= 4,
-     `y ${ms} ms es de verdad el ${pct} % de 800`);
-}
+// CUÁNTAS vueltas se dan sale de UN solo sitio, el JavaScript, y llega
+// al CSS por `--vueltas`. Escrito dos veces, cambiar una y olvidar la
+// otra corta la escena a media palada o la deja congelada al final.
+ok(/animation: ob-pal-cuerpo \.8s [^;]*var\(--vueltas\);/.test(css),
+   'las vueltas del gag las manda `--vueltas`, no un número escrito en el CSS');
+ok(/animation: ob-jefe-mecer 1\.6s [^;]*calc\(var\(--vueltas\) \/ 2\);/.test(css),
+   'y el capataz, que va al doble de lento, da la mitad');
+ok(!/animation: ob-[a-z-]+ [^;]*\b\d+;/.test(css),
+   'no queda ninguna regla del gag con las vueltas a mano');
+
+const vueltas = Number((fuenteApp.match(/const VUELTAS_OBREROS = (\d+);/) || [])[1]);
+const vuelta = Number((fuenteApp.match(/const VUELTA_OBREROS = (\d+);/) || [])[1]);
+ok(vuelta === 800, `la vuelta son ${vuelta} ms`);
+ok(vueltas * vuelta >= 5500 && vueltas * vuelta <= 7000,
+   `la escena dura ${(vueltas * vuelta) / 1000} s, que son los "unos 6 segundos" que se pidieron`);
+ok(/const DURACION_OBREROS = VUELTA_OBREROS \* VUELTAS_OBREROS;/.test(fuenteApp),
+   'y lo que dura se calcula, no se escribe: no se puede desincronizar');
+
+// Los ruidos van CON los fotogramas, en TODAS las vueltas: la pala se
+// clava al 15 %, se suelta al 57 %, el terrón llega al 78 % y el casco
+// rebota al 83 %.
+ok(/for \(let i = 0; i < VUELTAS_OBREROS; i\+\+\)/.test(fuenteApp),
+   'los ruidos se programan en todas las vueltas, no solo en las dos primeras');
+for (const [ruido, pct] of [['palada', 15], ['tiro', 57], ['golpe', 78], ['casco', 83]])
+  ok(new RegExp(`\\['${ruido}', ${pct}\\]`).test(fuenteApp),
+     `"${ruido}" suena al ${pct} % de la vuelta (${Math.round(800 * pct / 100)} ms)`);
+ok(/Math\.round\(VUELTA_OBREROS \* pct \/ 100\)/.test(fuenteApp),
+   'y el milisegundo se saca del porcentaje, que es lo que dice el fotograma');
+
+// ---------------------------------------------------------------------
+titulo('La escena de los obreros no se la lleva un dedo.');
+
+// Duraba 1,6 s y se saltaba tocando, como la volqueta. Al alargarla a
+// seis segundos eso dejó de servir: en el patio se toca la pantalla todo
+// el rato, y lo único que conseguía el atajo era que la escena se fuera
+// sin que nadie lo hubiera pedido. Ahora la capa deja pasar el dedo al
+// plano, como si no estuviera.
+const montaje = fuenteApp.slice(fuenteApp.indexOf('function animarMuestreo(lote)'),
+                                fuenteApp.indexOf('function barraEdicion()'));
+ok(!/onpointerdown|pointerEvents\s*=\s*'auto'/.test(montaje),
+   'ni se salta tocando ni atrapa el dedo');
+ok(/\.capa-obreros \{[^}]*pointer-events: none/.test(css),
+   'y la capa deja pasar los toques al plano que hay debajo');
+// La volqueta sí la conserva: dura 1,7 s y tapa justo donde acaba de
+// aparecer el lote, así que ahí poder saltarla sí sirve.
+const vqMontaje = fuenteApp.slice(fuenteApp.indexOf('function animarLlegada(lote)'),
+                                  fuenteApp.indexOf('// ------------------------------------------------ los obreros muestrean'));
+ok(/onpointerdown = terminar/.test(vqMontaje), 'la volqueta, en cambio, sí se salta tocando');
+
+// Muestrear dos lotes seguidos no puede dejar dos cuadrillas encimadas.
+ok(/querySelectorAll\('\.capa-obreros'\)/.test(montaje),
+   'y montar una escena nueva retira la anterior');
 
 // Sin archivos de sonido nuevos: son cuatro golpes cortísimos y cuatro
 // MP3 más serían cuatro descargas y cuatro entradas de caché para nada.

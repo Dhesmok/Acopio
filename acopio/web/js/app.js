@@ -1945,7 +1945,14 @@ const monton = (col) => `
 // fuera, con un solo `translate`.
 const SUELO_OBREROS = 250;
 const CENTRO_OBREROS = 290;
-const DURACION_OBREROS = 1600;   // ms; dos vueltas del gag de 800
+// Una vuelta del gag: clava la pala, tira, y el terrón le llega al casco
+// al de al lado. Dura 800 ms, que es el original de 1,2 s a 1,5 veces la
+// velocidad. Ocho vueltas son 6,4 s, que es lo que se pidió; el número
+// va de aquí al CSS por `--vueltas`, así que no hay dos sitios que se
+// puedan desincronizar y la escena nunca se corta a media palada.
+const VUELTA_OBREROS = 800;
+const VUELTAS_OBREROS = 8;
+const DURACION_OBREROS = VUELTA_OBREROS * VUELTAS_OBREROS;
 
 // Un brazo o una pierna: el filo negro por debajo y el color encima, que
 // es como se dibuja un miembro en este lenguaje.
@@ -2155,18 +2162,25 @@ const escenaObreros = () => `
 // Monta la escena sobre el lote y la quita al terminar.
 //
 // Mismas reglas que la volqueta: capa aparte encima del plano —el mapa
-// se redibuja en cada sincronización y la cortaría a la mitad—, se salta
-// tocando, y con "reducir movimiento" no se monta.
+// se redibuja en cada sincronización y la cortaría a la mitad— y con
+// "reducir movimiento" no se monta.
+//
+// Pero esta NO se salta tocando, y la capa deja pasar el dedo al plano
+// como si no estuviera. La volqueta dura 1,7 s y tapa el sitio donde
+// acaba de aparecer el lote, así que ahí poder saltarla sirve. Esta dura
+// seis segundos y la gente toca la pantalla todo el rato: lo único que
+// conseguía el atajo era que se fuera sin que nadie lo hubiera pedido.
 //
 // La escena se dibuja con el suelo en y=250 y midiendo unos 500 de
-// ancho. Se lleva encima del lote con un solo `translate` y se encoge a
-// la mitad: a tamaño natural taparía medio patio. Como la volqueta,
-// crece con el lote, así que en un lote grande la cuadrilla también es
-// grande.
+// ancho. Se lleva encima del lote con un solo `translate`. Como la
+// volqueta, crece con el lote: en un lote grande la cuadrilla también.
 function animarMuestreo(lote) {
   const caja = document.querySelector('.mapa-caja');
   const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!caja || sinMovimiento || S.pestana !== 'mapa' || S.historia) return Promise.resolve();
+
+  // Muestrear dos lotes seguidos no puede dejar dos cuadrillas encimadas.
+  for (const vieja of caja.querySelectorAll('.capa-obreros')) vieja.remove();
 
   const v = Mapa.obtenerVista();
   const r = Math.max(lote.rx || 40, lote.ry || 40);
@@ -2177,6 +2191,10 @@ function animarMuestreo(lote) {
 
   const capa = document.createElement('div');
   capa.className = 'capa-obreros';
+  // Las vueltas y el momento de irse salen de aquí, no del CSS: un solo
+  // sitio del que dependen el dibujo, los ruidos y el reloj que la quita.
+  capa.style.setProperty('--vueltas', VUELTAS_OBREROS);
+  capa.style.setProperty('--sale-en', `${DURACION_OBREROS - 200}ms`);
   capa.innerHTML = `
     <svg viewBox="${v.x} ${v.y} ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet">
       <g transform="translate(${lote.x} ${lote.y}) scale(${s})
@@ -2187,30 +2205,24 @@ function animarMuestreo(lote) {
   caja.appendChild(capa);
 
   // Los ruidos van con los fotogramas, no al bulto. Dentro de cada
-  // vuelta de 800 ms: clava la pala al 15 %, la suelta al 57 %, el
-  // terrón le llega al casco al 78 % y el casco rebota justo después.
+  // vuelta: clava la pala al 15 %, la suelta al 57 %, el terrón le llega
+  // al casco al 78 % y el casco rebota al 83 %.
   const relojes = [];
-  for (const vuelta of [0, 800]) {
-    relojes.push(ruidoEn('palada', vuelta + 120));
-    relojes.push(ruidoEn('tiro', vuelta + 456));
-    relojes.push(ruidoEn('golpe', vuelta + 624));
-    relojes.push(ruidoEn('casco', vuelta + 664));
+  for (let i = 0; i < VUELTAS_OBREROS; i++) {
+    const vuelta = i * VUELTA_OBREROS;
+    for (const [ruido, pct] of [['palada', 15], ['tiro', 57], ['golpe', 78], ['casco', 83]])
+      relojes.push(ruidoEn(ruido, vuelta + Math.round(VUELTA_OBREROS * pct / 100)));
   }
 
-  return new Promise((listo) => {
-    let acabado = false;
-    const terminar = () => {
-      if (acabado) return;
-      acabado = true;
-      for (const t of relojes) clearTimeout(t);
-      clearTimeout(fin);
-      capa.remove();
-      listo();
-    };
-    const fin = setTimeout(terminar, DURACION_OBREROS);
-    capa.style.pointerEvents = 'auto';
-    capa.onpointerdown = terminar;          // un toque la salta
-  });
+  // Si mientras tanto se cambia de pestaña, de plataforma o se entra a
+  // mirar otro día, el plano se rearma entero y se lleva la capa por
+  // delante. No hace falta vigilarlo: cuando salte este reloj, quitar un
+  // nodo que ya no está en la página no hace nada.
+  return new Promise((listo) => setTimeout(() => {
+    for (const t of relojes) clearTimeout(t);
+    capa.remove();
+    listo();
+  }, DURACION_OBREROS));
 }
 
 function barraEdicion() {
