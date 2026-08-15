@@ -692,4 +692,75 @@ const irAPlat = fuenteApp.slice(fuenteApp.indexOf('const irAPlataforma = '),
 ok(/pintarChipPlataforma\(\)/.test(irAPlat),
    'y cambiar de plataforma repinta su nombre en la cabecera');
 
+// ---------------------------------------------------------------------
+titulo('La volqueta ENTRA: la salida no puede rellenar hacia atrás.');
+
+// Esto llegó roto en la versión que se recibió y no se ve leyendo el
+// código: la salida llevaba `both` y un fotograma inicial explícito, así
+// que su relleno HACIA ATRÁS aplicaba translateX(0) desde el
+// milisegundo cero. Como va la última de la lista, le ganaba a la
+// entrada: la volqueta se quedaba quieta en el sitio y no entraba nunca.
+// Comprobado en un navegador de verdad; aquí se fija para que nadie lo
+// "ordene" de vuelta.
+const salida = css.slice(css.indexOf('.vq-camion {'), css.indexOf('@keyframes vq-entrar'));
+ok(/vq-salir[^;]*forwards/.test(salida),
+   'la salida de la volqueta rellena `forwards`, nunca `both`');
+const ruedas = css.slice(css.indexOf('.vq-rueda {'), css.indexOf('@keyframes vq-rodar-entrada'));
+ok(/vq-rodar-salida[^;]*forwards/.test(ruedas), 'y las ruedas, igual');
+
+// El relevo con el lote de verdad depende de que el montón tenga su
+// misma silueta: el plano se mira desde ARRIBA y el lote es un círculo.
+ok(/const monton = \(col\) => `[\s\S]*?<circle r="40"/.test(fuenteApp),
+   'el montón sigue siendo un círculo del radio del lote, para que el relevo no se vea');
+
+// ---------------------------------------------------------------------
+titulo('Los obreros salen sin fondo, y a 1,5 veces la velocidad.');
+
+// Se pidió expresamente quitarle el fondo: el plano ya tiene el suyo
+// —que puede ser una foto aérea del acopio— y pintarle encima un
+// paisaje de perfil taparía justo lo que se está mirando.
+const escena = fuenteApp.slice(fuenteApp.indexOf('const escenaObreros = () =>'),
+                               fuenteApp.indexOf('function animarMuestreo(lote)'));
+ok(escena.length > 500, 'se encontró la escena de los obreros');
+for (const [que, patron] of [['cielo', /grad-cielo|capa-cielo/], ['cerros', /Cerros|cerro/i],
+                             ['grúa', /grúa|grua/i], ['sol', /sol-escena/],
+                             ['suelo', /capa-suelo|var\(--suelo\)/], ['conos', /cono-seguridad/],
+                             ['topo', /topo/i]])
+  ok(!patron.test(escena), `la escena no trae ${que}`);
+ok(/ob-cuerpo-palero|obreroPalero/.test(escena) && /obreroVictima/.test(escena)
+   && /obreroJefe/.test(escena), 'pero sí los tres muñecos, que son el chiste');
+
+// El gag original dura 1,2 s por vuelta. Se pidió 1,5 veces más rápido
+// o más: 1,2 / 1,5 = 0,8 s. Y se dan dos vueltas, 1,6 s en total, que es
+// lo que dura la volqueta.
+const gag = css.slice(css.indexOf('.ob-cuerpo-palero'), css.indexOf('@keyframes ob-pal-cuerpo'));
+const dur = (gag.match(/(\d?\.?\d+)s/) || [])[1];
+ok(dur === '.8', `cada vuelta del gag dura ${dur}s, o sea 1,5 veces más rápido que el original`);
+ok(/animation: ob-pal-cuerpo \.8s [^;]*\b2;/.test(css), 'y se dan dos vueltas, no una ni infinitas');
+ok(/const DURACION_OBREROS = 1600;/.test(fuenteApp),
+   'la escena se retira a los 1600 ms, que son las dos vueltas exactas');
+
+// Los ruidos van CON los fotogramas. En una vuelta de 800 ms: la pala
+// se clava al 15 % (120 ms), se suelta al 57 % (456), el terrón llega al
+// 78 % (624) y el casco rebota al 83 % (664).
+for (const [ruido, ms, pct] of [['palada', 120, 15], ['tiro', 456, 57],
+                                ['golpe', 624, 78], ['casco', 664, 83]]) {
+  ok(new RegExp(`ruidoEn\\('${ruido}', vuelta \\+ ${ms}\\)`).test(fuenteApp),
+     `el ruido de "${ruido}" suena a los ${ms} ms, que es el ${pct} % de la vuelta`);
+  ok(Math.round(800 * pct / 100) === ms || Math.abs(800 * pct / 100 - ms) <= 4,
+     `y ${ms} ms es de verdad el ${pct} % de 800`);
+}
+
+// Sin archivos de sonido nuevos: son cuatro golpes cortísimos y cuatro
+// MP3 más serían cuatro descargas y cuatro entradas de caché para nada.
+ok(/createOscillator|createBufferSource/.test(fuenteApp),
+   'los ruidos se sintetizan, no se descargan');
+const sw = await readFile(new URL('../web/sw.js', import.meta.url), 'utf8');
+ok((sw.match(/\.mp3/g) || []).length === 2,
+   'y la caché sigue con los dos MP3 de siempre, ni uno más');
+
+// Y respetan el interruptor de silencio que ya existía.
+ok(/const ruidoEn = \(cual, ms\) => setTimeout\(\(\) => \{\s*\n\s*if \(S\.mudo\) return;/.test(fuenteApp),
+   'con los avisos apagados, la escena se ve pero no suena');
+
 cerrar();
