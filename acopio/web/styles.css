@@ -1383,7 +1383,16 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
    sombras de contacto, que es lo que cuenta el chiste.
 
    El ciclo del gag dura 800 ms —1,5 veces más rápido que el original de
-   1,2 s— y se repite dos veces: 1,6 s en total, como la volqueta. */
+   1,2 s— y se repite las vueltas que diga `--vueltas`, que la pone el
+   JavaScript: así el número vive en UN solo sitio y no hay forma de que
+   la escena se borre a media palada porque alguien cambió una duración
+   y se olvidó de la otra. El capataz va al doble de lento, o sea a la
+   mitad de vueltas.
+
+   La capa NO atrapa el dedo: un toque encima llega al plano, como si la
+   escena no estuviera. Antes se la tragaba para poder saltarla, y lo
+   que conseguía era que quitarla de en medio fuera lo primero que hacía
+   todo el mundo sin querer. */
 .capa-obreros { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
 .capa-obreros svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
@@ -1396,11 +1405,11 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .ob-atras { filter: brightness(.68) saturate(1.15); }
 
 /* -- el palero: cuerpo y conjunto brazo-pala, que es una pieza rígida */
-.ob-cuerpo-palero { animation: ob-pal-cuerpo .8s var(--curva-firme) 2; }
-.ob-pala          { animation: ob-pal-brazos .8s var(--curva-firme) 2; }
-.ob-carga         { animation: ob-pal-carga .8s steps(1, end) 2; }
-.ob-polvo-cava    { animation: ob-pal-polvo .8s ease-out 2; }
-.ob-sudor         { animation: ob-sudor .8s ease-out 2; }
+.ob-cuerpo-palero { animation: ob-pal-cuerpo .8s var(--curva-firme) var(--vueltas); }
+.ob-pala          { animation: ob-pal-brazos .8s var(--curva-firme) var(--vueltas); }
+.ob-carga         { animation: ob-pal-carga .8s steps(1, end) var(--vueltas); }
+.ob-polvo-cava    { animation: ob-pal-polvo .8s ease-out var(--vueltas); }
+.ob-sudor         { animation: ob-sudor .8s ease-out var(--vueltas); }
 
 @keyframes ob-pal-cuerpo {
   0%   { transform: rotate(-2deg) translateY(0); }
@@ -1439,8 +1448,8 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 }
 
 /* -- los terrones vuelan en parábola de la hoja al casco del otro */
-.ob-terron-1 { animation: ob-tv1 .8s linear 2; }
-.ob-terron-2 { animation: ob-tv2 .8s linear 2; }
+.ob-terron-1 { animation: ob-tv1 .8s linear var(--vueltas); }
+.ob-terron-2 { animation: ob-tv2 .8s linear var(--vueltas); }
 @keyframes ob-tv1 {
   0%, 56% { transform: translate(0,0) scale(0) rotate(0deg); opacity: 0; }
   57%     { transform: translate(0,0) scale(.9); opacity: 1; }
@@ -1461,15 +1470,15 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 }
 
 /* -- el que recibe el terronazo, con su balde */
-.ob-cuerpo-victima { animation: ob-vic-golpe .8s var(--curva-firme) 2; }
-.ob-balde          { animation: ob-balde .8s var(--curva-munequito) 2; }
-.ob-brazo-balde    { animation: ob-brazo-tiron .8s var(--curva-firme) 2; }
-.ob-casco          { animation: ob-casco .8s var(--curva-munequito) 2; }
-.ob-cartel         { animation: ob-cartel .8s var(--curva-munequito) 2; }
-.ob-estrellas      { animation: ob-estrellas .8s linear 2; }
-.ob-polvo-golpe    { animation: ob-nubes .8s ease-out 2; }
-.ob-cara           { animation: ob-cara .8s steps(1, end) 2; }
-.ob-cara-ida       { animation: ob-cara-inv .8s steps(1, end) 2; }
+.ob-cuerpo-victima { animation: ob-vic-golpe .8s var(--curva-firme) var(--vueltas); }
+.ob-balde          { animation: ob-balde .8s var(--curva-munequito) var(--vueltas); }
+.ob-brazo-balde    { animation: ob-brazo-tiron .8s var(--curva-firme) var(--vueltas); }
+.ob-casco          { animation: ob-casco .8s var(--curva-munequito) var(--vueltas); }
+.ob-cartel         { animation: ob-cartel .8s var(--curva-munequito) var(--vueltas); }
+.ob-estrellas      { animation: ob-estrellas .8s linear var(--vueltas); }
+.ob-polvo-golpe    { animation: ob-nubes .8s ease-out var(--vueltas); }
+.ob-cara           { animation: ob-cara .8s steps(1, end) var(--vueltas); }
+.ob-cara-ida       { animation: ob-cara-inv .8s steps(1, end) var(--vueltas); }
 
 @keyframes ob-vic-golpe {
   0%, 76% { transform: rotate(0deg) translateY(0); }
@@ -1522,11 +1531,11 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 /* -- el capataz mira, se mece y se toma el café.
    Sus tiempos son el doble que los del gag para que no vaya al mismo
    compás que los que trabajan: se nota que él va a otro ritmo. */
-.ob-cuerpo-jefe { animation: ob-jefe-mecer 1.6s ease-in-out 1; }
-.ob-pierna-a    { animation: ob-jefe-pierna-a 1.6s ease-in-out 1; }
-.ob-pierna-b    { animation: ob-jefe-pierna-b 1.6s ease-in-out 1; }
-.ob-brazo-cafe  { animation: ob-jefe-sorbo 1.6s var(--curva-firme) 1; }
-.ob-humo-cafe   { animation: ob-humo .8s ease-out 2; }
+.ob-cuerpo-jefe { animation: ob-jefe-mecer 1.6s ease-in-out calc(var(--vueltas) / 2); }
+.ob-pierna-a    { animation: ob-jefe-pierna-a 1.6s ease-in-out calc(var(--vueltas) / 2); }
+.ob-pierna-b    { animation: ob-jefe-pierna-b 1.6s ease-in-out calc(var(--vueltas) / 2); }
+.ob-brazo-cafe  { animation: ob-jefe-sorbo 1.6s var(--curva-firme) calc(var(--vueltas) / 2); }
+.ob-humo-cafe   { animation: ob-humo .8s ease-out var(--vueltas); }
 
 @keyframes ob-jefe-mecer    { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
 @keyframes ob-jefe-pierna-a { 0%, 100% { transform: rotate(9deg); } 50% { transform: rotate(-7deg); } }
@@ -1544,7 +1553,7 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 }
 
 /* -- el montón del que saca late al recibir cada palada */
-.ob-pila { animation: ob-pila-latir .8s ease-in-out 2; }
+.ob-pila { animation: ob-pila-latir .8s ease-in-out var(--vueltas); }
 @keyframes ob-pila-latir {
   0%, 77% { transform: scale(1, 1); }
   82%     { transform: scale(1.07, .93); }
@@ -1553,7 +1562,7 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 
 /* La escena entera entra y sale con un fundido corto: aparecer de golpe
    sobre el plano da un respingo, y a los 1,6 s ya no hay nada. */
-.capa-obreros { animation: ob-entrar 140ms ease-out both, ob-irse 200ms ease-in 1400ms both; }
+.capa-obreros { animation: ob-entrar 140ms ease-out both, ob-irse 200ms ease-in var(--sale-en) both; }
 @keyframes ob-entrar { from { opacity: 0; transform: scale(.94); } }
 @keyframes ob-irse   { to   { opacity: 0; } }
 
