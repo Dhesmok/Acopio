@@ -393,4 +393,70 @@ ok(relleno.indexOf('update lotes set plataforma_id = plat5, estado')
    > relleno.indexOf("set_config('app.desde_evento', 'on', true)"),
    'el cambio de estado de los de Plataforma 5 va dentro del mismo bloque');
 
+
+// ---------------------------------------------------------------------
+titulo('Un lote recién llegado SOLO puede pasar a muestreado.');
+
+// No es un permiso, es el orden del trabajo: hasta que no hay muestra no
+// se sabe qué material es, así que facturarlo o devolverlo sería decidir
+// sobre algo que nadie ha mirado. Por eso vale también para el admin.
+const posibles = new Function('S', `
+  ${trozo('const ESTADOS_ELEGIBLES = ', '// para ordenar la barra de colores')}
+  return estadosPosibles;
+`)({});
+
+const desdeNuevo = posibles({ estado: 'por_muestrear' });
+ok(desdeNuevo.length === 1 && desdeNuevo[0] === 'muestreado',
+   `desde "por muestrear" solo se ofrece muestreado (salían ${desdeNuevo.length})`);
+
+const desdeMuestreado = posibles({ estado: 'muestreado' });
+ok(desdeMuestreado.length >= 6, `ya muestreado se abren los demás (${desdeMuestreado.length})`);
+ok(!desdeMuestreado.includes('muestreado'), 'menos el que ya tiene, que no es un cambio');
+for (const e of ['facturado', 'devolucion', 'alimentado', 'despachado', 'remuestreo'])
+  ok(desdeMuestreado.includes(e), `entre ellos ${e}`);
+// Y se puede volver atrás: un estado puesto por error se corrige.
+ok(posibles({ estado: 'facturado' }).includes('por_muestrear'),
+   'y desde cualquier otro se puede devolver a "por muestrear" si fue un error');
+
+// ---------------------------------------------------------------------
+titulo('Cambiar el proveedor corrige el código.');
+
+// El código empieza por la abreviatura del proveedor: PG1042 lo trajo
+// PG. Cambiar el proveedor y dejar el código igual deja el lote
+// diciendo una cosa y siendo otra.
+const recod = new Function(`${trozo('const recodificar = (codigo, vieja, nueva)', 'const siglaDe =')}
+  return recodificar;`)();
+
+ok(recod('PG1042', 'PG', 'SJ') === 'SJ1042', 'PG1042 con proveedor SJ pasa a SJ1042');
+ok(recod('pg1042', 'PG', 'SJ') === 'SJ1042', 'y da igual cómo esté escrito');
+// El sufijo de volqueta se respeta TAL CUAL: quien lo tecleó eligió ese
+// formato y no es asunto de esta corrección cambiarlo.
+ok(recod('SJ115(2)', 'SJ', 'PG') === 'PG115(2)', 'el sufijo entre paréntesis se respeta');
+ok(recod('ABG40.2', 'ABG', 'PG') === 'PG40.2', 'y el sufijo con punto, también');
+// Abreviaturas de largos distintos.
+ok(recod('ABG50', 'ABG', 'PG') === 'PG50', 'de una sigla larga a una corta');
+ok(recod('PG50', 'PG', 'ABG') === 'ABG50', 'y al revés');
+// Si el código no empezaba por la sigla anterior —lo escribieron a mano—
+// se cambian igual las letras del principio.
+ok(recod('XX1042', 'PG', 'SJ') === 'SJ1042', 'un código que no seguía la regla se endereza');
+ok(recod('1042', 'PG', 'SJ') === 'SJ1042', 'y a uno sin letras se le pone la sigla delante');
+
+// ---------------------------------------------------------------------
+titulo('La escena de muestreo encuadra ANTES de montarse.');
+
+// La escena se dibuja sobre el encuadre que hay en ese momento: montarla
+// y encuadrar después la dejaría centrada en el sitio de antes.
+const orden = app.slice(app.indexOf("if (b.dataset.estado === 'muestreado')"),
+                        app.indexOf("if (b.dataset.estado === 'muestreado')") + 400);
+ok(orden.indexOf('encuadrarPara') < orden.indexOf('animarMuestreo'),
+   'se encuadra primero y se monta después');
+ok(/await encuadrarPara\(fresco\);/.test(orden), 'y se espera a que el plano llegue');
+// Y se enmarca la caja de la ESCENA, no la del lote: `Mapa.enfocar`
+// sobre un lote suelto deja un cuadro de 320 y la cuadrilla mide 400.
+ok(/const CAJA_OBREROS = \{ dx: [-\d]+, dy: [-\d]+, rx: (\d+), ry: (\d+) \};/.test(app),
+   'la caja que ocupa la escena está medida y escrita');
+const caja = app.match(/const CAJA_OBREROS = \{ dx: [-\d]+, dy: [-\d]+, rx: (\d+), ry: (\d+) \};/);
+ok(Number(caja[1]) * 2 >= 400,
+   `la caja mide ${Number(caja[1]) * 2} de ancho, que es lo que ocupa la cuadrilla entera`);
+
 cerrar();

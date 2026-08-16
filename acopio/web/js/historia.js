@@ -154,6 +154,14 @@ export function planoEn(t, { lotes = [], pilas = [], eventos = [], indice = null
     // lote sale marcado, como todo lo que se supone.
     if (mios.some((e) => e.tipo === 'traslado' && e.ocurrido_en > t)
         && !mios.some((e) => e.tipo === 'traslado' && e.ocurrido_en <= t)) aprox = true;
+    // De lo que ya se comió la planta no se guarda el recorrido: ocupa
+    // mucho y no se dibuja en ningún plano de hoy (ver `podarRecorridos`
+    // en store.js). Mirando un día en que ese lote SÍ estaba en el patio,
+    // entonces, no hay forma de saber dónde: se deja donde estaba al
+    // final y se marca, como todo lo que aquí se supone. Si alguien pidió
+    // más historia y los apuntes volvieron a bajar, esto no se cumple y
+    // el lote sale en su sitio de verdad.
+    if (l.estado === 'alimentado' && !mios.some((e) => e.tipo === 'movimiento')) aprox = true;
     if (aprox) { copia._aprox = true; aproximados++; }
 
     for (const e of mios) { if (e.ocurrido_en > t) break; aplicar(copia, e); }

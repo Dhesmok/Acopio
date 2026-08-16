@@ -765,6 +765,35 @@ async function traerPorId(tabla, ids) {
   }
 }
 
+// Tira el RECORRIDO de los lotes que ya se comió la planta.
+//
+// Cada acomodo de un lote por el patio deja un apunte de `movimiento`, y
+// son los eventos más numerosos de todos: un lote movido veinte veces
+// deja veinte filas que no dicen nada de él, solo dónde estuvo. Un lote
+// alimentado ya no se dibuja en el plano, así que su recorrido no le
+// sirve a nadie, y sin esto se quedaba ocupando el celular para siempre.
+//
+// SOLO SE BORRA AQUÍ, en el celular. En el servidor no se toca nada:
+// ahí los eventos no se borran nunca —la base misma lo impide— y de eso
+// dependen la trazabilidad y el informe. Si alguna vez hiciera falta,
+// vuelven a bajarse.
+//
+// Se van únicamente los `movimiento`. La recepción, los cambios de
+// estado, las entradas y salidas de pila y los traslados se quedan: son
+// los que cuentan la historia del lote, y ocupan una fracción.
+async function podarRecorridos() {
+  const comidos = new Set((await idb.todos('lotes'))
+    .filter((l) => l.estado === 'alimentado').map((l) => l.id));
+  if (!comidos.size) return 0;
+  let fuera = 0;
+  for (const e of await idb.todos('eventos')) {
+    if (e.tipo !== 'movimiento' || !comidos.has(e.lote_id)) continue;
+    await idb.borrar('eventos', e.id);
+    fuera++;
+  }
+  return fuera;
+}
+
 async function bajar() {
   if (ultimoCompleto === null) {
     ultimoCompleto = Number(await meta('ultimo_completo')) || 0;
@@ -860,6 +889,10 @@ async function bajar() {
   // minutos toda la historia guardada y dejaba solo una ventana de días:
   // con eso, mirar el patio de la semana pasada salía mal, porque de la
   // mayoría de los lotes no quedaba ni un evento.
+  //
+  // La ÚNICA excepción es el recorrido de lo que ya se comió la planta,
+  // y solo en el celular: ver `podarRecorridos`.
+  if (completo) await podarRecorridos();
 
   // Si la columna todavía no existe (falta correr migracion.sql) la marca
   // queda vacía y todo sigue bajándose completo: más lento, nunca roto.

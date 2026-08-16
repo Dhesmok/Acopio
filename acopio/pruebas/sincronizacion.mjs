@@ -224,4 +224,71 @@ const r = await saltar();
 ok(r.motivo === 'perfil_inactivo', `la app lo detecta y lo dice (${JSON.stringify(r)})`);
 ok((await Store.lotes()).length === habia, `los ${habia} lotes siguen en pantalla`);
 
+
+// ---------------------------------------------------------------------
+titulo('Del lote ya alimentado se tira el recorrido, y SOLO el recorrido.');
+
+// Cada acomodo por el patio deja un apunte de `movimiento`: son los
+// eventos más numerosos de todos y no dicen nada del lote, solo dónde
+// estuvo. Un lote alimentado ya se lo comió la planta y no se dibuja en
+// ningún plano, así que su recorrido no le sirve a nadie y se quedaba
+// ocupando el celular para siempre.
+//
+// La prueba de arriba dejó el perfil sin habilitar para comprobar el
+// cerrojo; aquí se vuelve a habilitar, o no bajaría nada.
+servidor.tablas.perfiles.set('yo', { id: 'yo', nombre: 'Yo', rol: 'admin' });
+const conRecorrido = await Store.crearLote({ codigo: 'PG-COMIDO', proveedor_id: 'p1',
+  placa: 'AAA111', material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
+const enPie = await Store.crearLote({ codigo: 'PG-VIVO', proveedor_id: 'p1',
+  placa: 'BBB222', material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
+
+// A los dos se les mueve por el patio y se les cambia de estado.
+for (const l of [conRecorrido, enPie]) {
+  for (const [x, y] of [[10, 10], [80, 80], [200, 150]])
+    await Store.registrarEvento({ lote_id: l.id, tipo: 'movimiento', x, y, usuario_id: 'yo' });
+  await Store.registrarEvento({ lote_id: l.id, tipo: 'cambio_estado',
+    estado_nuevo: 'muestreado', usuario_id: 'yo' });
+}
+// pero solo uno acaba en la planta
+await Store.registrarEvento({ lote_id: conRecorrido.id, tipo: 'cambio_estado',
+  estado_nuevo: 'alimentado', usuario_id: 'yo' });
+await Store.sincronizar();
+// En el servidor de verdad es un disparador el que pasa el estado del
+// evento a la fila del lote; este servidor de mentira no los tiene, así
+// que se hace a mano. Importa porque la poda mira el estado que BAJÓ,
+// no el que se pintó en pantalla al registrar el evento.
+Object.assign(servidor.tablas.lotes.get(conRecorrido.id),
+  { estado: 'alimentado', actualizado_en: new Date(Date.now() + 1000).toISOString() });
+
+const suyos = (id) => (tiendas.get('eventos') ? [...tiendas.get('eventos').values()] : [])
+  .filter((e) => e.lote_id === id);
+const deTipo = (id, t) => suyos(id).filter((e) => e.tipo === t).length;
+
+ok(deTipo(conRecorrido.id, 'movimiento') === 3, 'antes de podar tenía sus tres movimientos');
+
+// La poda va con la pasada lenta, la que pasa lista una vez por hora.
+await saltar();
+
+ok(deTipo(conRecorrido.id, 'movimiento') === 0,
+   `del alimentado no queda ni un movimiento (quedaban ${deTipo(conRecorrido.id, 'movimiento')})`);
+// Lo que cuenta su historia se queda: es lo que sale en la ficha y en el
+// informe, y ocupa una fracción de lo otro.
+ok(deTipo(conRecorrido.id, 'recepcion') === 1, 'pero su recepción sigue ahí');
+ok(deTipo(conRecorrido.id, 'cambio_estado') === 2,
+   `y sus cambios de estado, los dos (quedan ${deTipo(conRecorrido.id, 'cambio_estado')})`);
+ok((await Store.lote(conRecorrido.id))?.estado === 'alimentado',
+   'y el lote entero sigue en la base, que es de lo que vive la trazabilidad');
+
+// Al que sigue en el patio no se le toca NADA.
+ok(deTipo(enPie.id, 'movimiento') === 3,
+   `al que sigue en el patio le quedan sus tres movimientos (${deTipo(enPie.id, 'movimiento')})`);
+
+// Y en el servidor no se borra nada: ahí los eventos no se borran nunca
+// —la base misma lo impide— y de eso viven el informe y la trazabilidad.
+const enServidor = [...servidor.tablas.eventos.values()]
+  .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
+ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
+
 cerrar();

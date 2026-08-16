@@ -26,6 +26,21 @@ const ESTADOS = {
 // los que se pueden elegir a mano en la ficha de un lote
 const ESTADOS_ELEGIBLES = ['por_muestrear', 'muestreado', 'remuestreo',
                            'facturado', 'devolucion', 'alimentado', 'despachado'];
+
+// Un lote recién llegado SOLO puede pasar a muestreado.
+//
+// No es un permiso, es el orden del trabajo: hasta que no hay muestra no
+// se sabe qué material es, así que facturarlo, devolverlo o alimentarlo
+// sería decidir sobre algo que nadie ha mirado todavía. Por eso vale
+// igual para el admin: no es que no tenga permiso, es que ese paso no
+// existe. En cuanto está muestreado se abren todos los demás.
+//
+// Corregir un estado puesto por error sigue siendo posible: el que ya
+// pasó de por_muestrear tiene la lista entera, y ahí está por_muestrear
+// para devolverlo al principio si hizo falta.
+const estadosPosibles = (l) => l.estado === 'por_muestrear'
+  ? ['muestreado']
+  : ESTADOS_ELEGIBLES.filter((k) => k !== l.estado);
 // para ordenar la barra de colores del tablero de plataformas
 const ORDEN_ESTADO = Object.fromEntries(ESTADOS_ELEGIBLES.map((k, i) => [k, i]));
 const MATERIALES = { granel: 'Granel', bigbag: 'Bigbag' };
@@ -378,6 +393,25 @@ function codigoHTML(codigo) {
   const { base, volqueta } = Mapa.partesCodigo(codigo);
   return esc(base) + (volqueta ? `<sup class="volqueta">${esc(volqueta)}</sup>` : '');
 }
+
+// El código de un lote empieza por la abreviatura de su proveedor:
+// PG1042 lo trajo PG. Así que corregir el proveedor y dejar el código
+// como estaba deja el lote diciendo una cosa y siendo otra.
+//
+// Se cambia SOLO el principio y se respeta todo lo demás tal cual, con
+// su número y con el sufijo de volqueta sea como sea que esté escrito
+// —SJ115(2) o ABG40.2—: quien lo tecleó eligió ese formato y no es
+// asunto de esta corrección cambiarlo.
+const recodificar = (codigo, vieja, nueva) => {
+  const t = String(codigo || '').trim().toUpperCase();
+  const v = String(vieja || '').toUpperCase(), n = String(nueva || '').toUpperCase();
+  if (v && t.startsWith(v)) return n + t.slice(v.length);
+  // No empezaba por la sigla anterior —lo escribieron a mano, o el
+  // proveedor cambió de abreviatura—: se sustituyen las letras del
+  // principio, y si no había ninguna se le antepone la nueva.
+  return t.replace(/^[A-Z]*/, n);
+};
+const siglaDe = (id) => S.proveedores.find((p) => p.id === id)?.abreviatura || '';
 
 const enDevolucion = (l) => l.estado === 'devolucion';
 const vencido = (l) => enDevolucion(l) && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
@@ -1954,6 +1988,13 @@ const VUELTA_OBREROS = 800;
 const VUELTAS_OBREROS = 8;
 const DURACION_OBREROS = VUELTA_OBREROS * VUELTAS_OBREROS;
 
+// Lo que ocupa la escena, medido desde donde se ancla —el centro es el
+// lote y el suelo su línea de cintura—. Sirve para encuadrar el plano
+// antes de montarla: si no cabe entera, la cuadrilla sale cortada.
+// De izquierda a derecha va del montón acumulado al capataz; hacia
+// arriba, hasta el cartel de "¡PLOF!".
+const CAJA_OBREROS = { dx: 3, dy: -77, rx: 247, ry: 83 };
+
 // Un brazo o una pierna: el filo negro por debajo y el color encima, que
 // es como se dibuja un miembro en este lenguaje.
 const miembro = (d, gordo, fino) => `
@@ -2158,6 +2199,29 @@ const escenaObreros = () => `
       <path d="M-6 -5 L6 -6 L8 4 L-1 7 L-7 1 Z" fill="var(--tierra)" stroke="#14171a" stroke-width="2" stroke-linejoin="round"/>
     </g>
   </g>`;
+
+// Lleva el plano hasta el lote y espera a que llegue, ANTES de montar la
+// escena.
+//
+// Hace falta porque la escena se dibuja sobre el encuadre que hay en ese
+// momento: montarla y encuadrar después la dejaría centrada en el sitio
+// de antes. Y no vale con `Mapa.enfocar` a secas sobre el lote, que
+// enmarca un cuadro de 320 pensado para "¿dónde está este lote?": la
+// cuadrilla mide 400 y saldría cortada por los lados. Se enmarca la caja
+// de la escena, no la del lote.
+//
+// El plano se DESLIZA, no salta: si el lote estaba fuera de la pantalla,
+// aparecer de golpe en otro sitio hace perder dónde se estaba.
+function encuadrarPara(lote) {
+  if (S.pestana !== 'mapa' || !document.querySelector('#lienzo')) return Promise.resolve();
+  const s = (Math.max(lote.rx || 40, lote.ry || 40) / 40) * 0.8;
+  const c = CAJA_OBREROS;
+  Mapa.enfocar([{ x: lote.x + c.dx * s, y: lote.y + c.dy * s,
+                  rx: c.rx * s, ry: c.ry * s }], { margen: 30 });
+  // El deslizamiento dura 420 ms; se le da un respiro y se monta encima
+  // del encuadre ya quieto.
+  return new Promise((listo) => setTimeout(listo, 460));
+}
 
 // Monta la escena sobre el lote y la quita al terminar.
 //
@@ -2666,9 +2730,11 @@ async function fichaLote(id) {
     ${lectura ? '' : `
     <h3>Cambiar estado</h3>
     <div class="acciones">
-      ${ESTADOS_ELEGIBLES.filter((k) => k !== l.estado)
+      ${estadosPosibles(l)
         .map((k) => `<button data-estado="${k}">${ESTADOS[k]}</button>`).join('')}
     </div>
+    ${l.estado === 'por_muestrear' ? `<p class="pista">Hasta que no esté muestreado no se
+       puede hacer nada más con él: sin muestra no se sabe qué material es.</p>` : ''}
 
     ${esAdmin() && enDevolucion(l) ? `
     <h3>${l.fecha_recogida ? 'Cambiar fecha de recogida' : 'Fecha de recogida'}</h3>
@@ -2778,7 +2844,10 @@ async function fichaLote(id) {
       // retrasar el apunte, solo ocupa la espera que ya había.
       if (b.dataset.estado === 'muestreado') {
         const fresco = (await Store.lote(id)) || l;
-        if (enEstaPlataforma(fresco)) await animarMuestreo(fresco);
+        if (enEstaPlataforma(fresco)) {
+          await encuadrarPara(fresco);
+          await animarMuestreo(fresco);
+        }
       }
     }, { ocupado: 'Cambiando…' });
   });
@@ -2849,10 +2918,32 @@ async function fichaLote(id) {
     irAlMapa();
   };
 
+  // Cambiar el proveedor corrige el código en el acto, a la vista, en vez
+  // de hacerlo por debajo al guardar: así se ve qué va a quedar y se
+  // puede retocar a mano antes de aceptar. Sigue siendo un campo de
+  // texto normal; esto solo adelanta el trabajo.
+  const ap = $('#a-prov'), ac = $('#a-cod');
+  if (ap && ac) {
+    let sigla = siglaDe(l.proveedor_id);
+    ap.onchange = () => {
+      const nueva = siglaDe(ap.value);
+      ac.value = recodificar(ac.value, sigla, nueva);
+      sigla = nueva;
+    };
+  }
+
   const ag = $('#a-guardar');
   if (ag) ag.onclick = accion(async () => {
     const codigo = $('#a-cod').value.trim().toUpperCase();
     if (!codigo) return;
+    // El código es único en TODO el patio, no solo en esta plataforma.
+    // Sin esta comprobación el servidor lo rechazaba después, en la cola,
+    // y el aviso llegaba lejos del momento en que se pudo arreglar.
+    const repetido = S.lotes.find((x) => x.codigo === codigo && x.id !== l.id);
+    if (repetido) {
+      return avisar(`Ya hay otro lote con el código ${codigo}, en ${
+        nombrePlataforma(repetido.plataforma_id)}. Cámbialo antes de guardar.`);
+    }
     await Store.actualizarLote(l.id, {
       codigo, placa: leerPlacas('a-placa'), proveedor_id: $('#a-prov').value
     });
