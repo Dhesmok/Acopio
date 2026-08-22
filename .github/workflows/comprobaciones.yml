@@ -1,0 +1,29 @@
+# Comprobaciones automáticas en cada push y pull request.
+#
+# Acopio tiene su propia batería de pruebas sin dependencias externas
+# (node pruebas/correr.mjs), pero hasta ahora solo corrían si alguien
+# se acordaba de ejecutarlas a mano antes de pushear. Este workflow las
+# corre siempre: si algo se rompe, el push sale en rojo en GitHub y no
+# hay que descubrirlo después en los celulares.
+#
+# No instala nada: las pruebas están escritas para correr con Node puro,
+# sin npm install ni internet, así que el job entero tarda segundos.
+name: Comprobaciones
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: node pruebas/correr.mjs
+        working-directory: acopio
