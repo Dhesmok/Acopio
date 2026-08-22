@@ -1,0 +1,216 @@
+# =====================================================================
+#  INFORME DE AUDITORÍA DE CÓDIGO · REPOSITORIO "Acopio"
+#
+#  Generado por: ox-alpha (asistente de código)
+#  Fecha de auditoría: 2026-08-21
+#  Repositorio: https://github.com/Dhesmok/Acopio
+#  Rama auditada: main (solo lectura; ningún archivo fue modificado)
+#
+#  Este informe está dirigido a otra IA o desarrollador humano.
+#  Cada hallazgo indica archivo, problema y corrección recomendada,
+#  ordenados por prioridad de intervención.
+#
+#  NOTA PRELIMINAR: este proyecto tiene documentación excelente
+#  (README.md, DEPLOY.md, pruebas/LEEME.md) que explica el PORQUÉ de
+#  cada decisión. Cualquier corrección debe respetar esas convenciones:
+#  comentarios en español explicando por qué, tests que prueben el bug
+#  antes del arreglo, y "guardar nunca falla" como regla inviolable.
+#
+# =====================================================================
+#  FORTALEZAS DETECTADAS (para contexto, no requieren acción)
+# =====================================================================
+
+[+] Tests reales que cubren bugs históricos documentados
+    Archivo: acopio/pruebas/
+    Las 4 tandas (cola, pilas-y-fechas, mapa, sincronizacion) protegen
+    contra fallos concretos que ocurrieron. La metodología de "hazla
+    fallar primero" en LEEME.md es correcta.
+
+[+] RLS completa y granular
+    Archivo: acopio/sql/schema.sql
+    Políticas separadas por tabla y rol (contratista/empresa/admin),
+    revokes explícitos sobre eventos y lotes, storage con políticas
+    propias para el bucket 'mapa'.
+
+[+] Manejo offline bien pensado
+    Cola con dependencias (evento no sube antes que su lote),
+    reintento preservando orden original, rechazo marcado sin borrar
+    de pantalla.
+
+[+] Documentación centrada en decisiones, no en instrucciones
+    README.md y DEPLOY.md explican por qué se eligió cada cosa.
+
+# =====================================================================
+#  PRIORIDAD ALTA (corregir primero)
+# =====================================================================
+
+[1] SERVICE WORKER: handler fetch puede dejar peticiones colgadas
+    Archivo: acopio/web/sw.js
+    Función: self.addEventListener('fetch', ...)
+    Problema:
+      El patrón actual es:
+        caches.match(e.request).then((hit) => {
+          const red = fetch(...).catch(() => hit || Response.error());
+          return hit || red;
+        })
+      Cuando `hit` existe, se devuelve `hit` inmediatamente (bien).
+      Pero cuando `hit` es undefined, hay que esperar a que `fetch`
+      resuelva o falle. En modo avión o señal intermitente, eso puede
+      tardar varios segundos en producir Response.error(), durante los
+      cuales la UI queda esperando respuesta.
+    Impacto:
+      En campo con mala señal, la app parece "congelada" mientras
+      espera timeout de red en recursos que no están en caché.
+    Corrección recomendada:
+      Implementar stale-while-revalidate explícito: si no hay caché,
+      responder con un fallback inmediato (por ejemplo una página de
+      "sin conexión") mientras la red intenta en segundo plano.
+      Alternativamente, usar AbortController con timeout corto
+      (3-5 s) para forzar Response.error() más rápido.
+
+[2] SIN CI AUTOMÁTICO
+    Los tests existen (node pruebas/correr.mjs) pero dependen de que
+    alguien se acuerde de correrlos manualmente antes de pushear.
+    A diferencia de mineria (que sí tiene .github/workflows), aquí un
+    push directo puede romper producción sin que nadie lo note.
+    Corrección recomendada:
+      Crear .github/workflows/comprobaciones.yml mínimo:
+
+        name: Comprobaciones
+        on: [push, pull_request]
+        jobs:
+          probar:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+              - uses: actions/setup-node@v4
+                with:
+                  node-version: 20
+              - run: cd acopio && node pruebas/correr.mjs
+
+[3] APP.JS MONOLÍTICO (~166 KB)
+    Archivo: acopio/web/js/app.js
+    Contiene login, fichas, formularios, gestión de estados,
+    plataformas, tareas, exportación y render, todo en un solo módulo.
+    Los tests cubren store.js y mapa.js pero NO app.js.
+    Impacto:
+      Cualquier cambio arriesga romper funcionalidad no relacionada.
+      Dificulta revisión de código por otra IA.
+    Corrección recomendada:
+      Dividir gradualmente en:
+        web/js/vistas/login.js
+        web/js/vistas/fichas.js
+        web/js/vistas/formularios.js
+        web/js/estados.js       (constantes ESTADOS, MATERIALES, etc.)
+      No hace falta framework: basta con módulos ES nativos.
+
+# =====================================================================
+#  PRIORIDAD MEDIA
+# =====================================================================
+
+[4] SALIR() PUEDE PERDER DATOS SI SE LLAMA DIRECTAMENTE
+    Archivo: acopio/web/js/store.js
+    Función: salir()
+    Código actual:
+      export async function salir() {
+        await sb.auth.signOut();
+        for (const t of TIENDAS) await idb.vaciar(t);
+      }
+    Problema:
+      El README dice "cerrar sesión borra lo del celular, así que
+      primero intenta subirlo", pero esta función NO intenta subir
+      nada. Confía en que quien la llame haya vaciado la cola antes.
+      Si algún flujo nuevo llega aquí directamente, se pierden datos
+      locales sin aviso.
+    Corrección recomendada:
+      Verificar pendientes() al inicio y lanzar error si hay cola:
+
+        export async function salir() {
+          const cola = await pendientes();
+          if (cola.length > 0) {
+            throw new Error(`Hay ${cola.length} cambios sin subir.`);
+          }
+          await sb.auth.signOut();
+          for (const t of TIENDAS) await idb.vaciar(t);
+        }
+
+[5] HOYLOCAL() USA EL RELOJ DEL DISPOSITIVO, NO LA ZONA HORARIA FIJA
+    Archivo: acopio/web/js/store.js
+    Función: hoyLocal()
+    Problema:
+      Usa new Date() local. Si un contratista viaja fuera de Colombia
+      o tiene el reloj mal configurado, fecha_recepcion sale distinta.
+      Un lote registrado a las 11 PM hora local del dispositivo en
+      UTC-3 quedaría fechado al día siguiente respecto a Colombia.
+    Corrección recomendada:
+      Usar Intl.DateTimeFormat con timeZone fija:
+
+        const hoyLocal = () => {
+          return new Intl.DateTimeFormat('sv-SE', {
+            timeZone: 'America/Bogota'
+          }).format(new Date());
+        };
+      El formato 'sv-SE' produce YYYY-MM-DD directamente.
+
+[6] EVENTOS ACUMULAN SIN LÍMITE LOCAL
+    Archivo: acopio/web/js/store.js
+    Problema:
+      La sincronización incremental baja eventos y nunca los poda
+      (excepto podarRecorridos para lotes alimentados). Con años de
+      uso, IndexedDB crecerá indefinidamente en cada celular.
+    Impacto:
+      Lentitud gradual al abrir, posible llenado de cuota de
+      almacenamiento en dispositivos antiguos.
+    Corrección recomendada:
+      Política de retención configurable, por ejemplo mantener:
+        - Últimos 6 meses completos
+        - Todos los eventos de lotes con estado != 'alimentado'
+        - Eventos referenciados en informes recientes
+
+[7] CONFIG.JS CON CREDENCIALES VERSIONADO EN GIT
+    Archivo: acopio/web/js/config.js
+    Aunque el repo es privado y la clave es pública por diseño,
+    versionarla significa que cualquier fork futuro, exposición
+    accidental del repo, o cambio de visibilidad filtra la URL del
+    proyecto Supabase directamente.
+    Corrección recomendada:
+      Crear config.example.js con valores ficticios y añadir
+      config.js al .gitignore. Generarlo en deploy vía variables de
+      entorno de Netlify (build plugin o Netlify Functions).
+
+# =====================================================================
+#  PRIORIDAD BAJA / MEJORAS OPCIONALES
+# =====================================================================
+
+[8] VERSIÓN DEL SERVICE WORKER MANUAL
+    Archivo: acopio/web/sw.js
+    Línea: const VERSION = 'acopio-v61';
+    Hay que acordarse de subirlo a mano en cada publicación. Si se
+    olvida, los celulares siguen con la versión anterior.
+    Mejora: generar el número de versión automáticamente desde un
+    hash de git en el pipeline de deploy de Netlify.
+
+[9] SIN LINTER NI FORMATTER
+    No hay .eslintrc, prettier, ni similar. Con código vanilla JS
+    generado mayoritariamente por IA, un linter básico habría
+    atrapado clases enteras de errores (variables sin declarar,
+    etc.) que según la documentación ya causaron problemas.
+    Mejora: añadir ESLint con eslint:recommended como mínimo.
+
+[10] INDEXEDDB ABIERTO SIN MANEJO DE VERSIONES SUPERIORES
+     Archivo: acopio/web/js/store.js, función abrir()
+     Si en el futuro se necesita versión 7, el onupgradeneeded actual
+     crea tiendas nuevas pero no maneja el caso de versiones menores
+     que la actual (downgrade). Es un caso raro, vale la pena
+     documentarlo aunque sea en comentario.
+
+# =====================================================================
+#  ORDEN SUGERIDO PARA CORREGIR
+# =====================================================================
+# Paso 1: [2] CI automático (15 min, protege todo lo demás)
+# Paso 2: [1] Service worker fetch (30 min, mejora directa en campo)
+# Paso 3: [4] Blindar salir() (1 h, evita pérdida de datos)
+# Paso 4: [7] Sacar config.js del versionado (30 min)
+# Paso 5: [3] Empezar división de app.js (progresivo, semanas)
+
+# FIN DEL INFORME
