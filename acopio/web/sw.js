@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v61';
+const VERSION = 'acopio-v62';
 const SHELL = [
   './',
   './index.html',
@@ -45,6 +45,22 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Cuánto se espera a la red antes de darla por perdida. En el patio con una
+// barra de señal que va y viene, el navegador puede tardar decenas de segundos
+// en decidir que la conexión falló; mientras tanto la pantalla queda esperando
+// y parece congelada. Con este tope, a los cinco segundos se contesta con lo
+// que hay —caché o error— y la app sigue viva.
+const RED_TIMEOUT_MS = 5000;
+
+// fetch con reloj: si la red no responde dentro del tope, se aborta. El catch
+// de quien llamó recibe AbortError igual que un fallo de red, y puede decidir
+// qué enseñar sin esperar al timeout largo del navegador.
+const fetchConTope = (request) => {
+  const control = new AbortController();
+  const reloj = setTimeout(() => control.abort(), RED_TIMEOUT_MS);
+  return fetch(request, { signal: control.signal }).finally(() => clearTimeout(reloj));
+};
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
@@ -56,7 +72,7 @@ self.addEventListener('fetch', (e) => {
   if (url.hostname === 'esm.sh') {
     e.respondWith(
       caches.match(e.request).then((hit) =>
-        hit || fetch(e.request).then((res) => {
+        hit || fetchConTope(e.request).then((res) => {
           const copia = res.clone();
           caches.open(VERSION).then((c) => c.put(e.request, copia));
           return res;
@@ -67,16 +83,36 @@ self.addEventListener('fetch', (e) => {
   }
 
   // App: primero la caché (abre instantáneo), y se refresca por detrás.
+  //
+  // Si hay caché se devuelve YA, sin esperar a la red. La versión anterior
+  // devolvía `red` cuando no había caché y esperaba a que el navegador
+  // declarara muerta la conexión, que en modo avión puede tardar mucho:
+  // durante ese tiempo ni el aviso de "sin conexión" salía. Ahora el fallo
+  // llega como mucho a los cinco segundos y la interfaz lo enseña de inmediato.
   e.respondWith(
-    caches.match(e.request).then((hit) => {
-      const red = fetch(e.request).then((res) => {
+    caches.match(e.request).then(async (hit) => {
+      if (hit) {
+        // Refresco por detrás: la próxima vez habrá versión nueva si la hubo.
+        fetchConTope(e.request).then((res) => {
+          if (res.ok) {
+            const copia = res.clone();
+            caches.open(VERSION).then((c) => c.put(e.request, copia));
+          }
+        }).catch(() => {});
+        return hit;
+      }
+
+      // Sin caché: a la red, pero con el tope de arriba para no colgar la UI.
+      try {
+        const res = await fetchConTope(e.request);
         if (res.ok) {
           const copia = res.clone();
           caches.open(VERSION).then((c) => c.put(e.request, copia));
         }
         return res;
-      }).catch(() => hit || Response.error());
-      return hit || red;
+      } catch {
+        return Response.error();
+      }
     })
   );
 });
