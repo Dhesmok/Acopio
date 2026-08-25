@@ -1035,6 +1035,69 @@ function panelPlataformas() {
   };
 }
 
+// -------------------------------------------------------------- monedas
+// Lo que cada uno ha ganado trabajando, de dónde salió cada moneda, y
+// quién va ganando este mes.
+//
+// El saldo NO se calcula aquí: lo cuenta el servidor desde el historial
+// entero. El celular guarda solo una ventana de eventos, así que una
+// cuenta hecha con lo local daría un número distinto en cada teléfono.
+//
+// La clasificación se reinicia cada mes a propósito: una tabla histórica
+// se congela —gana siempre el que empezó primero— y el que entra nuevo
+// ni lo intenta.
+const MOTIVOS = {
+  registrar: 'Registró el lote', muestrear: 'Lo muestreó', apilar: 'Lo metió en una pila',
+  trasladar: 'Lo cambió de plataforma', despachar: 'Lo despachó', tarea: 'Completó una tarea'
+};
+
+const nombreDe = (id) => S.gente.find((p) => p.id === id)?.nombre || 'alguien';
+
+async function panelMonedas(verA = null) {
+  const quien = verA || S.perfil.id;
+  abrirHoja('<p class="pista">Contando monedas…</p>', '<h2>Monedas</h2>');
+
+  const r = await Store.resumenMonedas();
+  const mios = r.saldos.find((x) => x.usuario_id === S.perfil.id);
+  const tabla = [...r.clasificacion].sort((a, b) => b.monedas - a.monedas);
+  const h = await Store.historialMonedas(quien);
+
+  abrirHoja(`
+    ${r.alDia ? '' : `<p class="aviso">Sin señal: esto es lo último que llegó${
+      r.cuando ? `, del ${fechaLocal(r.cuando)}` : ''}. Las monedas las cuenta el servidor.</p>`}
+
+    <div class="saldo">
+      <span class="cifra">${mios?.monedas ?? 0}</span>
+      <span class="txt">moneda${(mios?.monedas ?? 0) === 1 ? '' : 's'} tuyas en total</span>
+    </div>
+
+    <h3>Este mes</h3>
+    ${tabla.length ? `<ol class="ranking">${tabla.map((x, i) => `
+      <li data-quien="${x.usuario_id}"${x.usuario_id === quien ? ' class="viva"' : ''}>
+        <span class="puesto">${i + 1}</span>
+        <span class="quien">${esc(x.nombre || nombreDe(x.usuario_id))}${
+          x.rol === 'admin' ? ' <span class="dias">admin</span>' : ''}</span>
+        <span class="cuanto">${x.monedas}</span>
+      </li>`).join('')}</ol>
+      <p class="pista">Toca un nombre para ver de dónde salieron sus monedas. Se reinicia cada mes.</p>`
+      : '<p class="pista">Todavía nadie ha ganado monedas este mes.</p>'}
+
+    <h3>${quien === S.perfil.id ? 'Tus monedas' : `Monedas de ${esc(nombreDe(quien))}`}</h3>
+    ${h.sinSenal ? '<p class="aviso">Hace falta señal para ver el detalle.</p>'
+      : h.lineas.length ? `<ul class="linea-tiempo">${h.lineas.map((l) => `<li>
+          <div class="cuando">${new Date(l.ocurrido_en).toLocaleString('es-CO')}</div>
+          <div class="que"><strong>+${l.monedas}</strong> · ${esc(MOTIVOS[l.motivo] || l.motivo)}</div>
+        </li>`).join('')}</ul>`
+      : '<p class="pista">Sin monedas todavía.</p>'}
+
+    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Volver</button>`,
+    '<h2>Monedas</h2>');
+
+  $('#cerrar').onclick = menuCuenta;
+  for (const li of document.querySelectorAll('.ranking li'))
+    li.onclick = accion(() => panelMonedas(li.dataset.quien), { ocupado: '…' });
+}
+
 // --------------------------------------------------------------- tareas
 // Encargos del admin a los contratistas.
 //
@@ -1206,8 +1269,12 @@ async function hojaNuevaTarea() {
   // Solo quien puede trabajar en el patio: el de rol "empresa" solo mira,
   // y a quien todavía no esté habilitado no le abre ni la app, así que
   // mandarle una tarea no serviría de nada.
+  // Quien la crea NO sale en la lista: un admin no se manda tareas a sí
+  // mismo. La base lo impone; aquí simplemente no se ofrece, para que
+  // nadie se tope con un rechazo que no entiende.
   const gente = S.gente
-    .filter((p) => p.activo !== false && (p.rol === 'contratista' || p.rol === 'admin'))
+    .filter((p) => p.activo !== false && p.id !== S.perfil.id
+                   && (p.rol === 'contratista' || p.rol === 'admin'))
     .sort((x, y) => String(x.nombre).localeCompare(String(y.nombre), 'es'));
   const dormidos = S.gente.filter((p) => p.activo === false).length;
   abrirHoja(`
@@ -1225,6 +1292,14 @@ async function hojaNuevaTarea() {
         ${Object.entries(PRIORIDADES).map(([k, v]) => `<button type="button" data-p="${k}"
           class="etiqueta-prio${k === 'media' ? ' elegida' : ''}" data-p2="${k}">${v}</button>`).join('')}
       </div>
+    </div>
+    <div class="campo">
+      <label for="t-monedas">Monedas que paga</label>
+      <div class="acciones" id="t-mon">
+        ${[0, 1, 3, 5, 10, 15].map((n) => `<button type="button" data-m="${n}"
+          class="etiqueta-prio${n === 0 ? ' elegida' : ''}">${n || 'Ninguna'}</button>`).join('')}
+      </div>
+      <p class="pista">Lo que gana quien la complete. El tope es 15.</p>
     </div>
     <div class="campo">
       <label for="t-quien">Para quién (opcional)</label>
@@ -1248,6 +1323,14 @@ async function hojaNuevaTarea() {
       <button id="t-cancelar">Cancelar</button>
       <button id="t-crear" class="btn-lleno">Enviar la tarea</button>
     </div>`, '<h2>Nueva tarea</h2>');
+
+  let monedas = 0;
+  for (const b of document.querySelectorAll('#t-mon button'))
+    b.onclick = () => {
+      monedas = Number(b.dataset.m);
+      for (const o of document.querySelectorAll('#t-mon button')) o.classList.remove('elegida');
+      b.classList.add('elegida');
+    };
 
   let prioridad = 'media';
   for (const b of document.querySelectorAll('#t-prio button'))
@@ -1318,7 +1401,7 @@ async function hojaNuevaTarea() {
       asignado_a: $('#t-quien').value || null,
       lotes_ids: [...elegidos].filter((k) => k.startsWith('l:')).map((k) => k.slice(2)),
       pilas_ids: [...elegidos].filter((k) => k.startsWith('p:')).map((k) => k.slice(2)),
-      usuario_id: S.perfil.id
+      monedas, usuario_id: S.perfil.id
     });
     cerrarHoja(); await recargar(); pintarTareas(); sincronizar();
   }, { ocupado: 'Enviando…' });
@@ -2549,6 +2632,9 @@ function menuCuenta() {
     <div class="sub">${S.perfil.rol === 'admin' ? 'Administrador'
       : S.perfil.rol === 'empresa' ? 'Solo lectura' : 'Contratista'}</div>
     ${puedeExportar() ? `
+    <h3>Monedas</h3>
+    <button class="btn btn-ancho" id="monedas" style="width:100%">Mis monedas y la clasificación</button>
+
     <h3>Informe</h3>
     <button class="btn btn-ancho" id="informe" style="width:100%">Listado de lotes para Excel</button>
     <p class="pista">Todos los lotes del patio, con su estado, proveedor, volqueta,
@@ -2565,6 +2651,7 @@ function menuCuenta() {
       <button id="salir" class="btn-peligro">Cerrar sesión</button>
     </div>`);
   $('#cerrar').onclick = cerrarHoja;
+  $('#monedas').onclick = accion(() => panelMonedas(), { ocupado: 'Contando…' });
   $('#mudo').onclick = () => {
     S.mudo = !S.mudo;
     recordar('acopio-mudo', S.mudo ? '1' : '0');

@@ -13,15 +13,16 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 const DB = 'acopio';
 const TIENDAS = ['lotes', 'pilas', 'proveedores', 'eventos', 'figuras',
                  'config', 'perfiles', 'tareas', 'plataformas', 'puntos',
-                 'cola', 'fallidos', 'meta'];
+                 'monedas', 'cola', 'fallidos', 'meta'];
 let db = null;
 
 // ------------------------------------------------------------ IndexedDB
 function abrir() {
   return new Promise((res, rej) => {
-    // La 5 añadió las tareas y la 6 las plataformas. Subir el número es
-    // lo que crea las tiendas nuevas en los celulares que ya tienen la app.
-    const req = indexedDB.open(DB, 6);
+    // La 5 añadió las tareas, la 6 las plataformas y la 7 las monedas.
+    // Subir el número es lo que crea las tiendas nuevas en los celulares
+    // que ya tienen la app.
+    const req = indexedDB.open(DB, 7);
     req.onupgradeneeded = () => {
       const d = req.result;
       for (const t of TIENDAS)
@@ -153,6 +154,57 @@ export async function ahondarHistoria() {
   }
   if (entera) await meta('historia_entera', true);
   return { desde: fondo, entera, traidos };
+}
+
+// ------------------------------------------------------------- monedas
+// El saldo se PIDE al servidor, no se calcula aquí.
+//
+// Podría parecer que da igual, porque el celular ya tiene eventos. No da
+// igual: guarda solo una ventana de los últimos, y además se le podan
+// los recorridos de lo alimentado. Una cuenta hecha con eso daría un
+// saldo distinto en cada teléfono y todos menores que el de verdad. El
+// servidor las cuenta desde el historial ENTERO, que es el único sitio
+// donde está completo.
+//
+// Lo último que llegó se guarda con su hora. Sin señal se enseña eso,
+// diciendo de cuándo es: un saldo de ayer bien fechado sirve para algo;
+// un cero que parece de ahora, no.
+const MES_ACTUAL = () => {
+  // El mes de Colombia, no el del reloj en UTC, que cambia de mes a las
+  // siete de la tarde del día 31.
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+export async function resumenMonedas() {
+  const guardado = await idb.uno('monedas', 'resumen');
+  if (!navigator.onLine) {
+    return { ...(guardado?.valor || { saldos: [], clasificacion: [] }),
+             mes: MES_ACTUAL(), cuando: guardado?.valor?.cuando || null, alDia: false };
+  }
+  const [sal, cla] = await Promise.all([
+    sb.from('v_saldos').select('*'),
+    sb.from('v_clasificacion').select('*').eq('mes', MES_ACTUAL())
+  ]);
+  if (sal.error || cla.error) {
+    return { ...(guardado?.valor || { saldos: [], clasificacion: [] }),
+             mes: MES_ACTUAL(), cuando: guardado?.valor?.cuando || null, alDia: false };
+  }
+  const valor = { saldos: sal.data || [], clasificacion: cla.data || [], cuando: ahora() };
+  await idb.guardar('monedas', { id: 'resumen', valor });
+  return { ...valor, mes: MES_ACTUAL(), alDia: true };
+}
+
+// De dónde salió cada moneda de una persona. Esto NO se guarda: es lo
+// que se mira de vez en cuando, y guardarlo sería cargar el celular con
+// una lista que crece para siempre.
+export async function historialMonedas(usuarioId, tope = 200) {
+  if (!navigator.onLine) return { lineas: [], sinSenal: true };
+  const { data, error } = await sb.from('v_monedas').select('*')
+    .eq('usuario_id', usuarioId)
+    .order('ocurrido_en', { ascending: false }).limit(tope);
+  if (error) return { lineas: [], sinSenal: true };
+  return { lineas: data || [], sinSenal: false };
 }
 
 // La lista de gente viaja con los catálogos, o sea una vez por hora. Eso
@@ -404,11 +456,18 @@ export async function trasladarPila(pilaId, plataformaId, usuarioId) {
 
 // ---------------------------------------------------------------- tareas
 export async function crearTarea({ titulo, detalle, prioridad, asignado_a,
-                                   lotes_ids, pilas_ids, usuario_id }) {
+                                   lotes_ids, pilas_ids, monedas, usuario_id }) {
+  // El tope de 15 también se aplica aquí, no solo en la base: si llegara
+  // más alto el servidor rechazaría la fila y la tarea se quedaría en la
+  // cola sin que nadie entienda por qué.
+  const premio = Math.max(0, Math.min(15, Math.round(Number(monedas) || 0)));
   const fila = {
     id: uuid(), titulo: titulo.trim(), detalle: (detalle || '').trim() || null,
-    prioridad: prioridad || 'media', asignado_a: asignado_a || null,
-    lotes_ids: lotes_ids || [], pilas_ids: pilas_ids || [],
+    prioridad: prioridad || 'media',
+    // Un admin no se manda tareas a sí mismo: es la regla, y la base la
+    // impone. Aquí se limpia para no encolar algo que va a rebotar.
+    asignado_a: (asignado_a && asignado_a !== usuario_id) ? asignado_a : null,
+    lotes_ids: lotes_ids || [], pilas_ids: pilas_ids || [], monedas: premio,
     creado_por: usuario_id, creado_en: ahora(),
     completado_en: null, completado_por: null, nota_cierre: null
   };
