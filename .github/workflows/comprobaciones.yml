@@ -1,49 +1,29 @@
-# Comprobaciones automáticas en cada push y pull request.
-#
-# Acopio tiene su propia batería de pruebas sin dependencias externas
-# (node pruebas/correr.mjs), pero hasta ahora solo corrían si alguien
-# se acordaba de ejecutarlas a mano antes de pushear. Este workflow las
-# corre siempre: si algo se rompe, el push sale en rojo en GitHub y no
-# hay que descubrirlo después en los celulares.
 name: Comprobaciones
 
-on:
-  push:
-    branches: [main]
-  pull_request:
+on: [push, pull_request]
 
 jobs:
   probar:
     runs-on: ubuntu-latest
-
-    # Las monedas se calculan con SQL, así que comprobarlas de verdad
-    # necesita una base de datos. Sin esto, la tanda de monedas se salta
-    # sola sus comprobaciones y el visto bueno verde no querría decir que
-    # las cuentas salen: justo la falsa tranquilidad que hay que evitar.
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-        ports: ['54329:5432']
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
-          --health-interval 5s
+          --health-interval 10s
           --health-timeout 5s
-          --health-retries 10
-
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      # El cliente de línea de comandos, que es con el que hablan las
-      # pruebas. El servidor lo pone el contenedor de arriba.
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - run: node pruebas/correr.mjs
-        working-directory: acopio
+      - name: Correr pruebas
         env:
-          ACOPIO_PG: postgresql://postgres:postgres@localhost:54329/postgres
+          ACOPIO_PG: postgresql://postgres:postgres@localhost:5432/postgres
+        run: cd acopio && node pruebas/correr.mjs

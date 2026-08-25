@@ -70,8 +70,7 @@ const ahora = () => new Date().toISOString();
 // a las 7 de la noche quedaba con la fecha del día siguiente, y después
 // no aparecía donde nadie lo buscaba.
 const hoyLocal = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Bogota' }).format(new Date());
 };
 
 async function meta(k, v) {
@@ -485,13 +484,23 @@ export async function completarTarea(id, { usuario_id, nota }) {
   const fila = { ...t, completado_en: ahora(), completado_por: usuario_id,
                  nota_cierre: (nota || '').trim() || null };
   await idb.guardar('tareas', fila);
-  await encolar(`tareas:${fila.id}`, 'tareas', 'actualizar', fila);
+
+  const opCola = await idb.uno('cola', `tareas:${id}`);
+  const modo = (opCola && opCola.modo === 'insertar') ? 'insertar' : 'actualizar';
+  await encolar(`tareas:${fila.id}`, 'tareas', modo, fila);
   return fila;
 }
 
 export async function borrarTarea(id) {
   await idb.borrar('tareas', id);
-  await encolar(`del:tareas:${id}`, 'tareas', 'borrar', { id });
+  const opInCola = await idb.uno('cola', `tareas:${id}`);
+  if (opInCola && opInCola.modo === 'insertar') {
+    await idb.borrar('cola', `tareas:${id}`);
+  } else {
+    if (opInCola) await idb.borrar('cola', `tareas:${id}`);
+    await encolar(`del:tareas:${id}`, 'tareas', 'borrar', { id });
+  }
+  await idb.borrar('fallidos', `tareas:${id}`);
 }
 
 // Posición y forma: se sobrescriben, no generan evento. La clave de la
@@ -531,6 +540,21 @@ export async function actualizarLote(id, cambios) {
   const l = await idb.uno('lotes', id);
   const fila = { ...l, ...cambios };
   await idb.guardar('lotes', fila);
+
+  const opCola = await idb.uno('cola', `lotes:${id}`);
+  if (opCola) {
+    await idb.guardar('cola', { ...opCola, fila: { ...opCola.fila, ...cambios } });
+  }
+  const opFallido = await idb.uno('fallidos', `lotes:${id}`);
+  if (opFallido) {
+    await idb.guardar('cola', {
+      ...opFallido,
+      fila: { ...opFallido.fila, ...cambios },
+      intentos: 0, error: null, detalle: null, fallo_en: null
+    });
+    await idb.borrar('fallidos', `lotes:${id}`);
+  }
+
   await encolar(`fig:lotes:${id}`, 'lotes', 'guardar', fila);
   return fila;
 }
@@ -539,6 +563,21 @@ export async function renombrarPila(id, cambios) {
   const p = await idb.uno('pilas', id);
   const fila = { ...p, ...cambios, actualizado_en: ahora() };
   await idb.guardar('pilas', fila);
+
+  const opCola = await idb.uno('cola', `pilas:${id}`);
+  if (opCola) {
+    await idb.guardar('cola', { ...opCola, fila: { ...opCola.fila, ...cambios } });
+  }
+  const opFallido = await idb.uno('fallidos', `pilas:${id}`);
+  if (opFallido) {
+    await idb.guardar('cola', {
+      ...opFallido,
+      fila: { ...opFallido.fila, ...cambios },
+      intentos: 0, error: null, detalle: null, fallo_en: null
+    });
+    await idb.borrar('fallidos', `pilas:${id}`);
+  }
+
   await encolar(`fig:pilas:${id}`, 'pilas', 'guardar', fila);
   return fila;
 }
@@ -1012,9 +1051,20 @@ async function bajar() {
       await idb.guardar('config', op.fila);
     } else if (op.modo === 'guardar' && (op.tabla === 'lotes' || op.tabla === 'pilas')) {
       const actual = await idb.uno(op.tabla, op.fila.id);
-      // solo la geometría pendiente; el estado manda el servidor
+      // los datos pendientes mandan en pantalla; solo se preserva lo que el servidor/eventos derivan
       await idb.guardar(op.tabla, actual
-        ? { ...actual, x: op.fila.x, y: op.fila.y, rx: op.fila.rx, ry: op.fila.ry, rot: op.fila.rot }
+        ? {
+            ...actual,
+            ...op.fila,
+            estado: actual.estado,
+            estado_desde: actual.estado_desde,
+            fecha_recogida: actual.fecha_recogida,
+            punto_id: actual.punto_id,
+            alimentado_en: actual.alimentado_en,
+            pila_id: actual.pila_id,
+            plataforma_id: actual.plataforma_id,
+            ultimo_evento_en: actual.ultimo_evento_en
+          }
         : op.fila);
     } else {
       await idb.guardar(op.tabla, op.fila);
@@ -1031,7 +1081,11 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+export async function salir({ forzar = false } = {}) {
+  const cola = await pendientes();
+  if (!forzar && cola.length > 0) {
+    throw new Error(`Hay ${cola.length} cambios sin subir.`);
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

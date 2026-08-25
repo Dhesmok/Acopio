@@ -168,8 +168,8 @@ const recordar = (clave, valor) => {
 };
 
 const hoyISO = (mas = 0) => {
-  const d = new Date(); d.setDate(d.getDate() + mas);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const d = new Date(); if (mas) d.setDate(d.getDate() + mas);
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Bogota' }).format(d);
 };
 // Días de CALENDARIO, no bloques de 24 horas. Un lote recibido anoche a
 // las 10 lleva un día en el patio, no cero: contar por milisegundos lo
@@ -2845,7 +2845,7 @@ function confirmarSalida() {
     </div>`);
   $('#quedarse').onclick = cerrarHoja;
   $('#salir-igual').onclick = accion(async () => {
-    await Store.salir();
+    await Store.salir({ forzar: true });
     location.reload();
   }, { ocupado: 'Cerrando…' });
 }

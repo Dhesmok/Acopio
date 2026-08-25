@@ -111,6 +111,10 @@ self.addEventListener('fetch', (e) => {
         }
         return res;
       } catch {
+        if (e.request.mode === 'navigate' || e.request.destination === 'document') {
+          const fallback = await caches.match('./index.html') || await caches.match('./');
+          if (fallback) return fallback;
+        }
         return Response.error();
       }
     })
