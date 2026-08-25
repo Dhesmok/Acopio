@@ -153,7 +153,15 @@ const ICO = {
   // Copa con asas y pie, que es como se dibuja un trofeo en cualquier
   // sitio: se reconoce sin leer nada.
   trofeo:    ico('<path d="M7 4h10v5a5 5 0 0 1-10 0V4"/><path d="M7 6H4v2a3 3 0 0 0 3 3"/>'
-                 + '<path d="M17 6h3v2a3 3 0 0 1-3 3"/><path d="M12 14v4M8 21h8M10 18h4"/>')
+                 + '<path d="M17 6h3v2a3 3 0 0 1-3 3"/><path d="M12 14v4M8 21h8M10 18h4"/>'),
+  // Bolsa de compra con asa: la tienda.
+  bolsa:     ico('<path d="M6 2h12l2 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8l2-6z"/>'
+                 + '<path d="M4 8h16"/><path d="M9 12a3 3 0 0 0 6 0"/>'),
+  // Moneda: un círculo con una marca dentro. Va al lado de cada precio.
+  moneda:    ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h3.2a2 2 0 0 1 0 4H9.5"/>'),
+  // Triángulo de aviso, para los lotes que conviene mirar.
+  alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
+                 + '<path d="M12 9v4M12 17h.01"/>')
 };
 
 // Recordar una preferencia en el celular NUNCA puede tumbar lo que se
@@ -820,7 +828,6 @@ function montarMapa() {
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
-            <div id="chip-plat-mapa"></div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
           </div>
@@ -928,25 +935,19 @@ function hojaTrasladar({ titulo, detalle, desde, alSoltar }) {
 // arriba, un nombre largo como "Plataforma 3" se comía media barra y
 // acababa cortado en "PLATAFO…", que no dice ni cuál es.
 //
-// Pero saber en qué plataforma estás sigue haciendo falta: mirando un
-// plano vacío, sin eso no hay manera de distinguir si es que está vacía
-// o es que estás en otra. Así que el nombre baja AL MAPA, que es el
-// único sitio donde importa —en la lista y en el tablero no significa
-// nada— y ahí sí cabe entero.
+// Hubo un rato una segunda pastilla con el nombre suelta sobre el mapa,
+// debajo de las herramientas. Sobraba: nadie la pidió y quitaba sitio al
+// plano, que es lo que se viene a mirar. El nombre vive ahora en el
+// propio icono —`title` para quien pase el dedo o el ratón por encima,
+// `aria-label` para quien lo oye— y en la hoja de Plataformas, donde la
+// que está puesta va marcada.
 function pintarChipPlataforma() {
   const c = $('#chip-plat');
   const p = plataformaActual();
-  if (c) {
-    c.hidden = S.plataformas.length < 2;
-    c.setAttribute('aria-label', p ? `Plataforma: ${p.nombre}. Tocar para cambiar` : 'Cambiar de plataforma');
-  }
-  const m = $('#chip-plat-mapa');
-  if (m) {
-    m.innerHTML = S.plataformas.length < 2 || !p ? ''
-      : `<button class="chip-plat" id="ir-a-plat">${ICO.capas}<span>${esc(p.nombre)}</span></button>`;
-    const b = $('#ir-a-plat');
-    if (b) b.onclick = panelPlataformas;
-  }
+  if (!c) return;
+  c.hidden = S.plataformas.length < 2;
+  c.setAttribute('aria-label', p ? `Plataforma: ${p.nombre}. Tocar para cambiar` : 'Cambiar de plataforma');
+  c.setAttribute('title', p ? `Plataforma: ${p.nombre}` : 'Cambiar de plataforma');
 }
 
 // Cuánto tiene que llevar un lote para contar como recién llegado, y
@@ -1059,7 +1060,8 @@ function panelPlataformas() {
           .map((x) => `<ellipse cx="${x.x}" cy="${x.y}" rx="${x.rx}" ry="${x.ry}"
             fill="none" stroke="#14171a" stroke-width="8" stroke-dasharray="26 14"/>`).join('')}
       </svg>
-      <span class="nom">${esc(p.nombre)}</span>
+      <span class="nom">${esc(p.nombre)}${
+        p.id === S.plataforma ? '<span class="aqui">aquí estás</span>' : ''}</span>
       <span class="cnt">${r.total}
         <span class="cnt-sub">${r.pilas ? `${r.pilas} pila${r.pilas === 1 ? '' : 's'}` : 'sin pilas'}${
           r.sinRecoger ? ` · <b class="alerta">${r.sinRecoger} sin recoger</b>` : ''}</span></span>
@@ -1102,9 +1104,14 @@ async function panelMonedas(verA = null) {
   const mios = r.saldos.find((x) => x.usuario_id === S.perfil.id);
   const tabla = [...r.clasificacion].sort((a, b) => b.monedas - a.monedas);
   const h = await Store.historialMonedas(quien);
-  // Son DOS números distintos y hay que decirlo, o se leen como si uno
-  // contradijera al otro: el saldo es de siempre y la tabla es del mes.
+  const dudosos = esAdmin() ? await Store.lotesDudosos() : { lista: [] };
+  // Son TRES números y hay que separarlos, o se leen como si se
+  // contradijeran: el saldo es lo que queda por gastar, el ganado es lo
+  // que se lleva desde siempre —eso no baja al canjear— y la tabla es
+  // del mes en curso.
   const total = mios?.monedas ?? 0;
+  const ganado = mios?.ganado ?? total;
+  const gastado = mios?.gastado ?? 0;
   const esteMes = tabla.find((x) => x.usuario_id === S.perfil.id)?.monedas ?? 0;
   const m1 = Number(r.mes.slice(5, 7));
 
@@ -1114,9 +1121,16 @@ async function panelMonedas(verA = null) {
 
     <div class="saldo">
       <span class="cifra">${total}</span>
-      <span class="txt">moneda${total === 1 ? '' : 's'} tuyas, desde que empezaste</span>
-      <span class="desde">${esteMes} ${esteMes === 1 ? 'ganada' : 'ganadas'} en ${MESES[m1 - 1]}</span>
+      <span class="txt">moneda${total === 1 ? '' : 's'} tuyas para gastar</span>
+      <span class="desde">${esteMes} ${esteMes === 1 ? 'ganada' : 'ganadas'} en ${MESES[m1 - 1]}${
+        gastado ? ` · ${ganado} ganadas en total, ${gastado} canjeadas` : ', desde que empezaste'}</span>
     </div>
+
+    <button class="btn-tienda" id="ir-tienda">
+      ${ICO.bolsa}
+      <span class="qué">Tienda<span class="sub">Cambia tus monedas por cosas de verdad</span></span>
+      <span class="flecha">›</span>
+    </button>
 
     <h3>Clasificación de ${MESES[m1 - 1]}</h3>
     ${tabla.length ? `<ol class="ranking">${tabla.map((x, i) => `
@@ -1138,12 +1152,255 @@ async function panelMonedas(verA = null) {
         </li>`).join('')}</ul>`
       : '<p class="pista">Sin monedas todavía.</p>'}
 
+    ${dudosos.lista.length ? `
+      <h3 class="con-ico">${ICO.alerta} Lotes que conviene mirar</h3>
+      <p class="pista">Su paso por el patio no cuadra. Salir aquí NO quiere decir
+         que alguien hiciera trampa: puede ser un apunte que se quedó sin hacer.
+         El que entró y salió el mismo rato, además, no paga monedas.</p>
+      <ul class="dudosos">${dudosos.lista.map((d) => `<li>
+        <div class="que"><strong>${esc(d.codigo)}</strong> · placa ${esc(d.placa || '—')}</div>
+        <div class="cuando">${esc(d.motivo)}${
+          d.horas == null ? '' : d.horas < 1 ? ' · menos de una hora en el patio'
+            : ` · ${d.horas} h en el patio`} · lo registró ${
+          esc(nombreDe(d.registro))}, lo sacó ${esc(nombreDe(d.salida))}</div>
+      </li>`).join('')}</ul>` : ''}
+
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Volver</button>`,
     '<h2>Monedas</h2>');
 
   $('#cerrar').onclick = menuCuenta;
+  $('#ir-tienda').onclick = accion(() => panelTienda(), { ocupado: 'Abriendo…' });
   for (const li of document.querySelectorAll('.ranking li'))
     li.onclick = accion(() => panelMonedas(li.dataset.quien), { ocupado: '…' });
+}
+
+// ---------------------------------------------------------------- tienda
+// En qué se gastan las monedas. Sin esto, el sistema entero es un número
+// que sube y ya: la tabla motiva una semana y después da igual.
+//
+// El admin pone los productos con su precio y su foto; los demás
+// canjean. Un canje NO pasa por la cola de siempre —es lo único de toda
+// la app que no— porque el saldo lo tiene que comprobar el servidor:
+// ver el comentario de `canjear` en store.js.
+//
+// Se enseña SIEMPRE el catálogo entero, también lo que no alcanza. Una
+// tienda donde solo se ve lo que ya puedes pagar no le dice a nadie para
+// qué está ahorrando, que es justo lo que hace que ahorre.
+const CANJE = { pedido: 'Pedido', entregado: 'Entregado', anulado: 'Anulado' };
+
+const precio = (n) => `<span class="precio">${ICO.moneda}${n}</span>`;
+
+async function panelTienda() {
+  abrirHoja('<p class="pista">Abriendo la tienda…</p>', '<h2>Tienda</h2>');
+
+  const [cat, mis, r] = await Promise.all([
+    Store.productos(), Store.canjes(), Store.resumenMonedas()
+  ]);
+  const saldo = r.saldos.find((x) => x.usuario_id === S.perfil.id)?.monedas ?? 0;
+  const admin = esAdmin();
+  // Al admin le interesan los pedidos de todos, porque es quien entrega.
+  // A cada uno, los suyos.
+  const pedidos = admin ? mis.lista : mis.lista.filter((c) => c.usuario_id === S.perfil.id);
+  const porEntregar = mis.lista.filter((c) => c.estado === 'pedido').length;
+  // Lo retirado sigue existiendo para el admin —tiene que poder volver a
+  // sacarlo— pero no se le enseña a quien viene a canjear.
+  const enVenta = admin ? cat.lista : cat.lista.filter((p) => p.activo);
+
+  abrirHoja(`
+    ${cat.alDia ? '' : `<p class="aviso">Sin señal: esto es el catálogo que quedó guardado.
+       Para canjear hace falta conexión, porque el saldo lo lleva el servidor.</p>`}
+
+    <div class="tienda-saldo">
+      ${ICO.moneda}<strong>${saldo}</strong>
+      <span>moneda${saldo === 1 ? '' : 's'} para gastar</span>
+      ${admin && porEntregar ? `<span class="pendiente">${porEntregar} por entregar</span>` : ''}
+    </div>
+
+    ${admin ? `<button class="btn btn-lleno btn-ancho" id="nuevo-prod"
+       style="width:100%;margin-bottom:14px">Añadir un producto</button>` : ''}
+
+    ${enVenta.length ? `<div class="vitrina">${enVenta.map((p) => {
+      const agotado = p.existencias != null && p.existencias <= 0;
+      const falta = p.precio - saldo;
+      const puede = !agotado && p.activo && falta <= 0 && cat.alDia;
+      return `<article class="prod${p.activo ? '' : ' retirado'}" data-id="${p.id}">
+        <div class="foto">${p.imagen_url
+          ? `<img src="${esc(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
+          : `<span class="sin-foto">${ICO.bolsa}</span>`}
+          ${agotado ? '<span class="cinta">Agotado</span>'
+            : !p.activo ? '<span class="cinta">Retirado</span>' : ''}</div>
+        <div class="cuerpo">
+          <h4>${esc(p.nombre)}</h4>
+          ${p.detalle ? `<p class="det">${esc(p.detalle)}</p>` : ''}
+          <div class="pie">
+            ${precio(p.precio)}
+            ${p.existencias != null && !agotado
+              ? `<span class="quedan">quedan ${p.existencias}</span>` : ''}
+          </div>
+          ${admin
+            ? `<button class="btn btn-ancho editar-prod" data-id="${p.id}">Editar</button>`
+            : puede
+              ? `<button class="btn btn-lleno btn-ancho canjear" data-id="${p.id}">Canjear</button>`
+              : `<button class="btn btn-ancho" disabled>${
+                  agotado ? 'Agotado' : !cat.alDia ? 'Sin señal' : `Te faltan ${falta}`}</button>`}
+        </div>
+      </article>`;
+    }).join('')}</div>`
+      : `<p class="pista">La tienda está vacía todavía.${
+          admin ? ' Añade el primer producto ahí arriba.' : ' El administrador aún no ha puesto nada.'}</p>`}
+
+    <h3>${admin ? 'Pedidos de todos' : 'Lo que has canjeado'}</h3>
+    ${mis.sinSenal ? '<p class="aviso">Hace falta señal para ver los pedidos.</p>'
+      : pedidos.length ? `<ul class="canjes">${pedidos.map((c) => `<li data-id="${c.id}">
+          <div class="que"><strong>${esc(c.nombre)}</strong> ${precio(c.precio)}
+            <span class="marca ${c.estado}">${CANJE[c.estado] || c.estado}</span></div>
+          <div class="cuando">${new Date(c.pedido_en).toLocaleString('es-CO')}${
+            admin ? ` · ${esc(nombreDe(c.usuario_id))}` : ''}</div>
+          ${admin && c.estado === 'pedido' ? `<div class="acciones">
+            <button class="btn entregar" data-id="${c.id}">Entregado</button>
+            <button class="btn anular" data-id="${c.id}">Anular y devolver</button>
+          </div>` : ''}
+        </li>`).join('')}</ul>`
+      : `<p class="pista">${admin ? 'Nadie ha canjeado nada todavía.'
+          : 'Todavía no has canjeado nada.'}</p>`}
+
+    <button class="btn btn-ancho" id="volver" style="width:100%;margin-top:14px">Volver a monedas</button>`,
+    '<h2>Tienda</h2>');
+
+  // `avisar` REEMPLAZA la hoja abierta. Sin devolver la tienda después,
+  // un "te faltan 4 monedas" dejaba la pantalla en blanco al aceptar.
+  const fallo = (texto) => { avisar(texto); $('#ok').onclick = () => panelTienda(); };
+
+  $('#volver').onclick = accion(() => panelMonedas(), { ocupado: '…' });
+  const nuevo = $('#nuevo-prod');
+  if (nuevo) nuevo.onclick = () => fichaProducto(null);
+
+  for (const b of document.querySelectorAll('.editar-prod'))
+    b.onclick = () => fichaProducto(cat.lista.find((p) => p.id === b.dataset.id));
+
+  for (const b of document.querySelectorAll('.canjear')) b.onclick = accion(async () => {
+    const p = cat.lista.find((x) => x.id === b.dataset.id);
+    // Se pregunta antes: el saldo no vuelve solo, hace falta que el
+    // admin anule el pedido, y eso es una conversación.
+    //
+    // `confirmar` reemplaza la hoja, así que al decir que no hay que
+    // devolver la tienda a la pantalla o se queda en blanco.
+    if (!await confirmar({ titulo: `¿Canjear ${p.nombre} por ${p.precio} monedas?`,
+                           detalle: 'El administrador te lo entrega en el patio.',
+                           aceptar: 'Canjear' })) { await panelTienda(); return; }
+    const res = await Store.canjear(p.id);
+    if (res.error) { fallo(res.error); return; }
+    await panelTienda();
+  }, { ocupado: 'Canjeando…' });
+
+  for (const b of document.querySelectorAll('.entregar')) b.onclick = accion(async () => {
+    const res = await Store.resolverCanje(b.dataset.id, 'entregado');
+    if (res.error) { fallo(res.error); return; }
+    await panelTienda();
+  }, { ocupado: '…' });
+
+  for (const b of document.querySelectorAll('.anular')) b.onclick = accion(async () => {
+    if (!await confirmar({ titulo: '¿Anular el pedido?',
+                           detalle: 'Las monedas vuelven a su dueño.',
+                           aceptar: 'Anular', peligro: true })) { await panelTienda(); return; }
+    const res = await Store.resolverCanje(b.dataset.id, 'anulado');
+    if (res.error) { fallo(res.error); return; }
+    await panelTienda();
+  }, { ocupado: '…' });
+}
+
+// El formulario del admin. Un producto es poco: nombre, precio, foto y,
+// si es algo de lo que hay una cantidad contada, cuántos quedan.
+//
+// "Retirar" en vez de borrar: un producto borrado se lleva por delante
+// los canjes que lo señalan, y esos son el recibo de alguien. Retirado
+// desaparece de la tienda y el recibo se queda.
+function fichaProducto(p) {
+  const esNuevo = !p;
+  abrirHoja(`
+    <div class="campo"><label for="p-nombre">Qué es</label>
+      <input id="p-nombre" maxlength="60" value="${p ? esc(p.nombre) : ''}"
+        placeholder="Termo, camiseta, día libre…"></div>
+
+    <div class="campo"><label for="p-detalle">Detalle (opcional)</label>
+      <input id="p-detalle" maxlength="120" value="${p?.detalle ? esc(p.detalle) : ''}"
+        placeholder="Talla M · color azul"></div>
+
+    <div class="fila-2">
+      <div class="campo"><label for="p-precio">Cuántas monedas cuesta</label>
+        <input id="p-precio" type="number" min="1" step="1" value="${p?.precio ?? 20}"></div>
+      <div class="campo"><label for="p-exist">Cuántos hay</label>
+        <input id="p-exist" type="number" min="0" step="1"
+          value="${p?.existencias ?? ''}" placeholder="sin límite"></div>
+    </div>
+
+    <div class="campo"><label>Foto</label>
+      <div class="foto-prod" id="p-vista">${p?.imagen_url
+        ? `<img src="${esc(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
+      <input type="file" id="p-foto" accept="image/*" style="margin-top:8px">
+      <p class="pista">Una foto de verdad vende diez veces más que un nombre.</p></div>
+
+    ${esNuevo ? '' : `<label class="fila-check">
+      <input type="checkbox" id="p-activo"${p.activo ? ' checked' : ''}>
+      <span>En la tienda. Al quitarlo deja de verse, pero los canjes que ya hay se conservan.</span>
+    </label>`}
+
+    <p class="aviso" id="p-error" hidden></p>
+
+    <button class="btn btn-lleno btn-ancho" id="p-guardar"
+      style="width:100%;margin-top:14px">Guardar</button>
+    <button class="btn btn-ancho" id="p-volver" style="width:100%;margin-top:8px">Cancelar</button>`,
+    `<h2>${esNuevo ? 'Producto nuevo' : esc(p.nombre)}</h2>`);
+
+  // Aquí el aviso va DENTRO del formulario, no en una hoja aparte.
+  // `avisar` tapa la hoja, y volver a ella repinta el formulario desde
+  // cero: quien se dejó el nombre en blanco perdería también el precio
+  // y la foto que ya había puesto.
+  const fallo = (texto) => {
+    const a = $('#p-error');
+    a.textContent = texto; a.hidden = false;
+    a.scrollIntoView({ block: 'nearest' });
+  };
+
+  let foto = p?.imagen_url || null;
+  // `accion` guarda y restaura el CONTENIDO del botón, y un <input> no
+  // tiene contenido: aquí se apaga el campo a mano mientras sube.
+  $('#p-foto').onchange = async function () {
+    const archivo = this.files?.[0];
+    if (!archivo) return;
+    this.disabled = true;
+    $('#p-vista').innerHTML = '<span class="sin-foto">Subiendo…</span>';
+    try {
+      foto = await Store.subirImagenProducto(archivo);
+      $('#p-vista').innerHTML = `<img src="${esc(foto)}" alt="">`;
+    } catch (e) {
+      $('#p-vista').innerHTML = `<span class="sin-foto">${ICO.bolsa}</span>`;
+      decirError(e);
+    } finally { this.disabled = false; }
+  };
+
+  $('#p-volver').onclick = accion(() => panelTienda(), { ocupado: '…' });
+
+  $('#p-guardar').onclick = accion(async () => {
+    const nombre = $('#p-nombre').value.trim();
+    const monedas = Math.round(Number($('#p-precio').value));
+    if (!nombre) { fallo('Ponle un nombre al producto.'); return; }
+    if (!(monedas >= 1)) { fallo('El precio tiene que ser de una moneda para arriba.'); return; }
+    const cuantos = $('#p-exist').value.trim();
+
+    const res = await Store.guardarProducto({
+      id: p?.id || Store.uuid(),
+      nombre, detalle: $('#p-detalle').value.trim() || null,
+      precio: monedas,
+      // Vacío quiere decir "sin límite", que no es lo mismo que cero.
+      existencias: cuantos === '' ? null : Math.max(0, Math.round(Number(cuantos))),
+      imagen_url: foto,
+      activo: esNuevo ? true : $('#p-activo').checked,
+      creado_por: p?.creado_por || S.perfil.id
+    });
+    if (res.error) { fallo(res.error); return; }
+    await panelTienda();
+  }, { ocupado: 'Guardando…' });
 }
 
 // --------------------------------------------------------------- tareas

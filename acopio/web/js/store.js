@@ -207,6 +207,90 @@ export async function historialMonedas(usuarioId, tope = 200) {
   return { lineas: data || [], sinSenal: false };
 }
 
+// --------------------------------------------------------------- tienda
+// CANJEAR NO PASA POR LA COLA, y es la única cosa de toda la app que no
+// lo hace.
+//
+// La regla de oro aquí es "guardar nunca falla": todo se escribe en el
+// celular y sube cuando vuelve la señal. Con un canje eso no vale. Dos
+// canjes seguidos sin señal gastarían el mismo saldo dos veces, y el
+// descubierto aparecería al sincronizar, cuando ya se llevaron las dos
+// cosas. El servidor comprueba el saldo y descuenta en la misma
+// transacción, o no hay canje. Sin señal, la tienda se mira pero no se
+// compra, y lo dice.
+//
+// El catálogo SÍ se guarda: mirar qué hay y cuánto cuesta funciona sin
+// señal, que es la mitad de la gracia de tener una tienda.
+export async function productos() {
+  const guardado = await idb.uno('monedas', 'productos');
+  if (!navigator.onLine) return { lista: guardado?.valor || [], alDia: false };
+  const { data, error } = await sb.from('productos').select('*')
+    .order('orden').order('precio');
+  if (error) return { lista: guardado?.valor || [], alDia: false };
+  await idb.guardar('monedas', { id: 'productos', valor: data || [] });
+  return { lista: data || [], alDia: true };
+}
+
+// Los canjes de todos: quién pidió qué y si ya se lo dieron. Se ven
+// enteros a propósito, igual que el historial de monedas.
+export async function canjes(tope = 200) {
+  if (!navigator.onLine) return { lista: [], sinSenal: true };
+  const { data, error } = await sb.from('canjes').select('*')
+    .order('pedido_en', { ascending: false }).limit(tope);
+  if (error) return { lista: [], sinSenal: true };
+  return { lista: data || [], sinSenal: false };
+}
+
+// Devuelve { ok } o { error } con el texto que manda el servidor, que ya
+// viene escrito para leerse ("Te faltan 4 monedas para Termo").
+export async function canjear(productoId) {
+  if (!navigator.onLine) return { error: 'Hace falta señal para canjear. El saldo lo lleva el servidor.' };
+  const { error } = await sb.rpc('fn_canjear', { p_producto: productoId });
+  if (error) return { error: limpioDePostgres(error.message) };
+  return { ok: true };
+}
+
+// Postgres antepone cosas como "P0001: " y a veces mete el nombre de la
+// función. Lo que se enseña es la frase, no el envoltorio.
+const limpioDePostgres = (m) => String(m || '')
+  .replace(/^[A-Z0-9]{5}:\s*/, '').trim() || 'No se pudo canjear.';
+
+export async function guardarProducto(fila) {
+  const { error } = await sb.from('productos')
+    .upsert({ ...fila, actualizado_en: undefined }, { onConflict: 'id' });
+  if (error) return { error: limpioDePostgres(error.message) };
+  return { ok: true };
+}
+
+export async function resolverCanje(id, estado) {
+  const { error } = await sb.from('canjes').update({ estado }).eq('id', id);
+  if (error) return { error: limpioDePostgres(error.message) };
+  return { ok: true };
+}
+
+// La foto del producto va al mismo depósito que el fondo del mapa: ya es
+// público para leer y solo el admin sube, que es justo lo que hace falta.
+export async function subirImagenProducto(archivo) {
+  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
+  if (error) throw new Error(error.message);
+  const { data } = sb.storage.from('mapa').getPublicUrl(ruta);
+  return data.publicUrl;
+}
+
+// Los lotes que conviene que el admin mire: entraron y salieron del
+// patio el mismo rato, o salieron sin que nadie apuntara el muestreo.
+// La vista ya filtra por rol, así que a quien no es admin le devuelve
+// una lista vacía y no hace falta comprobarlo aquí.
+export async function lotesDudosos(tope = 50) {
+  if (!navigator.onLine) return { lista: [], sinSenal: true };
+  const { data, error } = await sb.from('v_lotes_dudosos').select('*')
+    .order('salio', { ascending: false }).limit(tope);
+  if (error) return { lista: [], sinSenal: true };
+  return { lista: data || [], sinSenal: false };
+}
+
 // La lista de gente viaja con los catálogos, o sea una vez por hora. Eso
 // vale para poner un nombre en un historial, pero no para ELEGIR a quién
 // se le manda una tarea: un compañero recién habilitado no aparecería

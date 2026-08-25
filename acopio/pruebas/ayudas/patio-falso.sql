@@ -1,9 +1,10 @@
 -- Un patio pequeño donde cada uno intenta una trampa distinta.
 --
--- Ana registra dos lotes y completa una tarea. Beto hace bien su trabajo
--- una vez y luego repite lo mismo a propósito, a ver si cobra doble.
--- Carla es admin: despacha un lote y se crea una tarea sin dueño para
--- cerrársela ella misma.
+-- Ana registra tres lotes y completa una tarea. Beto hace bien su
+-- trabajo una vez y luego repite lo mismo a propósito, a ver si cobra
+-- doble. Carla es admin: despacha un lote y se crea una tarea sin dueño
+-- para cerrársela ella misma. Y Ana, además, prueba el atajo de los
+-- atajos: se inventa un lote y lo despacha en el mismo minuto.
 insert into auth.users (id, email) values
  ('11111111-1111-4111-8111-111111111111','ana@x.com'),
  ('22222222-2222-4222-8222-222222222222','beto@x.com'),
@@ -22,10 +23,12 @@ insert into plataformas (id, nombre, orden) values
 insert into pilas (id, codigo, tipo, plataforma_id)
 values ('cccccccc-0000-4000-8000-000000000001','1','otro','bbbbbbbb-0000-4000-8000-000000000001');
 
--- Ana registra dos lotes. La recepción la escribe el disparador sola.
+-- Ana registra tres lotes. La recepción la escribe el disparador sola.
+-- El tercero es el inventado: entra y sale en el mismo minuto.
 insert into lotes (id, codigo, proveedor_id, placa, plataforma_id, creado_por) values
  ('dddddddd-0000-4000-8000-000000000001','PG1','aaaaaaaa-0000-4000-8000-000000000001','AAA111','bbbbbbbb-0000-4000-8000-000000000001','11111111-1111-4111-8111-111111111111'),
- ('dddddddd-0000-4000-8000-000000000002','PG2','aaaaaaaa-0000-4000-8000-000000000001','AAA111','bbbbbbbb-0000-4000-8000-000000000001','11111111-1111-4111-8111-111111111111');
+ ('dddddddd-0000-4000-8000-000000000002','PG2','aaaaaaaa-0000-4000-8000-000000000001','AAA111','bbbbbbbb-0000-4000-8000-000000000001','11111111-1111-4111-8111-111111111111'),
+ ('dddddddd-0000-4000-8000-000000000003','PG3','aaaaaaaa-0000-4000-8000-000000000001','AAA111','bbbbbbbb-0000-4000-8000-000000000001','11111111-1111-4111-8111-111111111111');
 
 -- Beto muestrea, se devuelve y vuelve a muestrear: una sola moneda.
 insert into eventos (id, lote_id, tipo, estado_nuevo, usuario_id, ocurrido_en) values
@@ -45,9 +48,14 @@ insert into eventos (id, lote_id, tipo, plataforma_id, usuario_id, ocurrido_en) 
  (gen_random_uuid(),'dddddddd-0000-4000-8000-000000000001','traslado','bbbbbbbb-0000-4000-8000-000000000001','22222222-2222-4222-8222-222222222222', now()+interval '7 min'),
  (gen_random_uuid(),'dddddddd-0000-4000-8000-000000000001','traslado','bbbbbbbb-0000-4000-8000-000000000002','22222222-2222-4222-8222-222222222222', now()+interval '8 min');
 
--- Carla despacha el otro lote.
+-- Carla despacha el otro lote, tres días después: ese es normal y paga.
 insert into eventos (id, lote_id, tipo, estado_nuevo, usuario_id, ocurrido_en)
-values (gen_random_uuid(),'dddddddd-0000-4000-8000-000000000002','cambio_estado','despachado','33333333-3333-4333-8333-333333333333', now());
+values (gen_random_uuid(),'dddddddd-0000-4000-8000-000000000002','cambio_estado','despachado','33333333-3333-4333-8333-333333333333', now()+interval '3 days');
+
+-- EL ATAJO: Ana crea PG3 y lo despacha un minuto después. No entró nada
+-- al patio, así que ese lote no paga ni la recepción ni el despacho.
+insert into eventos (id, lote_id, tipo, estado_nuevo, usuario_id, ocurrido_en)
+values (gen_random_uuid(),'dddddddd-0000-4000-8000-000000000003','cambio_estado','despachado','11111111-1111-4111-8111-111111111111', now()+interval '1 min');
 
 -- Carla le manda una tarea de 10 a Ana, y Ana la cierra: paga.
 insert into tareas (id, titulo, monedas, creado_por, asignado_a, completado_en, completado_por)

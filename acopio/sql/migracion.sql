@@ -696,15 +696,188 @@ begin
   return new;
 end; $$;
 
+-- ----------------------------------------------------------- la tienda
+--  En qué se gastan las monedas. El admin pone los productos con su
+--  precio y su foto; los demás canjean.
+--
+--  El canje CONGELA el nombre y el precio del momento. Si mañana el
+--  admin sube el precio o retira el producto, lo ya pedido no cambia:
+--  un recibo que se reescribe solo no es un recibo.
+create table if not exists productos (
+  id             uuid primary key default gen_random_uuid(),
+  nombre         text not null,
+  detalle        text,
+  precio         int not null check (precio > 0),
+  imagen_url     text,
+  -- null = sin límite. Un número = quedan tantas unidades.
+  existencias    int check (existencias is null or existencias >= 0),
+  activo         boolean not null default true,
+  orden          int not null default 0,
+  creado_por     uuid references perfiles (id),
+  creado_en      timestamptz not null default now(),
+  actualizado_en timestamptz not null default now()
+);
+
+create table if not exists canjes (
+  id           uuid primary key default gen_random_uuid(),
+  producto_id  uuid not null references productos (id) on delete restrict,
+  usuario_id   uuid not null references perfiles (id),
+  precio       int  not null check (precio > 0),   -- congelado
+  nombre       text not null,                      -- congelado
+  estado       text not null default 'pedido'
+               check (estado in ('pedido', 'entregado', 'anulado')),
+  nota         text,
+  pedido_en    timestamptz not null default now(),
+  resuelto_en  timestamptz,
+  resuelto_por uuid references perfiles (id)
+);
+
+create index if not exists idx_canjes_usuario on canjes (usuario_id, pedido_en desc);
+
+drop trigger if exists trg_marcar_producto on productos;
+create trigger trg_marcar_producto before insert or update on productos
+  for each row execute function fn_marcar_actualizado();
+
+-- Quién y cuándo resolvió un canje lo pone el servidor, no el cliente.
+create or replace function fn_marcar_canje()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.estado is distinct from old.estado and new.estado <> 'pedido' then
+    new.resuelto_en  := now();
+    new.resuelto_por := auth.uid();
+  end if;
+  -- lo congelado no se retoca nunca
+  new.producto_id := old.producto_id;  new.usuario_id := old.usuario_id;
+  new.precio      := old.precio;       new.nombre     := old.nombre;
+  new.pedido_en   := old.pedido_en;
+  return new;
+end; $$;
+
+drop trigger if exists trg_marcar_canje on canjes;
+create trigger trg_marcar_canje before update on canjes
+  for each row execute function fn_marcar_canje();
+
+--  CANJEAR ES DEL SERVIDOR, no del celular.
+--
+--  Todo lo demás de esta app se guarda primero en el teléfono y sube
+--  cuando hay señal. Esto no puede: sin señal dos canjes seguidos
+--  gastarían el mismo saldo dos veces y el descubierto aparecería
+--  después, cuando ya se llevaron el producto. Aquí se comprueba el
+--  saldo y se descuenta en la misma transacción, o no se canjea.
+--
+--  El `pg_advisory_xact_lock` es por si la misma persona toca "Canjear"
+--  en dos productos a la vez desde dos pestañas: sin él, las dos
+--  consultas leen el mismo saldo y pasan las dos. Con él, la segunda
+--  espera a que la primera termine y ya ve el saldo descontado.
+create or replace function fn_canjear(p_producto uuid)
+returns canjes language plpgsql security definer set search_path = public as $$
+declare
+  yo    uuid := auth.uid();
+  pr    productos;
+  saldo int;
+  nuevo canjes;
+begin
+  if fn_mi_rol() is null then
+    raise exception 'Tu cuenta no está activa.';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(yo::text, 0));
+
+  select * into pr from productos where id = p_producto for update;
+  if not found or not pr.activo then
+    raise exception 'Ese producto ya no está en la tienda.';
+  end if;
+  if pr.existencias is not null and pr.existencias <= 0 then
+    raise exception 'Se agotó: no quedan unidades de %.', pr.nombre;
+  end if;
+
+  select monedas into saldo from v_saldos where usuario_id = yo;
+  if coalesce(saldo, 0) < pr.precio then
+    raise exception 'Te faltan % monedas para %.',
+      pr.precio - coalesce(saldo, 0), pr.nombre;
+  end if;
+
+  insert into canjes (producto_id, usuario_id, precio, nombre)
+       values (pr.id, yo, pr.precio, pr.nombre)
+    returning * into nuevo;
+
+  if pr.existencias is not null then
+    update productos set existencias = existencias - 1 where id = pr.id;
+  end if;
+  return nuevo;
+end; $$;
+
+alter table productos enable row level security;
+alter table canjes    enable row level security;
+
+drop policy if exists p_leer_productos  on productos;
+drop policy if exists p_admin_productos on productos;
+drop policy if exists p_leer_canjes     on canjes;
+drop policy if exists p_admin_canjes    on canjes;
+
+create policy p_leer_productos on productos for select to authenticated
+  using (fn_mi_rol() is not null);
+create policy p_admin_productos on productos for all to authenticated
+  using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
+
+-- Los canjes se LEEN todos, como el historial de monedas. Nadie los
+-- inserta a mano: la única puerta es fn_canjear(), que comprueba el
+-- saldo. Y solo el admin los marca entregados o los anula.
+create policy p_leer_canjes on canjes for select to authenticated
+  using (fn_mi_rol() is not null);
+create policy p_admin_canjes on canjes for update to authenticated
+  using (fn_mi_rol() = 'admin') with check (fn_mi_rol() = 'admin');
+
+grant select on productos, canjes to authenticated;
+grant insert, update, delete on productos to authenticated;   -- filtrado por RLS
+grant update on canjes to authenticated;                      -- filtrado por RLS
+grant execute on function fn_canjear(uuid) to authenticated;
+-- Insertar un canje a mano sería inventarse un saldo: solo fn_canjear.
+revoke insert, delete on canjes from authenticated, anon;
+
+-- La foto del producto va al mismo depósito que el fondo del mapa: ya
+-- es público para leer y solo el admin sube, que es justo lo que hace
+-- falta aquí. Un depósito nuevo sería otra cosa que configurar.
+
 -- Las vistas se rehacen enteras: cambiarles una columna no se puede con
 -- `create or replace`, y así este archivo sigue sirviendo cuando haya que
 -- retocar cuánto paga cada cosa.
+drop view if exists v_lotes_dudosos;
 drop view if exists v_clasificacion;
 drop view if exists v_saldos;
 drop view if exists v_monedas;
 
+--  EL CERROJO: un lote que entra y sale el mismo rato no paga NADA.
+--
+--  Sin esto, crear un lote y despacharlo son dos toques y cinco monedas
+--  sin que entre un gramo de material al patio.
+--
+--  La regla sale de mirar el patio de verdad. Los lotes inventados que
+--  ya hay en la base —placas "AAAA", "QQQQQ", códigos de prueba— tienen
+--  todos lo mismo: entraron y salieron en el MISMO MINUTO. Los lotes de
+--  verdad se quedan días: el más corto que existe estuvo 78 horas. Entre
+--  los dos grupos no hay ni un caso a medias, así que un corte en dos
+--  horas deja fuera todos los inventados y ni uno solo de los reales.
+--
+--  Se probó antes con "no paga hasta que lo muestren" y se descartó: 55
+--  de los 302 lotes del patio no tienen apuntado el muestreo, y esos son
+--  trabajo de verdad que se habría quedado sin pagar.
+--
+--  Tampoco es magia: quien esté dispuesto a mentir puede crear el lote,
+--  esperar dos horas y despacharlo. Pero ya no es un descuido de dos
+--  toques, y el lote se queda esas dos horas dibujado en el plano donde
+--  lo ve todo el mundo. Para lo que quede, está `v_lotes_dudosos`.
 create view v_monedas with (security_invoker = true) as
-with hechos as (
+with fugaces as (
+  select l.id as lote_id
+    from lotes l
+   where (select min(e.ocurrido_en) from eventos e
+           where e.lote_id = l.id and e.tipo = 'cambio_estado'
+             and e.estado_nuevo in ('despachado', 'alimentado'))
+       - (select min(e.ocurrido_en) from eventos e
+           where e.lote_id = l.id and e.tipo = 'recepcion')
+         < interval '2 hours'
+),
+hechos as (
   select e.id, e.usuario_id, e.lote_id, e.ocurrido_en,
          case
            when e.tipo = 'recepcion'                                     then 'registrar'
@@ -715,6 +888,9 @@ with hechos as (
          end as clase
     from eventos e
    where e.usuario_id is not null
+     -- un lote que sigue en el patio no es fugaz: la resta da nulo y
+     -- `nulo < intervalo` no es cierto, así que no entra en la lista
+     and not exists (select 1 from fugaces f where f.lote_id = e.lote_id)
 ),
 primeros as (
   select distinct on (lote_id, clase) id, usuario_id, lote_id, ocurrido_en, clase
@@ -737,13 +913,28 @@ select t.id, t.completado_por, null::uuid, t.id,
    and t.monedas > 0
    and t.completado_por is distinct from t.creado_por;
 
+--  El saldo es lo GANADO menos lo GASTADO en la tienda.
+--
+--  Los canjes los ve todo el mundo, igual que el historial de monedas:
+--  en un equipo de diez, que cada uno pueda comprobar la cuenta del
+--  otro vale más que cualquier candado. Si solo se vieran los propios,
+--  además, el saldo ajeno saldría inflado en la clasificación.
 create view v_saldos with (security_invoker = true) as
+with ganado as (
+  select usuario_id, sum(monedas) as monedas from v_monedas group by usuario_id
+),
+gastado as (
+  select usuario_id, sum(precio) as monedas from canjes
+   where estado <> 'anulado' group by usuario_id
+)
 select pe.id as usuario_id, pe.nombre, pe.rol,
-       coalesce(sum(m.monedas), 0) as monedas
+       coalesce(g.monedas, 0) - coalesce(c.monedas, 0) as monedas,
+       coalesce(g.monedas, 0) as ganado,
+       coalesce(c.monedas, 0) as gastado
   from perfiles pe
-  left join v_monedas m on m.usuario_id = pe.id
- where pe.activo
- group by pe.id, pe.nombre, pe.rol;
+  left join ganado  g on g.usuario_id = pe.id
+  left join gastado c on c.usuario_id = pe.id
+ where pe.activo;
 
 --  Salen TODOS los activos, también los que llevan cero.
 --
@@ -773,12 +964,63 @@ select pe.id as usuario_id, pe.nombre, pe.rol, x.mes,
  where pe.activo
  group by pe.id, pe.nombre, pe.rol, x.mes;
 
+--  LOTES QUE CONVIENE MIRAR.
+--
+--  Ninguna cuenta sabe si un lote existió: eso solo lo sabe quien estuvo
+--  en la báscula. Lo que sí se puede hacer es poner delante del admin
+--  los pocos lotes cuya vida en el patio no tiene sentido, y que él
+--  pregunte. Son dos casos:
+--
+--   · Entró y salió en menos de dos horas. Es el que ya no paga monedas
+--     por el cerrojo de arriba, pero el lote sigue ahí, contando en el
+--     informe como si hubiera existido, y eso hay que verlo.
+--   · Salió del patio sin que nadie apuntara el muestreo. Esto no es
+--     trampa —hay ocho lotes reales así, alimentados directo desde la
+--     pila—, es un hueco de trazabilidad: material que se fue sin pasar
+--     por el laboratorio, o que pasó y no se registró.
+--
+--  Solo la ve el admin.
+create view v_lotes_dudosos with (security_invoker = true) as
+with vida as (
+  select l.id, l.codigo, l.placa, l.estado,
+         (select e.usuario_id from eventos e
+           where e.lote_id = l.id and e.tipo = 'recepcion'
+           order by e.ocurrido_en limit 1) as registro,
+         (select min(e.ocurrido_en) from eventos e
+           where e.lote_id = l.id and e.tipo = 'recepcion') as entro,
+         (select e.usuario_id from eventos e
+           where e.lote_id = l.id and e.tipo = 'cambio_estado'
+             and e.estado_nuevo in ('despachado', 'alimentado')
+           order by e.ocurrido_en limit 1) as salida,
+         (select min(e.ocurrido_en) from eventos e
+           where e.lote_id = l.id and e.tipo = 'cambio_estado'
+             and e.estado_nuevo in ('despachado', 'alimentado')) as salio,
+         exists (select 1 from eventos e
+                  where e.lote_id = l.id and e.tipo = 'cambio_estado'
+                    and e.estado_nuevo = 'muestreado') as muestreado,
+         (select count(distinct e.usuario_id) from eventos e
+           where e.lote_id = l.id and e.usuario_id is not null) as manos
+    from lotes l
+)
+select v.id, v.codigo, v.placa, v.estado, v.registro, v.salida,
+       v.entro, v.salio, v.muestreado, v.manos,
+       round(extract(epoch from (v.salio - v.entro)) / 3600.0, 1) as horas,
+       (v.salio - v.entro < interval '2 hours') as fugaz,
+       case when v.salio - v.entro < interval '2 hours'
+              then 'entró y salió del patio el mismo rato'
+            else 'salió sin que nadie apuntara el muestreo'
+       end as motivo
+  from vida v
+ where v.salio is not null
+   and fn_mi_rol() = 'admin'
+   and (not v.muestreado or v.salio - v.entro < interval '2 hours');
+
 -- Las vistas se leen con el permiso de quien pregunta (security_invoker),
 -- así que las políticas de siempre siguen mandando: sin perfil activo no
 -- se ve nada. El historial de monedas lo ve TODO el mundo a propósito: en
 -- un equipo pequeño, que cada uno pueda comprobar de dónde salió cada
 -- moneda del otro vale más que cualquier candado.
-grant select on v_monedas, v_saldos, v_clasificacion to authenticated;
+grant select on v_monedas, v_saldos, v_clasificacion, v_lotes_dudosos to authenticated;
 
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
