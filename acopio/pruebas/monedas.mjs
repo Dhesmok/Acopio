@@ -69,6 +69,99 @@ ok(/p\.id !== S\.perfil\.id/.test(app),
 ok(/Math\.max\(0, Math\.min\(15,/.test(store),
    'y el tope se aplica también antes de encolar, para no subir algo que rebote');
 
+// ---------------------------------------------------------------------
+titulo('La pantalla no deja creer que dos números se contradicen.');
+
+// "Tengo 219 arriba y 196 en la tabla, no sé qué anda mal." No andaba
+// mal nada: uno es el saldo de siempre y el otro lo del mes. La pantalla
+// no lo decía, así que se leían como si compitieran.
+const pantalla = app.slice(app.indexOf('async function panelMonedas'),
+                           app.indexOf('// --------------------------------------------------------------- tareas'));
+ok(/desde que empezaste/.test(pantalla),
+   'el número grande dice que es de SIEMPRE, no "en total" a secas');
+ok(/class="desde">[^<]*en \$\{MESES\[m1 - 1\]\}/.test(pantalla),
+   'y debajo, cuántas de esas son del mes en curso');
+ok(/Clasificación de \$\{MESES\[m1 - 1\]\}/.test(pantalla),
+   'la tabla lleva el nombre del mes, no un "este mes" que no se sabe cuál es');
+ok(/tus monedas NO se borran/.test(pantalla),
+   'y avisa de que lo que se reinicia es la tabla, no el saldo');
+
+// ---------------------------------------------------------------------
+titulo('La cabecera: iconos, y el nombre de la plataforma donde cabe.');
+
+// Con cinco cosas arriba, "Plataforma 3" se comía media barra y salía
+// cortado en "PLATAFO…", que no dice ni cuál es.
+ok(/id="chip-plat"[^>]*>\$\{ICO\.capas\}/.test(app),
+   'el botón de plataformas es un icono, no el nombre');
+ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
+   'y hay un trofeo que lleva derecho a la clasificación');
+// Hubo un rato una SEGUNDA pastilla con el nombre suelta sobre el mapa.
+// Sobraba: nadie la pidió y quitaba sitio al plano, que es lo que se
+// viene a mirar.
+ok(!/chip-plat-mapa/.test(app) && !/chip-plat-mapa/.test(css),
+   'no hay una segunda pastilla de plataformas encima del mapa');
+ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app)
+   && /'title', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
+   'el propio icono lleva el nombre, para el dedo encima y para quien no ve la pantalla');
+// Y donde se elige, se dice cuál está puesta: el borde amarillo solo
+// significa algo si ya sabes qué significa.
+ok(/aquí estás/.test(app) && /\.mini \.aqui/.test(css),
+   'y la hoja de Plataformas marca con palabras en cuál estás');
+
+// ---------------------------------------------------------------------
+titulo('La tienda tiene su propia entrada, y se ve.');
+
+// La barra amarilla a lo ancho se comía una franja de una pantalla que
+// ya es larga, y al bajar por la clasificación desaparecía. El botón
+// viaja ahora dentro del encabezado fijo, al lado de la equis.
+ok(/id="ir-tienda"/.test(app) && /class="a-tienda"/.test(app)
+   && !/btn-tienda/.test(app) && !/btn-tienda/.test(css),
+   'a la tienda se entra desde el encabezado, al lado de la equis');
+ok(/\.a-tienda \{[^}]*position: sticky/.test(css),
+   'y ese botón se queda pegado arriba, como la equis: no se pierde al bajar');
+ok(/abrirHoja\(html, fijo = '', esquina = ''\)/.test(app)
+   && /\$\{equis\}\$\{esquina\}/.test(app),
+   'va DESPUÉS de la equis en el código, que es lo que lo deja a su izquierda');
+const tienda = app.slice(app.indexOf('async function panelTienda'),
+                         app.indexOf('function fichaProducto'));
+ok(/const enVenta = admin \? cat\.lista : cat\.lista\.filter\(\(p\) => p\.activo\)/.test(tienda),
+   'lo retirado lo sigue viendo el admin, pero no quien viene a canjear');
+ok(/Te faltan \$\{falta\}/.test(tienda),
+   'lo que no alcanza SE VE igual, diciendo cuánto falta: es para lo que se ahorra');
+ok(/Store\.canjear/.test(tienda) && !/encolar|Store\.registrarEvento/.test(tienda),
+   'canjear va derecho al servidor, no a la cola: el saldo lo lleva él');
+ok(/sinSenal|alDia/.test(tienda) && /Sin señal/.test(tienda),
+   'y sin señal lo dice en vez de dejar tocar un botón que no va a funcionar');
+const ficha = app.slice(app.indexOf('function fichaProducto'),
+                        app.indexOf('// --------------------------------------------------------------- tareas'));
+ok(/p-activo/.test(ficha) && !/borrarProducto|delete\(\)/.test(ficha),
+   'un producto se RETIRA, no se borra: borrarlo se llevaría por delante recibos de otros');
+ok(/existencias: cuantos === '' \? null/.test(ficha),
+   'dejar en blanco "cuántos hay" es sin límite, que no es lo mismo que cero');
+ok(/const enVenta[\s\S]{0,1200}gap: 18px 14px/.test(app + css)
+   || /gap: 18px 14px/.test(css),
+   'y la vitrina va holgada: apretada no daba ganas de canjear nada');
+
+// ---------------------------------------------------------------------
+titulo('La monedita de píxeles gira, y no marea a quien no quiere.');
+
+ok(/const monedaPixel = /.test(app) && /shape-rendering="crispEdges"/.test(app),
+   'está dibujada píxel a píxel, y se le pide al navegador que no los suavice');
+ok(/MONEDA_ANCHOS = \[14, 12, 8, 4, 2, 4, 8, 12\]/.test(app),
+   'son ocho fotogramas: de frente hasta el canto, y de vuelta');
+ok(/steps\(8\)/.test(css),
+   'la tira salta de un fotograma a otro; interpolando se vería un borrón');
+ok(/prefers-reduced-motion[^}]*\}\s*\{\s*\.moneda-px svg \{ animation: none/.test(
+     css.replace(/\s+/g, ' ').replace(/@media \(/g, '{ ('))
+   || /\.moneda-px svg \{ animation: none; \}/.test(css),
+   'y con "menos movimiento" puesto en el celular, se para');
+ok(/precio = \(n\) => `<span class="precio">\$\{monedaPixel\(\)\}/.test(app),
+   'cada precio de la tienda la lleva al lado');
+ok(/<span class="cifra">\$\{monedaPixel\(\)\}\$\{total\}/.test(app),
+   'y el saldo de Monedas también, que es de donde salió la idea');
+ok(/class="gano"/.test(app) && /\.linea-tiempo \.gano \{ color: var\(--verde\)/.test(css),
+   'lo ganado va en verde, que es el color que la app ya usa para lo que se suma');
+
 // =====================================================================
 //  De aquí abajo, contra PostgreSQL de verdad.
 //
@@ -214,69 +307,6 @@ ok(rechaza(`insert into tareas (id,titulo,creado_por,asignado_a)
 ok(rechaza(`insert into tareas (id,titulo,monedas,creado_por)
             values (gen_random_uuid(),'x',50,'${A}')`),
    'y rechaza una tarea de 50 monedas');
-
-// ---------------------------------------------------------------------
-titulo('La pantalla no deja creer que dos números se contradicen.');
-
-// "Tengo 219 arriba y 196 en la tabla, no sé qué anda mal." No andaba
-// mal nada: uno es el saldo de siempre y el otro lo del mes. La pantalla
-// no lo decía, así que se leían como si compitieran.
-const pantalla = app.slice(app.indexOf('async function panelMonedas'),
-                           app.indexOf('// --------------------------------------------------------------- tareas'));
-ok(/desde que empezaste/.test(pantalla),
-   'el número grande dice que es de SIEMPRE, no "en total" a secas');
-ok(/class="desde">[^<]*en \$\{MESES\[m1 - 1\]\}/.test(pantalla),
-   'y debajo, cuántas de esas son del mes en curso');
-ok(/Clasificación de \$\{MESES\[m1 - 1\]\}/.test(pantalla),
-   'la tabla lleva el nombre del mes, no un "este mes" que no se sabe cuál es');
-ok(/tus monedas NO se borran/.test(pantalla),
-   'y avisa de que lo que se reinicia es la tabla, no el saldo');
-
-// ---------------------------------------------------------------------
-titulo('La cabecera: iconos, y el nombre de la plataforma donde cabe.');
-
-// Con cinco cosas arriba, "Plataforma 3" se comía media barra y salía
-// cortado en "PLATAFO…", que no dice ni cuál es.
-ok(/id="chip-plat"[^>]*>\$\{ICO\.capas\}/.test(app),
-   'el botón de plataformas es un icono, no el nombre');
-ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
-   'y hay un trofeo que lleva derecho a la clasificación');
-// Hubo un rato una SEGUNDA pastilla con el nombre suelta sobre el mapa.
-// Sobraba: nadie la pidió y quitaba sitio al plano, que es lo que se
-// viene a mirar.
-ok(!/chip-plat-mapa/.test(app) && !/chip-plat-mapa/.test(css),
-   'no hay una segunda pastilla de plataformas encima del mapa');
-ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app)
-   && /'title', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
-   'el propio icono lleva el nombre, para el dedo encima y para quien no ve la pantalla');
-// Y donde se elige, se dice cuál está puesta: el borde amarillo solo
-// significa algo si ya sabes qué significa.
-ok(/aquí estás/.test(app) && /\.mini \.aqui/.test(css),
-   'y la hoja de Plataformas marca con palabras en cuál estás');
-
-// ---------------------------------------------------------------------
-titulo('La tienda tiene su propia entrada, y se ve.');
-
-ok(/id="ir-tienda"/.test(app) && /class="btn-tienda"/.test(app),
-   'desde monedas se entra a la tienda con un botón entero, no un enlace');
-ok(/\.btn-tienda \{/.test(css) && /box-shadow: 5px 5px 0/.test(css),
-   'y está pintado como el resto de la app, no como un botón de sistema');
-const tienda = app.slice(app.indexOf('async function panelTienda'),
-                         app.indexOf('function fichaProducto'));
-ok(/const enVenta = admin \? cat\.lista : cat\.lista\.filter\(\(p\) => p\.activo\)/.test(tienda),
-   'lo retirado lo sigue viendo el admin, pero no quien viene a canjear');
-ok(/Te faltan \$\{falta\}/.test(tienda),
-   'lo que no alcanza SE VE igual, diciendo cuánto falta: es para lo que se ahorra');
-ok(/Store\.canjear/.test(tienda) && !/encolar|Store\.registrarEvento/.test(tienda),
-   'canjear va derecho al servidor, no a la cola: el saldo lo lleva él');
-ok(/sinSenal|alDia/.test(tienda) && /Sin señal/.test(tienda),
-   'y sin señal lo dice en vez de dejar tocar un botón que no va a funcionar');
-const ficha = app.slice(app.indexOf('function fichaProducto'),
-                        app.indexOf('// --------------------------------------------------------------- tareas'));
-ok(/p-activo/.test(ficha) && !/borrarProducto|delete\(\)/.test(ficha),
-   'un producto se RETIRA, no se borra: borrarlo se llevaría por delante recibos de otros');
-ok(/existencias: cuantos === '' \? null/.test(ficha),
-   'dejar en blanco "cuántos hay" es sin límite, que no es lo mismo que cero');
 
 // ---------------------------------------------------------------------
 titulo('En la clasificación salen TODOS, también los que llevan cero.');
