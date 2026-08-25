@@ -1233,8 +1233,18 @@ const senalados = (t) => [
 // Quién puede darle a "completada". Si la tarea tiene dueño, solo su
 // dueño; el admin siempre. El servidor lo comprueba otra vez, esto es
 // para no enseñar un botón que iba a no hacer nada.
-const puedeCompletar = (t) =>
-  !soloLectura() && (esAdmin() || !t.asignado_a || t.asignado_a === S.perfil?.id);
+// Quién puede darla por completada.
+//
+// El de rol "empresa" no toca el patio —no registra lotes ni cambia
+// estados— pero SÍ puede cerrar una tarea que lleve su nombre: a veces
+// se le encargan cosas de por libre, y cerrarla no es editar el patio,
+// es decir "esto ya está". Lo que no puede es coger las tareas sueltas,
+// que son trabajo de cuadrilla.
+const puedeCompletar = (t) => {
+  if (t.completado_en) return false;
+  if (soloLectura()) return t.asignado_a === S.perfil?.id;
+  return esAdmin() || !t.asignado_a || t.asignado_a === S.perfil?.id;
+};
 
 function fichaTarea(id) {
   const t = S.tareas.find((x) => x.id === id);
@@ -1265,9 +1275,12 @@ function fichaTarea(id) {
       </div>
       <button class="btn btn-guardar btn-ancho" id="t-listo" style="width:100%"
         >${ICO.visto}<span>Completada</span></button>`
-    : soloLectura() ? '' : `
+    : t.asignado_a ? `
       <p class="pista">Esta tarea es de ${esc(quienEs(t.asignado_a))}: solo
-        ${esc(quienEs(t.asignado_a))} puede darla por completada.</p>`}
+        ${esc(quienEs(t.asignado_a))} puede darla por completada.</p>`
+    : soloLectura() ? `
+      <p class="pista">Esta tarea no tiene dueño y la puede cerrar cualquiera
+         de la cuadrilla.</p>` : ''}
 
     ${esAdmin() ? `<button class="btn btn-peligro btn-ancho" id="t-borrar" style="width:100%;margin-top:14px"
       >Borrar la tarea</button>` : ''}`,
@@ -1311,9 +1324,11 @@ async function hojaNuevaTarea() {
   // Quien la crea NO sale en la lista: un admin no se manda tareas a sí
   // mismo. La base lo impone; aquí simplemente no se ofrece, para que
   // nadie se tope con un rechazo que no entiende.
+  // Entran los tres roles. El de "empresa" no trabaja el patio, pero se
+  // le encargan cosas de por libre y también gana monedas por ellas.
   const gente = S.gente
     .filter((p) => p.activo !== false && p.id !== S.perfil.id
-                   && (p.rol === 'contratista' || p.rol === 'admin'))
+                   && ['contratista', 'admin', 'empresa'].includes(p.rol))
     .sort((x, y) => String(x.nombre).localeCompare(String(y.nombre), 'es'));
   const dormidos = S.gente.filter((p) => p.activo === false).length;
   abrirHoja(`

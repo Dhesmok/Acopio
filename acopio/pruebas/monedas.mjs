@@ -151,4 +151,59 @@ ok(/chip-plat-mapa/.test(app) && /<span>\$\{esc\(p\.nombre\)\}<\/span>/.test(app
 ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
    'y el icono lo dice en voz alta para quien no ve la pantalla');
 
+// ---------------------------------------------------------------------
+titulo('En la clasificación salen TODOS, también los que llevan cero.');
+
+// Antes solo aparecía quien hubiera ganado algo, y eso deja fuera justo
+// a quien más falta le hace verse: el que empieza el mes en blanco, y el
+// de rol "empresa", que no trabaja el patio y solo gana por tareas
+// sueltas. Una tabla de la que desapareces cuando no has hecho nada no
+// invita a hacer nada.
+const EMP = '44444444-4444-4444-8444-444444444444';
+sql(`insert into auth.users (id,email) values ('${EMP}','emp@x.com')`);
+sql(`update perfiles set nombre='Empresa SA', rol='empresa', activo=true where id='${EMP}'`);
+
+const enTabla = (n) => Number(sql(
+  `select count(*) from v_clasificacion where nombre = '${n}'
+     and mes = to_char(now() at time zone 'America/Bogota','YYYY-MM')`));
+ok(enTabla('Empresa SA') === 1, 'quien no ha ganado nada este mes igual sale en la tabla');
+ok(Number(sql(`select monedas from v_clasificacion where nombre = 'Empresa SA'
+                and mes = to_char(now() at time zone 'America/Bogota','YYYY-MM')`)) === 0,
+   'y sale con cero, no con un hueco');
+ok(enTabla('Ana') === 1, 'y los que sí ganaron siguen saliendo una sola vez');
+
+// ---------------------------------------------------------------------
+titulo('El de rol "empresa" cierra SUS tareas y cobra por ellas.');
+
+// No toca el patio —no registra lotes ni cambia estados— pero se le
+// encargan cosas de por libre, y cerrarlas no es editar el patio.
+const T1 = 'eeeeeeee-0000-4000-8000-000000000001';
+sql(`insert into tareas (id,titulo,monedas,creado_por,asignado_a)
+     values ('${T1}','Revisar papeles',5,'33333333-3333-4333-8333-333333333333','${EMP}')`);
+// actuando como ella, que es lo que hace la app con su sesión
+sql(`select set_config('request.jwt.claim.sub','${EMP}',false);
+     update tareas set completado_en = now() where id = '${T1}'`);
+
+ok(sql(`select completado_por from tareas where id = '${T1}'`) === EMP,
+   'el servidor la deja cerrarla y apunta que fue ella');
+ok(Number(sql(`select monedas from v_saldos where rol = 'empresa'`)) === 5,
+   'y cobra las 5 monedas de esa tarea');
+
+// Pero solo las SUYAS: las sueltas son trabajo de cuadrilla.
+const T2 = 'eeeeeeee-0000-4000-8000-000000000002';
+sql(`insert into tareas (id,titulo,monedas,creado_por,asignado_a)
+     values ('${T2}','De otro',9,'33333333-3333-4333-8333-333333333333','${A}')`);
+sql(`select set_config('request.jwt.claim.sub','${EMP}',false);
+     update tareas set completado_en = now() where id = '${T2}'`);
+ok(sql(`select coalesce(completado_en::text,'') from tareas where id = '${T2}'`) === '',
+   'una tarea de otro no la puede cerrar, y el servidor lo impide');
+ok(Number(sql(`select monedas from v_saldos where rol = 'empresa'`)) === 5,
+   'así que no cobra de más');
+
+// Y la pantalla acompaña al servidor en vez de contradecirlo.
+ok(/if \(soloLectura\(\)\) return t\.asignado_a === S\.perfil\?\.id;/.test(app),
+   'la app le ofrece completar solo la tarea que lleva su nombre');
+ok(/\['contratista', 'admin', 'empresa'\]\.includes\(p\.rol\)/.test(app),
+   'y aparece en la lista de "para quién" al crear una tarea');
+
 cerrar();
