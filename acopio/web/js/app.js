@@ -556,11 +556,20 @@ async function mostrarAvisos() {
 function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
   return async function (ev) {
     if (this.disabled) return;
-    const etiqueta = this.textContent;
+    // Se guarda el CONTENIDO, no el texto.
+    //
+    // Con `textContent` el botón perdía su icono para siempre: poner
+    // texto borra el dibujo de dentro, y al terminar se devolvía un
+    // texto vacío —un SVG no tiene texto— así que el trofeo, la campana
+    // y "Nuevo lote" se quedaban en un rectángulo negro y pelado hasta
+    // recargar. Guardando el contenido entero vuelve tal cual estaba.
+    const antes = this.innerHTML;
     this.disabled = true;
     // `aria-busy` enciende la cinta de obra en marcha del botón (styles.css)
     // y avisa al lector de pantalla de que está trabajando.
     this.setAttribute('aria-busy', 'true');
+    // `textContent` y no `innerHTML`: lo que llega en `ocupado` se pinta
+    // como texto, nunca como marcado.
     this.textContent = ocupado;
     try {
       await fn.call(this, ev);
@@ -570,7 +579,7 @@ function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
       // si la hoja ya se cerró el nodo está suelto y esto no molesta
       this.disabled = false;
       this.removeAttribute('aria-busy');
-      this.textContent = etiqueta;
+      this.innerHTML = antes;
     }
   };
 }
