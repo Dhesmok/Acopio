@@ -2809,11 +2809,16 @@ async function fichaLote(id) {
   const mp = $('#mover-plat');
   if (mp) mp.onclick = () => hojaTrasladar({
     titulo: `Mover ${l.codigo}`,
-    detalle: `Está en ${nombrePlataforma(l.plataforma_id)}. Su estado y su pila no cambian: `
-      + 'solo cambia de patio, y queda apuntado en su historial.',
+    detalle: `Está en ${nombrePlataforma(l.plataforma_id)}. Su estado no cambia`
+      + (pila ? `, pero SALE de la pila ${pila.codigo}: se lleva ese lote y no el montón entero.`
+              : ': solo cambia de patio, y queda apuntado en su historial.'),
     desde: l.plataforma_id,
     alSoltar: async (id) => {
       await Store.trasladarLote(l.id, id, S.perfil.id);
+      // La pila de la que salió puede haberse quedado con uno solo, y una
+      // pila de un lote no es una pila: se disuelve, igual que al sacarlo
+      // a mano desde su ficha.
+      if (pila) await revisarPila(pila);
       cerrarHoja(); await recargar(); pintar(); sincronizar();
     }
   });

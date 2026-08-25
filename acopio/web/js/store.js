@@ -358,11 +358,29 @@ export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, plataforma_i
 // ----------------------------------------------------------- traslados
 // Pasar un lote a otra plataforma es un EVENTO, no una escritura: así el
 // historial dice cuándo se movió y quién lo movió, que es justo para lo
-// que se pidió. El estado no se toca —un lote facturado que se pasa a Ye
-// sigue facturado— y la pila tampoco.
+// que se pidió. El estado no se toca: un lote facturado que se pasa a Ye
+// sigue facturado.
+//
+// LA PILA SÍ SE SUELTA, y esto es un arreglo, no una decisión de gusto.
+// Antes la pila se quedaba puesta y el lote acababa marcado como parte de
+// una pila que está en OTRA plataforma. El resultado era que desaparecía
+// de los dos planos: del viejo porque ya no es suyo, y del nuevo porque
+// el mapa no dibuja sueltos a los que tienen pila, y allí no hay ninguna
+// pila que lo contenga. Seguía en la base y en la ficha de su pila, pero
+// en el patio no estaba en ninguna parte.
+//
+// Soltarlo es además lo que pasa de verdad: si te llevas un lote de un
+// montón en un camión, ese lote ya no está en el montón. Queda apuntado
+// como salida de pila, así que el historial lo cuenta entero.
+//
+// Mover la pila ENTERA es otra cosa y no pasa por aquí: ahí los lotes se
+// van con ella y siguen dentro. Ver `trasladarPila`.
 export async function trasladarLote(loteId, plataformaId, usuarioId) {
   const l = await idb.uno('lotes', loteId);
   if (!l || l.plataforma_id === plataformaId) return l;
+  if (l.pila_id) {
+    await registrarEvento({ lote_id: loteId, tipo: 'salida_pila', usuario_id: usuarioId });
+  }
   await registrarEvento({ lote_id: loteId, tipo: 'traslado',
                           plataforma_id: plataformaId, usuario_id: usuarioId });
   return idb.uno('lotes', loteId);

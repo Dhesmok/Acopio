@@ -459,4 +459,59 @@ const caja = app.match(/const CAJA_OBREROS = \{ dx: [-\d]+, dy: [-\d]+, rx: (\d+
 ok(Number(caja[1]) * 2 >= 400,
    `la caja mide ${Number(caja[1]) * 2} de ancho, que es lo que ocupa la cuadrilla entera`);
 
+
+// ---------------------------------------------------------------------
+titulo('Un lote que se va SOLO a otra plataforma sale de su pila.');
+
+// Esto se perdía de verdad. El lote se quedaba marcado como parte de una
+// pila que está en OTRA plataforma, y así no se dibujaba en ninguno de
+// los dos planos: del viejo porque ya no es suyo, y del nuevo porque el
+// mapa no pinta como sueltos a los que tienen pila, y allí no hay
+// ninguna pila que lo contenga. Seguía en la base y en la ficha de su
+// pila, pero en el patio no estaba en ninguna parte.
+const laPila = await Store.crearPila({ codigo: '9', tipo: 'otro', nota: null,
+  x: 300, y: 300, rx: 120, ry: 90, plataforma_id: TOPSOIL, usuario_id: 'yo' });
+const tres = [];
+for (const c of ['PG2001', 'PG2002', 'PG2003']) {
+  const x = await nuevoLote(c, TOPSOIL);
+  await Store.registrarEvento({ lote_id: x.id, tipo: 'ingreso_pila',
+    pila_id: laPila.id, usuario_id: 'yo' });
+  tres.push(x);
+}
+
+const viajero = tres[0];
+await Store.trasladarLote(viajero.id, YE, 'yo');
+const ido = await Store.lote(viajero.id);
+
+ok(ido.plataforma_id === YE, 'el lote se fue a Ye');
+ok(ido.pila_id === null, 'y salió de la pila, que se quedó en Topsoil');
+
+// El plano dibuja como sueltos a los que NO tienen pila. Si se quedara
+// con la pila puesta, no aparecería aquí ni allá.
+const sueltosEn = async (plat) => (await Store.lotes())
+  .filter((l) => l.plataforma_id === plat && !l.pila_id).length;
+ok((await sueltosEn(YE)) >= 1, 'y en Ye se dibuja, que es lo que antes no pasaba');
+
+// Queda apuntado: el historial tiene que poder contar que salió del
+// montón, no solo que cambió de patio.
+const suHistorial = (await Store.historial(viajero.id)).map((e) => e.tipo);
+ok(suHistorial.includes('salida_pila'), 'la salida de la pila queda en su historial');
+ok(suHistorial.includes('traslado'), 'y el traslado también');
+
+// Los que no se movieron siguen dentro y donde estaban.
+for (const q of tres.slice(1)) {
+  const s = await Store.lote(q.id);
+  ok(s.pila_id === laPila.id && s.plataforma_id === TOPSOIL,
+     `${q.codigo} se queda en su pila y en Topsoil`);
+}
+
+// Y mover la pila ENTERA sigue llevándose a los suyos DENTRO: son dos
+// cosas distintas y solo una suelta los lotes.
+await Store.trasladarPila(laPila.id, P5, 'yo');
+for (const q of tres.slice(1)) {
+  const s = await Store.lote(q.id);
+  ok(s.plataforma_id === P5 && s.pila_id === laPila.id,
+     `${q.codigo} viaja con la pila y sigue dentro`);
+}
+
 cerrar();
