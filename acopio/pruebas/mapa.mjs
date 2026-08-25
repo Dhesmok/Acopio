@@ -801,4 +801,23 @@ ok((sw.match(/\.mp3/g) || []).length === 2,
 ok(/const ruidoEn = \(cual, ms\) => setTimeout\(\(\) => \{\s*\n\s*if \(S\.mudo\) return;/.test(fuenteApp),
    'con los avisos apagados, la escena se ve pero no suena');
 
+// ---------------------------------------------------------------------
+titulo('Un botón con icono no lo pierde al pulsarlo.');
+
+// Pasaba de verdad: al tocar el trofeo se quedaba un rectángulo negro y
+// pelado hasta recargar la app. `accion` guardaba el TEXTO del botón
+// para devolvérselo al terminar, y un icono no tiene texto: poner
+// "Cargando…" borraba el dibujo y lo que se devolvía era una cadena
+// vacía. Afectaba a todos los botones con icono, no solo al trofeo:
+// "Nuevo lote", la campana, "Nueva tarea".
+const acc = fuenteApp.slice(fuenteApp.indexOf('function accion(fn,'),
+                            fuenteApp.indexOf('const textoFallo ='));
+ok(/const antes = this\.innerHTML;/.test(acc),
+   'se guarda el contenido del botón, no su texto');
+ok(/this\.innerHTML = antes;/.test(acc), 'y se le devuelve entero al terminar');
+// El aviso de "ocupado" sigue entrando como TEXTO: si entrara como
+// marcado, un mensaje con un < rompería el botón.
+ok(/this\.textContent = ocupado;/.test(acc),
+   'y lo que se enseña mientras trabaja se pinta como texto, nunca como marcado');
+
 cerrar();

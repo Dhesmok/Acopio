@@ -547,15 +547,33 @@ select pe.id as usuario_id, pe.nombre, pe.rol,
 --  —gana siempre el que empezó primero— y el que entra nuevo ni lo
 --  intenta. El mes es el de Colombia, no el del servidor, que va en UTC
 --  y cambiaría de mes a las siete de la tarde del día 31.
+--  Salen TODOS los activos, también los que llevan cero.
+--
+--  Antes solo aparecía quien hubiera ganado algo, y eso deja fuera
+--  justo a quien más falta le hace verse: el que empieza el mes en
+--  blanco, o el de rol "empresa", que no trabaja el patio y solo gana
+--  por tareas sueltas. Una tabla de la que desapareces cuando no has
+--  hecho nada no invita a hacer nada.
+--
+--  El mes es el de Colombia, no el del servidor, que va en UTC y
+--  cambiaría de mes a las siete de la tarde del día 31.
 create view v_clasificacion with (security_invoker = true) as
-select m.usuario_id, pe.nombre, pe.rol,
-       to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM') as mes,
-       sum(m.monedas) as monedas,
-       count(*) as hechos
-  from v_monedas m
-  join perfiles pe on pe.id = m.usuario_id
- group by m.usuario_id, pe.nombre, pe.rol,
-          to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM');
+with meses as (
+  select distinct to_char(ocurrido_en at time zone 'America/Bogota', 'YYYY-MM') as mes
+    from v_monedas
+  union
+  select to_char(now() at time zone 'America/Bogota', 'YYYY-MM')
+)
+select pe.id as usuario_id, pe.nombre, pe.rol, x.mes,
+       coalesce(sum(m.monedas), 0) as monedas,
+       count(m.origen) as hechos
+  from perfiles pe
+ cross join meses x
+  left join v_monedas m
+         on m.usuario_id = pe.id
+        and to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM') = x.mes
+ where pe.activo
+ group by pe.id, pe.nombre, pe.rol, x.mes;
 
 -- ------------------------------------------------------------ seguridad
 alter table perfiles     enable row level security;
