@@ -10,20 +10,8 @@
 //  y comprobarlas leyendo el archivo no diría si las cuentas salen.
 // =====================================================================
 import { readFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
-
-const SOCK = '/tmp/pgsock', PUERTO = '54329';
-const hayPostgres = () => {
-  try {
-    execFileSync('psql', ['-h', SOCK, '-p', PUERTO, '-U', 'postgres', '-tAc', 'select 1'],
-                 { stdio: ['ignore', 'pipe', 'ignore'] });
-    return true;
-  } catch { return false; }
-};
-const sql = (q) => execFileSync('psql',
-  ['-h', SOCK, '-p', PUERTO, '-U', 'postgres', '-tAF', '|', '-c', q],
-  { encoding: 'utf8' }).trim();
+import { baseNueva } from './ayudas/base.mjs';
 
 const app = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
 const store = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
@@ -80,18 +68,31 @@ ok(/p\.id !== S\.perfil\.id/.test(app),
 ok(/Math\.max\(0, Math\.min\(15,/.test(store),
    'y el tope se aplica también antes de encolar, para no subir algo que rebote');
 
-if (!hayPostgres()) {
-  console.log('\n  (sin PostgreSQL a mano: las cuentas de abajo no se corrieron)');
-  cerrar();
-}
-
 // =====================================================================
 //  De aquí abajo, contra PostgreSQL de verdad.
+//
+//  La base se crea AQUÍ, entera, cada vez: se carga el esquema real y se
+//  mete un patio de prueba donde cada uno intenta una trampa distinta.
+//  Sin esto la prueba daría por hecho una base que alguien dejó
+//  preparada, y el día que no estuviera pasaría sin comprobar nada.
 // =====================================================================
+const base = baseNueva();
+if (!base) {
+  console.log('\n  (no hay PostgreSQL a mano: las cuentas de abajo no se corrieron)');
+  cerrar();
+}
+base.cargar('./ayudas/patio-falso.sql');
+process.on('exit', () => base.tirar());
+
+titulo('El esquema real carga en una base limpia.');
+ok(Number(base.sql('select count(*) from v_monedas')) > 0,
+   'el esquema entero se carga sin un error y la vista devuelve filas');
+
 titulo('Las cuentas salen, y los atajos no pagan.');
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
+const sql = base.sql;
 const saldo = (id) => Number(sql(`select monedas from v_saldos where usuario_id = '${id}'`) || 0);
 
 ok(saldo(A) === 16, `Ana: 3+3 por dos lotes y 10 por una tarea = 16 (dio ${saldo(A)})`);
@@ -109,15 +110,7 @@ const suyaPropia = Number(sql(
 ok(suyaPropia === 0, 'una tarea creada y cerrada por la misma persona no paga nada');
 
 // Y las reglas que tienen que RECHAZAR.
-// El error de psql se traga a propósito: aquí el rechazo ES el resultado
-// esperado, y dejarlo salir por pantalla haría creer que algo falló.
-const rechaza = (q) => {
-  try {
-    execFileSync('psql', ['-h', SOCK, '-p', PUERTO, '-U', 'postgres', '-tAc', q],
-                 { stdio: ['ignore', 'ignore', 'ignore'] });
-    return false;
-  } catch { return true; }
-};
+const rechaza = base.rechaza;
 ok(rechaza(`insert into tareas (id,titulo,creado_por,asignado_a)
             values (gen_random_uuid(),'x','${A}','${A}')`),
    'la base rechaza que alguien se asigne una tarea a sí mismo');
