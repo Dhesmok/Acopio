@@ -1023,7 +1023,11 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'];
+  const ext = (archivo.name?.split('.').pop() || '').toLowerCase();
+  if (!extensionesPermitidas.includes(ext) || (archivo.type && !archivo.type.startsWith('image/'))) {
+    throw new Error('Tipo de archivo no permitido. Solo se permiten imágenes (JPG, PNG, WEBP, GIF, SVG).');
+  }
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
