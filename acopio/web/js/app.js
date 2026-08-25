@@ -147,7 +147,13 @@ const ICO = {
   reloj:     ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
   diana:     ico('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
   campana:   ico('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
-  visto:     ico('<path d="M20 6L9 17l-5-5"/>')
+  visto:     ico('<path d="M20 6L9 17l-5-5"/>'),
+  // Capas apiladas: las cinco plataformas vistas de canto.
+  capas:     ico('<path d="M12 3l9 5-9 5-9-5 9-5"/><path d="M3 13l9 5 9-5"/>'),
+  // Copa con asas y pie, que es como se dibuja un trofeo en cualquier
+  // sitio: se reconoce sin leer nada.
+  trofeo:    ico('<path d="M7 4h10v5a5 5 0 0 1-10 0V4"/><path d="M7 6H4v2a3 3 0 0 0 3 3"/>'
+                 + '<path d="M17 6h3v2a3 3 0 0 1-3 3"/><path d="M12 14v4M8 21h8M10 18h4"/>')
 };
 
 // Recordar una preferencia en el celular NUNCA puede tumbar lo que se
@@ -668,7 +674,10 @@ function pantallaPrincipal() {
       <header>
         <h1>Acopio</h1>
         <span class="crece"></span>
-        <button class="chip-plat" id="chip-plat" aria-label="Cambiar de plataforma"></button>
+        <button class="icono" id="chip-plat" aria-label="Cambiar de plataforma"
+          >${ICO.capas}</button>
+        <button class="icono trofeo" id="trofeo" aria-label="Monedas y clasificación"
+          >${ICO.trofeo}</button>
         <button class="icono campana" id="campana" aria-label="Tareas" hidden
           >${ICO.campana}<span class="cuenta" id="campana-n"></span></button>
         <button class="chip-sync" id="chip"><span class="punto"></span><span id="chip-txt">—</span></button>
@@ -697,6 +706,7 @@ function pantallaPrincipal() {
   $('#menu').onclick = menuCuenta;
   $('#campana').onclick = panelTareas;
   $('#chip-plat').onclick = panelPlataformas;
+  $('#trofeo').onclick = accion(() => panelMonedas(), { ocupado: '…' });
   document.querySelectorAll('nav.pestanas button').forEach((b) => {
     b.onclick = () => {
       S.pestana = b.dataset.t;
@@ -801,6 +811,7 @@ function montarMapa() {
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
+            <div id="chip-plat-mapa"></div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
           </div>
@@ -868,6 +879,7 @@ function montarMapa() {
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
   if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
+  pintarChipPlataforma();
 
   // Mirando otro día no se edita nada: ni mover, ni ajustar, ni soltar
   // un lote sobre una pila. El botón de editar se apaga para que no
@@ -903,12 +915,29 @@ function hojaTrasladar({ titulo, detalle, desde, alSoltar }) {
 // El nombre de la plataforma va SIEMPRE a la vista, en la cabecera: sin
 // eso, mirando un plano vacío no hay manera de saber si es que la
 // plataforma está vacía o es que estás en otra.
+// El botón de la cabecera es un ICONO, no el nombre: con cinco cosas
+// arriba, un nombre largo como "Plataforma 3" se comía media barra y
+// acababa cortado en "PLATAFO…", que no dice ni cuál es.
+//
+// Pero saber en qué plataforma estás sigue haciendo falta: mirando un
+// plano vacío, sin eso no hay manera de distinguir si es que está vacía
+// o es que estás en otra. Así que el nombre baja AL MAPA, que es el
+// único sitio donde importa —en la lista y en el tablero no significa
+// nada— y ahí sí cabe entero.
 function pintarChipPlataforma() {
   const c = $('#chip-plat');
-  if (!c) return;
   const p = plataformaActual();
-  c.hidden = S.plataformas.length < 2;
-  c.textContent = p ? p.nombre : '—';
+  if (c) {
+    c.hidden = S.plataformas.length < 2;
+    c.setAttribute('aria-label', p ? `Plataforma: ${p.nombre}. Tocar para cambiar` : 'Cambiar de plataforma');
+  }
+  const m = $('#chip-plat-mapa');
+  if (m) {
+    m.innerHTML = S.plataformas.length < 2 || !p ? ''
+      : `<button class="chip-plat" id="ir-a-plat">${ICO.capas}<span>${esc(p.nombre)}</span></button>`;
+    const b = $('#ir-a-plat');
+    if (b) b.onclick = panelPlataformas;
+  }
 }
 
 // Cuánto tiene que llevar un lote para contar como recién llegado, y
@@ -1051,6 +1080,9 @@ const MOTIVOS = {
   trasladar: 'Lo cambió de plataforma', despachar: 'Lo despachó', tarea: 'Completó una tarea'
 };
 
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+               'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
 const nombreDe = (id) => S.gente.find((p) => p.id === id)?.nombre || 'alguien';
 
 async function panelMonedas(verA = null) {
@@ -1061,25 +1093,32 @@ async function panelMonedas(verA = null) {
   const mios = r.saldos.find((x) => x.usuario_id === S.perfil.id);
   const tabla = [...r.clasificacion].sort((a, b) => b.monedas - a.monedas);
   const h = await Store.historialMonedas(quien);
+  // Son DOS números distintos y hay que decirlo, o se leen como si uno
+  // contradijera al otro: el saldo es de siempre y la tabla es del mes.
+  const total = mios?.monedas ?? 0;
+  const esteMes = tabla.find((x) => x.usuario_id === S.perfil.id)?.monedas ?? 0;
+  const m1 = Number(r.mes.slice(5, 7));
 
   abrirHoja(`
     ${r.alDia ? '' : `<p class="aviso">Sin señal: esto es lo último que llegó${
       r.cuando ? `, del ${fechaLocal(r.cuando)}` : ''}. Las monedas las cuenta el servidor.</p>`}
 
     <div class="saldo">
-      <span class="cifra">${mios?.monedas ?? 0}</span>
-      <span class="txt">moneda${(mios?.monedas ?? 0) === 1 ? '' : 's'} tuyas en total</span>
+      <span class="cifra">${total}</span>
+      <span class="txt">moneda${total === 1 ? '' : 's'} tuyas, desde que empezaste</span>
+      <span class="desde">${esteMes} ${esteMes === 1 ? 'ganada' : 'ganadas'} en ${MESES[m1 - 1]}</span>
     </div>
 
-    <h3>Este mes</h3>
+    <h3>Clasificación de ${MESES[m1 - 1]}</h3>
     ${tabla.length ? `<ol class="ranking">${tabla.map((x, i) => `
       <li data-quien="${x.usuario_id}"${x.usuario_id === quien ? ' class="viva"' : ''}>
-        <span class="puesto">${i + 1}</span>
+        <span class="puesto" data-podio="${i < 3 ? i + 1 : 'no'}">${i + 1}</span>
         <span class="quien">${esc(x.nombre || nombreDe(x.usuario_id))}${
           x.rol === 'admin' ? ' <span class="dias">admin</span>' : ''}</span>
         <span class="cuanto">${x.monedas}</span>
       </li>`).join('')}</ol>
-      <p class="pista">Toca un nombre para ver de dónde salieron sus monedas. Se reinicia cada mes.</p>`
+      <p class="pista">Toca un nombre para ver de dónde salieron sus monedas.
+         Esta tabla vuelve a cero el 1 de ${MESES[m1 % 12]}; tus monedas NO se borran.</p>`
       : '<p class="pista">Todavía nadie ha ganado monedas este mes.</p>'}
 
     <h3>${quien === S.perfil.id ? 'Tus monedas' : `Monedas de ${esc(nombreDe(quien))}`}</h3>

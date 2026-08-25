@@ -1605,6 +1605,13 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   line-height: 1; letter-spacing: -.03em; color: var(--amarillo);
 }
 .saldo .txt { font-size: 12.5px; font-weight: 600; opacity: .85; }
+/* El segundo número, el del mes. Va debajo y en amarillo tenue: son dos
+   cifras distintas y sin distinguirlas se leen como si se contradijeran
+   —"tengo 219 y en la tabla salgo con 196"—. */
+.saldo .desde {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.22);
+  font-size: 12px; font-weight: 700; color: var(--amarillo);
+}
 
 /* La clasificación del mes. El puesto en mono para que las cifras no
    bailen, y el propio marcado en amarillo: lo que cada uno busca en una
@@ -1616,10 +1623,24 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   background: var(--superficie); padding: 9px 11px;
 }
 .ranking li.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
+/* Los tres primeros llevan medalla. Es una tabla de clasificación: si el
+   primero se ve igual que el séptimo, no hay nada que ganar. */
 .ranking .puesto {
+  display: grid; place-items: center; flex: 0 0 26px;
+  width: 26px; height: 26px; border-radius: 50%;
   font-family: var(--mono); font-size: 12px; font-weight: 800;
-  min-width: 20px; color: var(--apagado);
+  color: var(--apagado);
 }
+.ranking .puesto:not([data-podio="no"]) {
+  color: var(--tinta); border: 2px solid var(--tinta);
+  box-shadow: var(--sombra-corta, 2px 2px 0 var(--tinta));
+}
+.ranking .puesto[data-podio="1"] { background: #f2c007; }
+.ranking .puesto[data-podio="2"] { background: #c9ccd1; }
+.ranking .puesto[data-podio="3"] { background: #d08c4a; }
+.ranking li:first-child { padding: 12px 11px; }
+.ranking li:first-child .quien { font-size: 15px; }
+.ranking li:first-child .cuanto { font-size: 19px; }
 .ranking .quien { flex: 1; font-weight: 700; font-size: 13.5px; min-width: 0; }
 .ranking .cuanto { font-family: var(--mono); font-size: 16px; font-weight: 800; }
 
@@ -1820,6 +1841,19 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .chip-plat[hidden] { display: none; }
+/* En el mapa el nombre SÍ cabe entero, y ahí es donde hace falta: es el
+   único sitio donde no saber en qué plataforma estás confunde. */
+#chip-plat-mapa:empty { display: none; }
+#chip-plat-mapa .chip-plat {
+  display: inline-flex; align-items: center; gap: 6px;
+  text-transform: none; letter-spacing: 0; max-width: none;
+  box-shadow: var(--sombra-media);
+}
+#chip-plat-mapa .ico { width: 15px; height: 15px; }
+
+/* El trofeo llama la atención a propósito: la clasificación es lo que
+   hace que el sistema de monedas sirva de algo. */
+.icono.trofeo { color: var(--amarillo); }
 
 /* el tablero: cuánta carga hay en cada patio, sin abrir ninguno */
 

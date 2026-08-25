@@ -79,7 +79,7 @@ ok(/Math\.max\(0, Math\.min\(15,/.test(store),
 const base = baseNueva();
 if (!base) {
   console.log('\n  (no hay PostgreSQL a mano: las cuentas de abajo no se corrieron)');
-  cerrar();
+cerrar();
 }
 base.cargar('./ayudas/patio-falso.sql');
 process.on('exit', () => base.tirar());
@@ -117,5 +117,38 @@ ok(rechaza(`insert into tareas (id,titulo,creado_por,asignado_a)
 ok(rechaza(`insert into tareas (id,titulo,monedas,creado_por)
             values (gen_random_uuid(),'x',50,'${A}')`),
    'y rechaza una tarea de 50 monedas');
+
+// ---------------------------------------------------------------------
+titulo('La pantalla no deja creer que dos números se contradicen.');
+
+// "Tengo 219 arriba y 196 en la tabla, no sé qué anda mal." No andaba
+// mal nada: uno es el saldo de siempre y el otro lo del mes. La pantalla
+// no lo decía, así que se leían como si compitieran.
+const pantalla = app.slice(app.indexOf('async function panelMonedas'),
+                           app.indexOf('// --------------------------------------------------------------- tareas'));
+ok(/desde que empezaste/.test(pantalla),
+   'el número grande dice que es de SIEMPRE, no "en total" a secas');
+ok(/class="desde">[^<]*en \$\{MESES\[m1 - 1\]\}/.test(pantalla),
+   'y debajo, cuántas de esas son del mes en curso');
+ok(/Clasificación de \$\{MESES\[m1 - 1\]\}/.test(pantalla),
+   'la tabla lleva el nombre del mes, no un "este mes" que no se sabe cuál es');
+ok(/tus monedas NO se borran/.test(pantalla),
+   'y avisa de que lo que se reinicia es la tabla, no el saldo');
+
+// ---------------------------------------------------------------------
+titulo('La cabecera: iconos, y el nombre de la plataforma donde cabe.');
+
+// Con cinco cosas arriba, "Plataforma 3" se comía media barra y salía
+// cortado en "PLATAFO…", que no dice ni cuál es.
+ok(/id="chip-plat"[^>]*>\$\{ICO\.capas\}/.test(app),
+   'el botón de plataformas es un icono, no el nombre');
+ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
+   'y hay un trofeo que lleva derecho a la clasificación');
+// Pero saber en qué plataforma estás sigue haciendo falta: en un plano
+// vacío es lo único que distingue "está vacía" de "estás en otra".
+ok(/chip-plat-mapa/.test(app) && /<span>\$\{esc\(p\.nombre\)\}<\/span>/.test(app),
+   'el nombre baja al mapa, que es el único sitio donde importa');
+ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
+   'y el icono lo dice en voz alta para quien no ve la pantalla');
 
 cerrar();
