@@ -1592,6 +1592,40 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 @keyframes ob-entrar { from { opacity: 0; transform: scale(.94); } }
 @keyframes ob-irse   { to   { opacity: 0; } }
 
+/* --- monedas: saldo y clasificación ------------------------------
+   El saldo va en negativo y grande. Es lo primero que se viene a mirar
+   y lo único que se recuerda al salir. */
+.saldo {
+  display: flex; flex-direction: column; gap: 2px; margin: 12px 0 4px;
+  border: 2px solid var(--tinta); background: var(--tinta); color: var(--superficie);
+  padding: 16px 14px 14px;
+}
+.saldo .cifra {
+  font-family: var(--mono); font-size: 40px; font-weight: 800;
+  line-height: 1; letter-spacing: -.03em; color: var(--amarillo);
+}
+.saldo .txt { font-size: 12.5px; font-weight: 600; opacity: .85; }
+
+/* La clasificación del mes. El puesto en mono para que las cifras no
+   bailen, y el propio marcado en amarillo: lo que cada uno busca en una
+   tabla es a sí mismo. */
+.ranking { list-style: none; margin: 8px 0 0; padding: 0; }
+.ranking li {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  border: 1px solid var(--tinta); margin-bottom: -1px;
+  background: var(--superficie); padding: 9px 11px;
+}
+.ranking li.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
+.ranking .puesto {
+  font-family: var(--mono); font-size: 12px; font-weight: 800;
+  min-width: 20px; color: var(--apagado);
+}
+.ranking .quien { flex: 1; font-weight: 700; font-size: 13.5px; min-width: 0; }
+.ranking .cuanto { font-family: var(--mono); font-size: 16px; font-weight: 800; }
+
+/* Los botones de elegir cuántas monedas paga una tarea reusan el estilo
+   de las prioridades, que ya es una fila de pastillas que se eligen. */
+
 /* --- la equis de la hoja ----------------------------------------
    El botón de cerrar vivía al final del todo, así que en una ficha con
    historial largo había que desplazarse hasta abajo para salir. La

@@ -367,7 +367,15 @@ create table tareas (
   completado_en  timestamptz,
   completado_por uuid references perfiles (id),
   nota_cierre    text,
-  actualizado_en timestamptz not null default now()
+  -- Lo que paga completarla. Lo pone el admin al crearla, de 0 a 15: un
+  -- tope, y no un número libre, porque quien fija el premio es también
+  -- quien podría regalarlo. Cambiar el tope es cambiar esta línea.
+  monedas        int not null default 0 check (monedas between 0 and 15),
+  actualizado_en timestamptz not null default now(),
+  -- Un admin no se manda tareas a sí mismo. Es la regla que se pidió, y
+  -- va aquí y no en la pantalla: quien reparte el premio no puede ser el
+  -- que se lo lleva.
+  constraint tarea_no_autoasignada check (asignado_a is null or asignado_a <> creado_por)
 );
 
 create index idx_tareas_pendientes on tareas (completado_en, prioridad);
@@ -397,6 +405,8 @@ begin
     new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
     new.lotes_ids  := old.lotes_ids;   new.pilas_ids  := old.pilas_ids;
     new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
+    -- Y no puede subirse el premio al cerrarla.
+    new.monedas    := old.monedas;
     new.completado_por := auth.uid();
     if new.completado_en is null then new.completado_en := now(); end if;
   end if;
@@ -462,6 +472,90 @@ select e.lote_id, l.codigo as lote, e.ocurrido_en, e.tipo, e.estado_nuevo,
   join lotes l on l.id = e.lote_id
   left join pilas pi on pi.id = e.pila_id
   left join perfiles pe on pe.id = e.usuario_id;
+
+-- ------------------------------------------------------------- monedas
+--  El saldo NO se guarda: se calcula desde los eventos que ya existen.
+--
+--  Es la decisión que sostiene todo lo demás. Un contador que la app
+--  suma se rompe solo —dos celulares sin señal sumarían por separado y
+--  darían saldos distintos— y además se puede tocar. Calculado desde los
+--  eventos, cada moneda apunta a un hecho con autor, lote y hora, nadie
+--  puede inventarse un saldo, y el día que se estrene todos arrancan con
+--  lo que ya trabajaron en vez de con cero.
+--
+--  Cambiar cuánto paga cada cosa es cambiar la tabla `tarifa` de aquí
+--  abajo: todos los saldos se recalculan solos, sin migrar nada.
+--
+--  LA REGLA: cada hecho paga UNA sola vez por lote. Eso es lo que hace
+--  que no haga falta ningún castigo. Deshacer y rehacer —sacar de la
+--  pila y volver a meter, mandar el lote y traerlo— no da nada, porque
+--  solo cuenta la primera vez. Y da igual mover una pila de diez lotes
+--  que moverlos de uno en uno: paga lo mismo, así que no hay forma de
+--  ganar más trabajando peor.
+create view v_monedas with (security_invoker = true) as
+with hechos as (
+  select e.id, e.usuario_id, e.lote_id, e.ocurrido_en,
+         case
+           when e.tipo = 'recepcion'                                     then 'registrar'
+           when e.tipo = 'cambio_estado' and e.estado_nuevo = 'muestreado' then 'muestrear'
+           when e.tipo = 'cambio_estado' and e.estado_nuevo = 'despachado' then 'despachar'
+           when e.tipo = 'ingreso_pila'                                  then 'apilar'
+           when e.tipo = 'traslado'                                      then 'trasladar'
+         end as clase
+    from eventos e
+   where e.usuario_id is not null
+),
+-- La primera vez de cada lote para cada concepto, y solo esa.
+primeros as (
+  select distinct on (lote_id, clase) id, usuario_id, lote_id, ocurrido_en, clase
+    from hechos
+   where clase is not null
+   order by lote_id, clase, ocurrido_en
+),
+tarifa (clase, monedas) as (values
+  ('registrar', 3), ('muestrear', 1), ('apilar', 1), ('trasladar', 1), ('despachar', 2)
+)
+select p.id as origen, p.usuario_id, p.lote_id, null::uuid as tarea_id,
+       t.monedas, p.clase as motivo, p.ocurrido_en
+  from primeros p join tarifa t on t.clase = p.clase
+union all
+--  Las tareas pagan lo que diga el admin al crearlas.
+--
+--  Nunca a quien la creó, aunque la haya dejado para "cualquiera". Sin
+--  esto, la regla de no auto-asignarse se saltaría sola: basta con crear
+--  una tarea sin dueño y cerrarla uno mismo.
+select t.id, t.completado_por, null::uuid, t.id,
+       t.monedas, 'tarea', t.completado_en
+  from tareas t
+ where t.completado_en is not null
+   and t.completado_por is not null
+   and t.monedas > 0
+   and t.completado_por is distinct from t.creado_por;
+
+--  Lo que lleva cada uno en total. En la fase 1 no hay en qué gastarlas,
+--  así que ganado y saldo son lo mismo; cuando exista la tienda, aquí se
+--  resta lo canjeado.
+create view v_saldos with (security_invoker = true) as
+select pe.id as usuario_id, pe.nombre, pe.rol,
+       coalesce(sum(m.monedas), 0) as monedas
+  from perfiles pe
+  left join v_monedas m on m.usuario_id = pe.id
+ where pe.activo
+ group by pe.id, pe.nombre, pe.rol;
+
+--  La clasificación se reinicia cada mes: una tabla histórica se congela
+--  —gana siempre el que empezó primero— y el que entra nuevo ni lo
+--  intenta. El mes es el de Colombia, no el del servidor, que va en UTC
+--  y cambiaría de mes a las siete de la tarde del día 31.
+create view v_clasificacion with (security_invoker = true) as
+select m.usuario_id, pe.nombre, pe.rol,
+       to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM') as mes,
+       sum(m.monedas) as monedas,
+       count(*) as hechos
+  from v_monedas m
+  join perfiles pe on pe.id = m.usuario_id
+ group by m.usuario_id, pe.nombre, pe.rol,
+          to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM');
 
 -- ------------------------------------------------------------ seguridad
 alter table perfiles     enable row level security;

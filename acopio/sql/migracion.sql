@@ -648,6 +648,120 @@ do $$ begin
   end if;
 end $$;
 
+-- ===================================================================
+--  MONEDAS  ·  el saldo no se guarda, se calcula desde los eventos.
+--
+--  Ver schema.sql para el porqué de cada decisión. Aquí solo se crea lo
+--  que falte. Se puede correr las veces que se quiera.
+-- ===================================================================
+
+alter table tareas add column if not exists monedas int not null default 0;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'tareas_monedas_check') then
+    alter table tareas add constraint tareas_monedas_check
+      check (monedas between 0 and 15);
+  end if;
+
+  -- Un admin no se manda tareas a sí mismo.
+  --
+  -- Va como NOT VALID a propósito: si alguna tarea vieja se hizo así, la
+  -- restricción no puede rechazarla ahora —ya está hecha y borrarla sería
+  -- peor—. NOT VALID vigila lo que se cree de aquí en adelante y deja en
+  -- paz lo de antes, que es exactamente lo que se quiere.
+  if not exists (select 1 from pg_constraint where conname = 'tarea_no_autoasignada') then
+    alter table tareas add constraint tarea_no_autoasignada
+      check (asignado_a is null or asignado_a <> creado_por) not valid;
+  end if;
+end $$;
+
+-- El disparador de las tareas: quien no es admin tampoco puede subirse el
+-- premio al cerrarla.
+create or replace function fn_proteger_tarea()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if fn_mi_rol() is distinct from 'admin' then
+    if old.completado_en is not null then return old; end if;
+    if old.asignado_a is not null and old.asignado_a <> auth.uid() then
+      return old;
+    end if;
+    new.titulo     := old.titulo;      new.detalle    := old.detalle;
+    new.prioridad  := old.prioridad;   new.asignado_a := old.asignado_a;
+    new.lotes_ids  := old.lotes_ids;   new.pilas_ids  := old.pilas_ids;
+    new.creado_por := old.creado_por;  new.creado_en  := old.creado_en;
+    new.monedas    := old.monedas;
+    new.completado_por := auth.uid();
+    if new.completado_en is null then new.completado_en := now(); end if;
+  end if;
+  return new;
+end; $$;
+
+-- Las vistas se rehacen enteras: cambiarles una columna no se puede con
+-- `create or replace`, y así este archivo sigue sirviendo cuando haya que
+-- retocar cuánto paga cada cosa.
+drop view if exists v_clasificacion;
+drop view if exists v_saldos;
+drop view if exists v_monedas;
+
+create view v_monedas with (security_invoker = true) as
+with hechos as (
+  select e.id, e.usuario_id, e.lote_id, e.ocurrido_en,
+         case
+           when e.tipo = 'recepcion'                                     then 'registrar'
+           when e.tipo = 'cambio_estado' and e.estado_nuevo = 'muestreado' then 'muestrear'
+           when e.tipo = 'cambio_estado' and e.estado_nuevo = 'despachado' then 'despachar'
+           when e.tipo = 'ingreso_pila'                                  then 'apilar'
+           when e.tipo = 'traslado'                                      then 'trasladar'
+         end as clase
+    from eventos e
+   where e.usuario_id is not null
+),
+primeros as (
+  select distinct on (lote_id, clase) id, usuario_id, lote_id, ocurrido_en, clase
+    from hechos
+   where clase is not null
+   order by lote_id, clase, ocurrido_en
+),
+tarifa (clase, monedas) as (values
+  ('registrar', 3), ('muestrear', 1), ('apilar', 1), ('trasladar', 1), ('despachar', 2)
+)
+select p.id as origen, p.usuario_id, p.lote_id, null::uuid as tarea_id,
+       t.monedas, p.clase as motivo, p.ocurrido_en
+  from primeros p join tarifa t on t.clase = p.clase
+union all
+select t.id, t.completado_por, null::uuid, t.id,
+       t.monedas, 'tarea', t.completado_en
+  from tareas t
+ where t.completado_en is not null
+   and t.completado_por is not null
+   and t.monedas > 0
+   and t.completado_por is distinct from t.creado_por;
+
+create view v_saldos with (security_invoker = true) as
+select pe.id as usuario_id, pe.nombre, pe.rol,
+       coalesce(sum(m.monedas), 0) as monedas
+  from perfiles pe
+  left join v_monedas m on m.usuario_id = pe.id
+ where pe.activo
+ group by pe.id, pe.nombre, pe.rol;
+
+create view v_clasificacion with (security_invoker = true) as
+select m.usuario_id, pe.nombre, pe.rol,
+       to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM') as mes,
+       sum(m.monedas) as monedas,
+       count(*) as hechos
+  from v_monedas m
+  join perfiles pe on pe.id = m.usuario_id
+ group by m.usuario_id, pe.nombre, pe.rol,
+          to_char(m.ocurrido_en at time zone 'America/Bogota', 'YYYY-MM');
+
+-- Las vistas se leen con el permiso de quien pregunta (security_invoker),
+-- así que las políticas de siempre siguen mandando: sin perfil activo no
+-- se ve nada. El historial de monedas lo ve TODO el mundo a propósito: en
+-- un equipo pequeño, que cada uno pueda comprobar de dónde salió cada
+-- moneda del otro vale más que cualquier candado.
+grant select on v_monedas, v_saldos, v_clasificacion to authenticated;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 
