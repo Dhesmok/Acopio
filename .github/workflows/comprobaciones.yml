@@ -5,9 +5,6 @@
 # se acordaba de ejecutarlas a mano antes de pushear. Este workflow las
 # corre siempre: si algo se rompe, el push sale en rojo en GitHub y no
 # hay que descubrirlo después en los celulares.
-#
-# No instala nada: las pruebas están escritas para correr con Node puro,
-# sin npm install ni internet, así que el job entero tarda segundos.
 name: Comprobaciones
 
 on:
@@ -18,6 +15,23 @@ on:
 jobs:
   probar:
     runs-on: ubuntu-latest
+
+    # Las monedas se calculan con SQL, así que comprobarlas de verdad
+    # necesita una base de datos. Sin esto, la tanda de monedas se salta
+    # sola sus comprobaciones y el visto bueno verde no querría decir que
+    # las cuentas salen: justo la falsa tranquilidad que hay que evitar.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['54329:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,5 +39,11 @@ jobs:
         with:
           node-version: 20
 
+      # El cliente de línea de comandos, que es con el que hablan las
+      # pruebas. El servidor lo pone el contenedor de arriba.
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - run: node pruebas/correr.mjs
         working-directory: acopio
+        env:
+          ACOPIO_PG: postgresql://postgres:postgres@localhost:54329/postgres
