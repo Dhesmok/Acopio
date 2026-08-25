@@ -179,9 +179,6 @@ async function mostrarAvisos() {
   $('#ok').onclick = cerrarHoja;
 }
 
-// Feedback táctil sutil para acciones confirmadas
-const vibrar = () => { if (navigator.vibrate) navigator.vibrate(50); };
-
 // Un botón que escribe tiene que verse ocupado mientras trabaja y, si
 // falla, DECIRLO. Sin esto un toque no producía nada visible —ni giro, ni
 // aviso, ni cierre—, la persona volvía a tocar, y al destrabarse salían
@@ -189,7 +186,6 @@ const vibrar = () => { if (navigator.vibrate) navigator.vibrate(50); };
 function accion(fn, { ocupado = 'Guardando…', alFallar } = {}) {
   return async function (ev) {
     if (this.disabled) return;
-    vibrar();
     const etiqueta = this.textContent;
     this.disabled = true;
     this.textContent = ocupado;
