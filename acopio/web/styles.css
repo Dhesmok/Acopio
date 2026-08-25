@@ -737,6 +737,9 @@ input.placa { text-transform: uppercase; }
   background: #fff5dc; border: 1px solid var(--por_muestrear);
   border-radius: var(--r); padding: 10px 12px; font-size: 13.5px; margin-bottom: 12px;
 }
+/* `display: block` de .aviso ganaba al `hidden` del navegador, así que
+   un aviso vacío se pintaba como una franja amarilla en blanco. */
+.aviso[hidden] { display: none; }
 
 :focus-visible {
   outline: 3px solid var(--acento); outline-offset: 2px;
@@ -1831,29 +1834,146 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 .senalados .btn-ubicar { flex: 1 1 auto; }
 
 /* --------------------------------------------------------- plataformas */
-/* El nombre de la plataforma va SIEMPRE a la vista en la cabecera: sin
-   él, mirando un plano vacío no hay forma de saber si la plataforma está
-   vacía o es que estás en otra. */
-.chip-plat {
-  background: var(--amarillo); color: var(--tinta); border: 2px solid #fff;
-  font: inherit; font-size: 12px; font-weight: 800; letter-spacing: .06em;
-  text-transform: uppercase; padding: 6px 11px; cursor: pointer;
-  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.chip-plat[hidden] { display: none; }
-/* En el mapa el nombre SÍ cabe entero, y ahí es donde hace falta: es el
-   único sitio donde no saber en qué plataforma estás confunde. */
-#chip-plat-mapa:empty { display: none; }
-#chip-plat-mapa .chip-plat {
-  display: inline-flex; align-items: center; gap: 6px;
-  text-transform: none; letter-spacing: 0; max-width: none;
-  box-shadow: var(--sombra-media);
-}
-#chip-plat-mapa .ico { width: 15px; height: 15px; }
-
 /* El trofeo llama la atención a propósito: la clasificación es lo que
    hace que el sistema de monedas sirva de algo. */
 .icono.trofeo { color: var(--amarillo); }
+
+/* ------------------------------------------------------------ tienda
+
+   La tienda es lo que convierte el número en algo. Se le da sitio: la
+   entrada es una barra ancha, no un enlace escondido, y el catálogo va
+   en fichas con foto grande, que es lo que hace que alguien quiera
+   ahorrar para algo.
+
+   Mismo idioma que el resto: filo negro de 2px, esquina viva, sombra
+   sólida desplazada. Nada redondeado, nada difuminado. */
+.btn-tienda {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  margin: 12px 0 18px; padding: 14px 13px; cursor: pointer; text-align: left;
+  font: inherit; color: var(--tinta);
+  background: var(--amarillo); border: 2px solid var(--tinta);
+  box-shadow: 5px 5px 0 var(--tinta);
+  transition: transform .06s, box-shadow .06s;
+}
+.btn-tienda:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--tinta); }
+.btn-tienda .ico { width: 26px; height: 26px; flex: none; stroke-width: 2.1; }
+.btn-tienda .qué {
+  flex: 1; display: flex; flex-direction: column; gap: 2px;
+  font-size: 16px; font-weight: 800; letter-spacing: .02em;
+}
+.btn-tienda .sub { font-size: 11.5px; font-weight: 700; letter-spacing: 0; color: #4a3c02; }
+.btn-tienda .flecha { font-size: 24px; font-weight: 800; line-height: 1; }
+
+/* Cuánto queda, arriba del todo. En una tienda el saldo es lo primero
+   que se mira: sin él, cada precio es un número sin referencia. */
+.tienda-saldo {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 2px solid var(--tinta); background: var(--tinta); color: var(--superficie);
+  padding: 11px 13px; margin: 12px 0 14px; font-size: 13px; font-weight: 600;
+}
+.tienda-saldo .ico { width: 20px; height: 20px; color: var(--amarillo); }
+.tienda-saldo strong {
+  font-family: var(--mono); font-size: 26px; font-weight: 800;
+  line-height: 1; color: var(--amarillo);
+}
+.tienda-saldo .pendiente {
+  margin-left: auto; background: var(--amarillo); color: var(--tinta);
+  font-size: 11px; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; padding: 4px 7px;
+}
+
+/* Dos columnas también en el móvil: con una sola, un catálogo de seis
+   cosas obliga a seis pantallas de desplazamiento y nadie llega al
+   final. La foto manda —es lo que se mira— y ocupa un cuadrado. */
+.vitrina {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px; margin: 4px 0 8px;
+}
+.prod {
+  display: flex; flex-direction: column;
+  border: 2px solid var(--tinta); background: var(--superficie);
+  box-shadow: 4px 4px 0 var(--tinta);
+}
+.prod.retirado { opacity: .55; }
+.prod .foto {
+  position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+  border-bottom: 2px solid var(--tinta); background: var(--piso-hondo);
+  display: grid; place-items: center;
+}
+.prod .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sin-foto { color: var(--apagado); font-size: 12px; font-weight: 700; }
+.sin-foto .ico { width: 38px; height: 38px; }
+/* La cinta cruzada dice "esto no lo puedes pedir" sin tener que leer el
+   botón, que está tres centímetros más abajo. */
+.prod .cinta {
+  position: absolute; top: 11px; left: -30px; width: 120px;
+  transform: rotate(-32deg); text-align: center;
+  background: var(--tinta); color: var(--amarillo);
+  font-size: 10px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; padding: 4px 0;
+}
+.prod .cuerpo { display: flex; flex-direction: column; gap: 6px; padding: 10px; flex: 1; }
+.prod h4 { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.25; }
+.prod .det { margin: 0; font-size: 11.5px; color: var(--apagado); line-height: 1.35; }
+.prod .pie {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; margin-top: auto; padding-top: 4px;
+}
+.prod .quedan { font-size: 11px; font-weight: 700; color: var(--apagado); }
+.prod .btn { margin-top: 4px; }
+.prod .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* El precio lleva SIEMPRE la moneda al lado. Un "20" pelado se lee como
+   pesos, que es justo lo que no es. */
+.precio {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 17px; font-weight: 800; line-height: 1;
+}
+.precio .ico { width: 16px; height: 16px; color: var(--acento); stroke-width: 2.2; }
+
+/* Los pedidos. Lo importante es en qué va cada uno, así que el estado
+   va en pastilla y con color propio. */
+.canjes { list-style: none; margin: 8px 0 0; padding: 0; }
+.canjes li {
+  border: 1px solid var(--tinta); margin-bottom: -1px;
+  background: var(--superficie); padding: 10px 11px;
+}
+.canjes .que { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.canjes .cuando { font-size: 11px; color: var(--apagado); margin-top: 3px; }
+.canjes .acciones { margin-top: 9px; }
+.canjes .marca {
+  margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; padding: 3px 6px; border: 1px solid var(--tinta);
+}
+.canjes .marca.pedido    { background: var(--amarillo); color: var(--tinta); }
+.canjes .marca.entregado { background: var(--tinta); color: var(--superficie); }
+.canjes .marca.anulado   { background: var(--piso-hondo); color: var(--apagado); }
+
+/* El formulario del producto */
+.fila-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fila-check {
+  display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 2px;
+  font-size: 12.5px; line-height: 1.4; cursor: pointer;
+}
+.fila-check input { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.foto-prod {
+  aspect-ratio: 16 / 9; border: 2px solid var(--tinta); background: var(--piso-hondo);
+  display: grid; place-items: center; overflow: hidden;
+}
+.foto-prod img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Los lotes que conviene mirar. Van al final de las monedas y solo los
+   ve el admin. Rojo apagado, no amarillo: no es una alerta que haya que
+   atender ya, es una lista para revisar con calma. */
+h3.con-ico { display: flex; align-items: center; gap: 7px; }
+h3.con-ico .ico { width: 17px; height: 17px; color: var(--vencida); }
+.dudosos { list-style: none; margin: 8px 0 0; padding: 0; }
+.dudosos li {
+  border: 1px solid var(--tinta); border-left: 5px solid var(--vencida);
+  margin-bottom: -1px; background: var(--superficie); padding: 9px 11px;
+}
+.dudosos .que { font-size: 13.5px; }
+.dudosos .cuando { font-size: 11px; color: var(--apagado); margin-top: 3px; line-height: 1.4; }
 
 /* el tablero: cuánta carga hay en cada patio, sin abrir ninguno */
 
@@ -1922,7 +2042,16 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 }
 .mini.viva { box-shadow: inset 0 0 0 3px var(--amarillo); }
 .mini svg { width: 100%; height: 92px; display: block; border-bottom: 2px solid var(--tinta); }
-.mini .nom { padding: 7px 9px 2px; font-weight: 800; font-size: 13px; text-align: left; }
+.mini .nom { padding: 7px 9px 2px; font-weight: 800; font-size: 13px; text-align: left;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+/* El mapa ya no lleva pastilla con el nombre, así que la hoja de
+   Plataformas es donde se comprueba en cuál estás. El borde amarillo
+   solo se ve si ya sabes qué significa; esto lo dice con palabras. */
+.mini .aqui {
+  background: var(--amarillo); color: var(--tinta); font-size: 10px;
+  font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 5px; border-radius: 2px;
+}
 /* El número grande es lo que se busca al saltar de plataforma; debajo,
    en pequeño, lo que decide si hay que ir: pilas abiertas y retrasos. */
 .mini .cnt {

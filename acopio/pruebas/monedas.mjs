@@ -17,6 +17,7 @@ const app = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8')
 const store = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
 const esquema = await readFile(new URL('../sql/schema.sql', import.meta.url), 'utf8');
 const migracion = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
 
 // ---------------------------------------------------------------------
 titulo('El saldo se calcula, no se guarda.');
@@ -93,10 +94,107 @@ titulo('Las cuentas salen, y los atajos no pagan.');
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 const sql = base.sql;
+const rechaza = base.rechaza;
 const saldo = (id) => Number(sql(`select monedas from v_saldos where usuario_id = '${id}'`) || 0);
 
-ok(saldo(A) === 16, `Ana: 3+3 por dos lotes y 10 por una tarea = 16 (dio ${saldo(A)})`);
+// Ana registró TRES lotes, pero el tercero lo despachó al minuto: ese no
+// paga nada. 3 + 3 por los dos buenos, 10 por la tarea.
+ok(saldo(A) === 16, `Ana: 3+3 por dos lotes buenos y 10 por una tarea = 16 (dio ${saldo(A)})`);
 ok(saldo(B) === 3, `Beto: muestreó, apiló y trasladó UN lote = 3 (dio ${saldo(B)})`);
+
+// ---------------------------------------------------------------------
+titulo('Inventarse un lote y despacharlo no da ni una moneda.');
+
+// Es la pregunta que trajo todo esto: "¿qué pasa si alguien crea un lote
+// y lo despacha?". Antes: cinco monedas por dos toques. Ahora: cero.
+const PG3 = 'dddddddd-0000-4000-8000-000000000003';
+ok(Number(sql(`select count(*) from v_monedas where lote_id = '${PG3}'`)) === 0,
+   'el lote que entra y sale en el mismo minuto no paga NADA, ni a quien lo creó ni a quien lo despachó');
+
+// Y el que sí es de verdad sigue pagando: el cerrojo no puede cobrarse
+// el trabajo bueno por delante.
+const PG2 = 'dddddddd-0000-4000-8000-000000000002';
+ok(Number(sql(`select coalesce(sum(monedas),0) from v_monedas where lote_id = '${PG2}'`)) === 5,
+   'el lote normal, despachado tres días después, sigue pagando sus 3 + 2');
+
+// Y el admin lo tiene delante, no escondido en la base. Cada consulta
+// abre su propia sesión, así que el "quién soy" va en la misma llamada.
+// `set_config` también devuelve una fila, así que la respuesta es la
+// última línea, no la primera.
+const como = (id, q) => sql(
+  `select set_config('request.jwt.claim.sub','${id}',false);\n${q}`)
+  .trim().split('\n').pop();
+const CARLA = '33333333-3333-4333-8333-333333333333';
+
+ok(como(CARLA, `select codigo from v_lotes_dudosos where codigo = 'PG3'`) === 'PG3',
+   'y le sale al admin en la lista de lotes que conviene mirar');
+ok(como(CARLA, `select motivo from v_lotes_dudosos where codigo = 'PG3'`)
+     === 'entró y salió del patio el mismo rato',
+   'diciéndole por qué, no solo que sí');
+// El otro motivo es distinto y hace falta que se distingan: PG2 es un
+// lote de verdad, pero salió sin que nadie apuntara el muestreo. Eso no
+// es trampa, es un hueco de trazabilidad, y se dice como tal.
+ok(como(CARLA, `select motivo from v_lotes_dudosos where codigo = 'PG2'`)
+     === 'salió sin que nadie apuntara el muestreo',
+   'y el que salió sin muestreo sale con SU motivo, que no es el mismo');
+ok(Number(como(B, `select count(*) from v_lotes_dudosos`)) === 0,
+   'y el que no es admin no ve esa lista: no es asunto suyo');
+
+// ---------------------------------------------------------------------
+titulo('La tienda: no se canjea lo que no se tiene.');
+
+const P1 = 'ffffffff-0000-4000-8000-000000000001';
+sql(`insert into productos (id,nombre,precio,existencias)
+     values ('${P1}','Termo',10,1)`);
+
+// Ana tiene 16 y el termo vale 10: puede.
+sql(`select set_config('request.jwt.claim.sub','${A}',false);
+     select fn_canjear('${P1}')`);
+ok(saldo(A) === 6, `canjear descuenta del saldo: 16 - 10 = 6 (dio ${saldo(A)})`);
+ok(Number(sql(`select ganado from v_saldos where usuario_id = '${A}'`)) === 16,
+   'pero lo GANADO no se toca: el saldo baja, el mérito no');
+ok(Number(sql(`select existencias from productos where id = '${P1}'`)) === 0,
+   'y el producto pierde una unidad');
+
+// Ahora le faltan monedas, y además ya no quedan termos.
+ok(rechaza(`select set_config('request.jwt.claim.sub','${A}',false);
+            select fn_canjear('${P1}')`),
+   'el segundo canje lo rechaza el SERVIDOR, no la pantalla');
+
+// Beto tiene 3: no le alcanza para nada de 10.
+const P2 = 'ffffffff-0000-4000-8000-000000000002';
+sql(`insert into productos (id,nombre,precio) values ('${P2}','Gorra',10)`);
+ok(rechaza(`select set_config('request.jwt.claim.sub','${B}',false);
+            select fn_canjear('${P2}')`),
+   'y a quien no le alcanza, tampoco');
+ok(saldo(B) === 3, 'que se quede con sus 3 monedas intactas');
+
+// La puerta de atrás: escribir el canje a mano. Aquí las pruebas corren
+// como dueño de la base, que se salta RLS, así que lo que se comprueba
+// es el PERMISO —que es lo que para a la app— y no el intento.
+ok(sql(`select has_table_privilege('authenticated','canjes','insert')`) === 'f',
+   'nadie mete un canje a mano: la única puerta es fn_canjear');
+ok(sql(`select has_table_privilege('authenticated','canjes','delete')`) === 'f',
+   'ni lo borra después para que no quede rastro');
+ok(sql(`select has_function_privilege('authenticated','fn_canjear(uuid)','execute')`) === 't',
+   'pero fn_canjear sí la puede llamar cualquiera con cuenta activa');
+
+// El recibo no se reescribe. Si el admin sube el precio del termo, lo
+// que Ana ya pidió sigue costando lo que costó.
+sql(`update productos set precio = 99 where id = '${P1}'`);
+ok(Number(sql(`select precio from canjes where nombre = 'Termo'`)) === 10,
+   'subirle el precio a un producto no le sube el precio a lo ya canjeado');
+ok(saldo(A) === 6, 'ni le cambia el saldo a quien ya lo canjeó');
+
+// Anular devuelve las monedas; entregar no.
+sql(`select set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false);
+     update canjes set estado = 'entregado' where nombre = 'Termo'`);
+ok(saldo(A) === 6, 'marcar entregado no devuelve nada, que ya se lo llevó');
+ok(sql(`select resuelto_por::text from canjes where nombre = 'Termo'`)
+     === '33333333-3333-4333-8333-333333333333',
+   'y queda apuntado quién lo entregó');
+sql(`update canjes set estado = 'anulado' where nombre = 'Termo'`);
+ok(saldo(A) === 16, 'anular un canje SÍ devuelve las monedas');
 
 const veces = (id, motivo) => Number(sql(
   `select count(*) from v_monedas where usuario_id = '${id}' and motivo = '${motivo}'`));
@@ -110,7 +208,6 @@ const suyaPropia = Number(sql(
 ok(suyaPropia === 0, 'una tarea creada y cerrada por la misma persona no paga nada');
 
 // Y las reglas que tienen que RECHAZAR.
-const rechaza = base.rechaza;
 ok(rechaza(`insert into tareas (id,titulo,creado_por,asignado_a)
             values (gen_random_uuid(),'x','${A}','${A}')`),
    'la base rechaza que alguien se asigne una tarea a sí mismo');
@@ -144,12 +241,42 @@ ok(/id="chip-plat"[^>]*>\$\{ICO\.capas\}/.test(app),
    'el botón de plataformas es un icono, no el nombre');
 ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
    'y hay un trofeo que lleva derecho a la clasificación');
-// Pero saber en qué plataforma estás sigue haciendo falta: en un plano
-// vacío es lo único que distingue "está vacía" de "estás en otra".
-ok(/chip-plat-mapa/.test(app) && /<span>\$\{esc\(p\.nombre\)\}<\/span>/.test(app),
-   'el nombre baja al mapa, que es el único sitio donde importa');
-ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
-   'y el icono lo dice en voz alta para quien no ve la pantalla');
+// Hubo un rato una SEGUNDA pastilla con el nombre suelta sobre el mapa.
+// Sobraba: nadie la pidió y quitaba sitio al plano, que es lo que se
+// viene a mirar.
+ok(!/chip-plat-mapa/.test(app) && !/chip-plat-mapa/.test(css),
+   'no hay una segunda pastilla de plataformas encima del mapa');
+ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app)
+   && /'title', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
+   'el propio icono lleva el nombre, para el dedo encima y para quien no ve la pantalla');
+// Y donde se elige, se dice cuál está puesta: el borde amarillo solo
+// significa algo si ya sabes qué significa.
+ok(/aquí estás/.test(app) && /\.mini \.aqui/.test(css),
+   'y la hoja de Plataformas marca con palabras en cuál estás');
+
+// ---------------------------------------------------------------------
+titulo('La tienda tiene su propia entrada, y se ve.');
+
+ok(/id="ir-tienda"/.test(app) && /class="btn-tienda"/.test(app),
+   'desde monedas se entra a la tienda con un botón entero, no un enlace');
+ok(/\.btn-tienda \{/.test(css) && /box-shadow: 5px 5px 0/.test(css),
+   'y está pintado como el resto de la app, no como un botón de sistema');
+const tienda = app.slice(app.indexOf('async function panelTienda'),
+                         app.indexOf('function fichaProducto'));
+ok(/const enVenta = admin \? cat\.lista : cat\.lista\.filter\(\(p\) => p\.activo\)/.test(tienda),
+   'lo retirado lo sigue viendo el admin, pero no quien viene a canjear');
+ok(/Te faltan \$\{falta\}/.test(tienda),
+   'lo que no alcanza SE VE igual, diciendo cuánto falta: es para lo que se ahorra');
+ok(/Store\.canjear/.test(tienda) && !/encolar|Store\.registrarEvento/.test(tienda),
+   'canjear va derecho al servidor, no a la cola: el saldo lo lleva él');
+ok(/sinSenal|alDia/.test(tienda) && /Sin señal/.test(tienda),
+   'y sin señal lo dice en vez de dejar tocar un botón que no va a funcionar');
+const ficha = app.slice(app.indexOf('function fichaProducto'),
+                        app.indexOf('// --------------------------------------------------------------- tareas'));
+ok(/p-activo/.test(ficha) && !/borrarProducto|delete\(\)/.test(ficha),
+   'un producto se RETIRA, no se borra: borrarlo se llevaría por delante recibos de otros');
+ok(/existencias: cuantos === '' \? null/.test(ficha),
+   'dejar en blanco "cuántos hay" es sin límite, que no es lo mismo que cero');
 
 // ---------------------------------------------------------------------
 titulo('En la clasificación salen TODOS, también los que llevan cero.');
