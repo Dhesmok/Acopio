@@ -1604,9 +1604,17 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   padding: 16px 14px 14px;
 }
 .saldo .cifra {
+  display: flex; align-items: center; gap: 9px;
   font-family: var(--mono); font-size: 40px; font-weight: 800;
   line-height: 1; letter-spacing: -.03em; color: var(--amarillo);
 }
+.saldo .cifra .moneda-px { --moneda: 30px; }
+
+/* Lo ganado va en verde: es el mismo verde de "esto quedó guardado" que
+   ya lleva la app, y aquí dice lo mismo —esto se sumó y no se va—. En
+   una lista de veinte líneas es lo único que hace falta ver de un
+   vistazo, y en negro se perdía entre el texto. */
+.linea-tiempo .gano { color: var(--verde); }
 .saldo .txt { font-size: 12.5px; font-weight: 600; opacity: .85; }
 /* El segundo número, el del mes. Va debajo y en amarillo tenue: son dos
    cifras distintas y sin distinguirlas se leen como si se contradijeran
@@ -1840,59 +1848,84 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 
 /* ------------------------------------------------------------ tienda
 
-   La tienda es lo que convierte el número en algo. Se le da sitio: la
-   entrada es una barra ancha, no un enlace escondido, y el catálogo va
-   en fichas con foto grande, que es lo que hace que alguien quiera
+   La tienda es lo que convierte el número en algo. Se le da sitio: fichas
+   con foto grande a dos columnas, que es lo que hace que alguien quiera
    ahorrar para algo.
 
    Mismo idioma que el resto: filo negro de 2px, esquina viva, sombra
    sólida desplazada. Nada redondeado, nada difuminado. */
-.btn-tienda {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  margin: 12px 0 18px; padding: 14px 13px; cursor: pointer; text-align: left;
-  font: inherit; color: var(--tinta);
-  background: var(--amarillo); border: 2px solid var(--tinta);
-  box-shadow: 5px 5px 0 var(--tinta);
-  transition: transform .06s, box-shadow .06s;
-}
-.btn-tienda:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--tinta); }
-.btn-tienda .ico { width: 26px; height: 26px; flex: none; stroke-width: 2.1; }
-.btn-tienda .qué {
-  flex: 1; display: flex; flex-direction: column; gap: 2px;
-  font-size: 16px; font-weight: 800; letter-spacing: .02em;
-}
-.btn-tienda .sub { font-size: 11.5px; font-weight: 700; letter-spacing: 0; color: #4a3c02; }
-.btn-tienda .flecha { font-size: 24px; font-weight: 800; line-height: 1; }
 
-/* Cuánto queda, arriba del todo. En una tienda el saldo es lo primero
-   que se mira: sin él, cada precio es un número sin referencia. */
-.tienda-saldo {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  border: 2px solid var(--tinta); background: var(--tinta); color: var(--superficie);
-  padding: 11px 13px; margin: 12px 0 14px; font-size: 13px; font-weight: 600;
+/* La entrada a la tienda va PEGADA A LA EQUIS, arriba del todo.
+   Antes era una barra amarilla a lo ancho debajo del saldo: se comía una
+   franja entera de una pantalla que ya es larga, y al bajar por la
+   clasificación desaparecía. Aquí viaja dentro del encabezado fijo, así
+   que está a un dedo desde cualquier punto de la hoja. */
+.a-tienda {
+  position: sticky; top: 4px; z-index: 3;
+  float: right; margin: 0 0 4px 8px;
+  height: 40px; padding: 0 12px;
+  display: inline-flex; align-items: center; gap: 7px;
+  font: inherit; font-size: 13px; font-weight: 800; letter-spacing: .02em;
+  border: 2px solid var(--tinta); border-radius: 0;
+  background: var(--amarillo); color: var(--tinta);
+  box-shadow: var(--sombra-baja); cursor: pointer;
 }
-.tienda-saldo .ico { width: 20px; height: 20px; color: var(--amarillo); }
-.tienda-saldo strong {
-  font-family: var(--mono); font-size: 26px; font-weight: 800;
-  line-height: 1; color: var(--amarillo);
+.a-tienda .ico { width: 19px; height: 19px; stroke-width: 2.2; }
+.a-tienda:active { transform: translate(2px, 2px); box-shadow: none; }
+/* En una pantalla estrecha manda la equis: la palabra se va y queda el
+   icono, que con la bolsa se entiende igual. */
+@media (max-width: 360px) {
+  .a-tienda span { display: none; }
+  .a-tienda { padding: 0; width: 40px; justify-content: center; }
 }
-.tienda-saldo .pendiente {
-  margin-left: auto; background: var(--amarillo); color: var(--tinta);
-  font-size: 11px; font-weight: 800; letter-spacing: .04em;
-  text-transform: uppercase; padding: 4px 7px;
+
+/* Tres cifras en una franja, arriba de la tienda: cuánto tienes, cuánto
+   te alcanza y cuánto tienes pedido. El saldo solo no dice si estás
+   cerca de algo; las tres juntas, sí. */
+.tres-cifras {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border: 2px solid var(--tinta); background: var(--superficie);
+  margin-bottom: 4px;
+}
+.tres-cifras > div { padding: 10px 6px; text-align: center; }
+.tres-cifras > div + div { border-left: 2px solid var(--tinta); }
+.tres-cifras span {
+  display: block; font-size: 9.5px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--apagado); margin-bottom: 2px;
+}
+.tres-cifras b {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-family: var(--mono); font-size: 25px; font-weight: 800; line-height: 1.1;
+  font-variant-numeric: var(--cifras);
+}
+.tres-cifras .moneda-px { --moneda: 21px; }
+.tres-cifras .oro { background: var(--tinta); color: var(--superficie); }
+.tres-cifras .oro span { color: rgb(255 255 255 / .72); }
+.tres-cifras .oro b { color: var(--amarillo); }
+
+/* Ver solo lo que ya se puede pedir. Aparece únicamente cuando sirve de
+   algo: con tres productos, dos pastillas encima son ruido. */
+.filtro-tienda { display: flex; gap: 8px; flex-wrap: wrap; }
+.filtro-tienda .pastilla[aria-pressed="true"] {
+  background: var(--tinta); border-color: var(--tinta); color: #fff;
+  box-shadow: none;
 }
 
 /* Dos columnas también en el móvil: con una sola, un catálogo de seis
    cosas obliga a seis pantallas de desplazamiento y nadie llega al
-   final. La foto manda —es lo que se mira— y ocupa un cuadrado. */
+   final. La foto manda —es lo que se mira— y ocupa un cuadrado.
+
+   El aire de aquí es a propósito. La primera versión iba apretada —10 px
+   de acolchado, 12 de separación, el precio peleando con las existencias
+   en el mismo renglón— y una tienda apretada no da ganas de nada. */
 .vitrina {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 12px; margin: 4px 0 8px;
+  gap: 18px 14px; margin: 6px 0 10px;
 }
 .prod {
   display: flex; flex-direction: column;
   border: 2px solid var(--tinta); background: var(--superficie);
-  box-shadow: 4px 4px 0 var(--tinta);
+  box-shadow: 5px 5px 0 var(--tinta);
 }
 .prod.retirado { opacity: .55; }
 .prod .foto {
@@ -1912,24 +1945,54 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   font-size: 10px; font-weight: 800; letter-spacing: .1em;
   text-transform: uppercase; padding: 4px 0;
 }
-.prod .cuerpo { display: flex; flex-direction: column; gap: 6px; padding: 10px; flex: 1; }
+.prod .cuerpo { display: flex; flex-direction: column; gap: 7px; padding: 12px 12px 13px; flex: 1; }
 .prod h4 { margin: 0; font-size: 14px; font-weight: 800; line-height: 1.25; }
-.prod .det { margin: 0; font-size: 11.5px; color: var(--apagado); line-height: 1.35; }
-.prod .pie {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 6px; margin-top: auto; padding-top: 4px;
+/* Una sola línea para el detalle y las existencias. Iban en dos sitios
+   —el detalle arriba y "quedan 12" al lado del precio— y ahí el precio
+   se partía en dos renglones en cuanto el número tenía tres cifras. */
+.prod .det {
+  margin: 0; font-size: 11.5px; color: var(--apagado); line-height: 1.35;
 }
-.prod .quedan { font-size: 11px; font-weight: 700; color: var(--apagado); }
-.prod .btn { margin-top: 4px; }
+.prod .pie { margin-top: auto; padding-top: 2px; }
+.prod .btn { margin-top: 2px; }
 .prod .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* --- la monedita que gira -------------------------------------------
+
+   Ocho fotogramas en una tira horizontal y una ventana de un cuadro que
+   los va enseñando. `steps(8)` corta entre uno y otro sin difuminar: si
+   se interpolara se vería un borrón deslizándose, no una moneda girando.
+
+   Es lo único de la app que se mueve sin que nadie lo haya pedido con el
+   dedo, así que va pequeña y sin sombra: acompaña al número, no compite
+   con él. Y para quien tenga el sistema en "menos movimiento", se para
+   en el fotograma de frente, que es el que mejor se lee. */
+.moneda-px {
+  display: inline-block; flex: none;
+  width: var(--moneda, 15px); height: var(--moneda, 15px);
+  overflow: hidden; vertical-align: -.14em;
+}
+.moneda-px svg {
+  display: block;
+  width: calc(var(--moneda, 15px) * 8); height: var(--moneda, 15px);
+  animation: gira-moneda 900ms steps(8) infinite;
+}
+@keyframes gira-moneda {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(var(--moneda, 15px) * -8)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .moneda-px svg { animation: none; }
+}
 
 /* El precio lleva SIEMPRE la moneda al lado. Un "20" pelado se lee como
    pesos, que es justo lo que no es. */
 .precio {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-family: var(--mono); font-size: 17px; font-weight: 800; line-height: 1;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 19px; font-weight: 800; line-height: 1;
+  font-variant-numeric: var(--cifras);
 }
-.precio .ico { width: 16px; height: 16px; color: var(--acento); stroke-width: 2.2; }
+.precio .moneda-px { --moneda: 16px; }
 
 /* Los pedidos. Lo importante es en qué va cada uno, así que el estado
    va en pastilla y con color propio. */

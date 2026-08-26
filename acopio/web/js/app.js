@@ -157,11 +157,64 @@ const ICO = {
   // Bolsa de compra con asa: la tienda.
   bolsa:     ico('<path d="M6 2h12l2 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8l2-6z"/>'
                  + '<path d="M4 8h16"/><path d="M9 12a3 3 0 0 0 6 0"/>'),
-  // Moneda: un círculo con una marca dentro. Va al lado de cada precio.
-  moneda:    ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h3.2a2 2 0 0 1 0 4H9.5"/>'),
   // Triángulo de aviso, para los lotes que conviene mirar.
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
                  + '<path d="M12 9v4M12 17h.01"/>')
+};
+
+// ------------------------------------------------------- la monedita
+// La moneda que gira, dibujada píxel a píxel.
+//
+// Es la única cosa de toda la app que se mueve porque sí, y se lo ha
+// ganado: un número pelado no dice que sea una moneda, y un dibujo
+// quieto tampoco. Girando, se entiende sin leer nada — es el gesto que
+// cualquiera reconoce de un videojuego.
+//
+// Ocho fotogramas en una tira, y una ventana que va enseñando uno cada
+// vez. `steps(8)` salta de uno a otro sin difuminar: si se interpolara,
+// se vería un borrón en vez de píxeles. Los anchos van de 10 a 2 y
+// vuelven: es la moneda de canto a mitad de vuelta.
+//
+// `shape-rendering="crispEdges"` es lo que impide que el navegador
+// suavice los bordes. Sin eso no son píxeles, son manchas.
+// La rejilla es de 16 y no de 12 a propósito. Con 12 la moneda de frente
+// salía de 10 de ancho por 10 de alto pero con las esquinas apenas
+// mordidas, y eso no se lee como un círculo: se lee como un ladrillo.
+// Con 16 sobran píxeles para recortarle las cuatro esquinas de verdad.
+//
+// Los anchos: de frente 14, y de ahí a 2, que es la moneda de canto.
+// Vuelve subiendo, y esa es la media vuelta que falta.
+const MONEDA_ANCHOS = [14, 12, 8, 4, 2, 4, 8, 12];
+const CUADRO = 16;
+const ORO = '#f2c007', BRILLO = '#ffe066', SOMBRA = '#b8890a', FILO = '#0c0c0b';
+
+const monedaPixel = () => {
+  const cuadros = MONEDA_ANCHOS.map((w, i) => {
+    const x = i * CUADRO + (CUADRO - w) / 2;
+    const r = (a, b, c, d, f) => c <= 0 ? ''
+      : `<rect x="${a}" y="${b}" width="${c}" height="${d}" fill="${f}"/>`;
+    // De canto no cabe ni el brillo ni la sombra: solo el filo dorado.
+    // El oro va centrado sobre el filo, que es lo que se hacía mal antes
+    // y dejaba la moneda de canto con el negro solo por un lado.
+    if (w <= 4) {
+      return r(x, 1, w, 14, FILO) + r(x + w / 2 - 1, 3, 2, 10, ORO);
+    }
+    // Rectángulos cruzados y cada vez más anchos hacen un octógono, que
+    // a este tamaño es lo más redondo que hay. De frente la moneda es
+    // grande y le caben tres escalones; de perfil, con dos basta y sobra.
+    const pasos = w >= 12 ? 3 : 2;
+    let d = '';
+    for (let k = 0; k < pasos; k++) {
+      d += r(x + (pasos - 1 - k), 1 + k, w - 2 * (pasos - 1 - k), 14 - 2 * k, FILO);
+      d += r(x + (pasos - k), 2 + k, w - 2 * (pasos - k), 12 - 2 * k, ORO);
+    }
+    return d
+         + r(x + pasos, 5, 1, 6, BRILLO)          // el brillo, a la izquierda
+         + r(x + w - pasos - 1, 5, 1, 6, SOMBRA); // la sombra, a la derecha
+  }).join('');
+  return `<span class="moneda-px" aria-hidden="true"><svg
+    viewBox="0 0 ${CUADRO * MONEDA_ANCHOS.length} ${CUADRO}"
+    shape-rendering="crispEdges">${cuadros}</svg></span>`;
 };
 
 // Recordar una preferencia en el celular NUNCA puede tumbar lo que se
@@ -1098,7 +1151,7 @@ const nombreDe = (id) => S.gente.find((p) => p.id === id)?.nombre || 'alguien';
 
 async function panelMonedas(verA = null) {
   const quien = verA || S.perfil.id;
-  abrirHoja('<p class="pista">Contando monedas…</p>', '<h2>Monedas</h2>');
+  abrirHoja('<p class="pista">Contando monedas…</p>', '<h2>Monedas</h2>', ESQUINA_TIENDA);
 
   const r = await Store.resumenMonedas();
   const mios = r.saldos.find((x) => x.usuario_id === S.perfil.id);
@@ -1120,17 +1173,11 @@ async function panelMonedas(verA = null) {
       r.cuando ? `, del ${fechaLocal(r.cuando)}` : ''}. Las monedas las cuenta el servidor.</p>`}
 
     <div class="saldo">
-      <span class="cifra">${total}</span>
+      <span class="cifra">${monedaPixel()}${total}</span>
       <span class="txt">moneda${total === 1 ? '' : 's'} tuyas para gastar</span>
       <span class="desde">${esteMes} ${esteMes === 1 ? 'ganada' : 'ganadas'} en ${MESES[m1 - 1]}${
         gastado ? ` · ${ganado} ganadas en total, ${gastado} canjeadas` : ', desde que empezaste'}</span>
     </div>
-
-    <button class="btn-tienda" id="ir-tienda">
-      ${ICO.bolsa}
-      <span class="qué">Tienda<span class="sub">Cambia tus monedas por cosas de verdad</span></span>
-      <span class="flecha">›</span>
-    </button>
 
     <h3>Clasificación de ${MESES[m1 - 1]}</h3>
     ${tabla.length ? `<ol class="ranking">${tabla.map((x, i) => `
@@ -1148,7 +1195,7 @@ async function panelMonedas(verA = null) {
     ${h.sinSenal ? '<p class="aviso">Hace falta señal para ver el detalle.</p>'
       : h.lineas.length ? `<ul class="linea-tiempo">${h.lineas.map((l) => `<li>
           <div class="cuando">${new Date(l.ocurrido_en).toLocaleString('es-CO')}</div>
-          <div class="que"><strong>+${l.monedas}</strong> · ${esc(MOTIVOS[l.motivo] || l.motivo)}</div>
+          <div class="que"><strong class="gano">+${l.monedas}</strong> · ${esc(MOTIVOS[l.motivo] || l.motivo)}</div>
         </li>`).join('')}</ul>`
       : '<p class="pista">Sin monedas todavía.</p>'}
 
@@ -1166,10 +1213,10 @@ async function panelMonedas(verA = null) {
       </li>`).join('')}</ul>` : ''}
 
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Volver</button>`,
-    '<h2>Monedas</h2>');
+    '<h2>Monedas</h2>', ESQUINA_TIENDA);
 
   $('#cerrar').onclick = menuCuenta;
-  $('#ir-tienda').onclick = accion(() => panelTienda(), { ocupado: 'Abriendo…' });
+  $('#ir-tienda').onclick = accion(() => panelTienda(), { ocupado: '…' });
   for (const li of document.querySelectorAll('.ranking li'))
     li.onclick = accion(() => panelMonedas(li.dataset.quien), { ocupado: '…' });
 }
@@ -1188,7 +1235,19 @@ async function panelMonedas(verA = null) {
 // qué está ahorrando, que es justo lo que hace que ahorre.
 const CANJE = { pedido: 'Pedido', entregado: 'Entregado', anulado: 'Anulado' };
 
-const precio = (n) => `<span class="precio">${ICO.moneda}${n}</span>`;
+const precio = (n) => `<span class="precio">${monedaPixel()}${n}</span>`;
+
+// El botón que acompaña a la equis en la cabecera de Monedas. Ahí arriba
+// se ve desde cualquier punto de la hoja —el encabezado va pegado— y no
+// le quita una franja entera a la pantalla, que es lo que hacía la barra
+// amarilla que tenía antes.
+const ESQUINA_TIENDA =
+  `<button class="a-tienda" id="ir-tienda" aria-label="Ir a la tienda">${ICO.bolsa}<span>Tienda</span></button>`;
+
+// Qué se enseña en la vitrina. Se recuerda mientras la hoja está
+// abierta: al canjear se repinta entera, y volver a "Todo" cada vez
+// desharía el filtro justo cuando más se está usando.
+let filtroTienda = 'todo';
 
 async function panelTienda() {
   abrirHoja('<p class="pista">Abriendo la tienda…</p>', '<h2>Tienda</h2>');
@@ -1202,24 +1261,50 @@ async function panelTienda() {
   // A cada uno, los suyos.
   const pedidos = admin ? mis.lista : mis.lista.filter((c) => c.usuario_id === S.perfil.id);
   const porEntregar = mis.lista.filter((c) => c.estado === 'pedido').length;
+  const mios = mis.lista.filter((c) => c.usuario_id === S.perfil.id && c.estado === 'pedido').length;
   // Lo retirado sigue existiendo para el admin —tiene que poder volver a
   // sacarlo— pero no se le enseña a quien viene a canjear.
   const enVenta = admin ? cat.lista : cat.lista.filter((p) => p.activo);
+
+  const alcanza = (p) => p.precio <= saldo
+    && !(p.existencias != null && p.existencias <= 0) && p.activo;
+  const cuantos = enVenta.filter(alcanza).length;
+  // El filtro solo tiene sentido con catálogo suficiente y con algo que
+  // filtrar: con tres productos, dos pastillas encima son ruido.
+  const hayFiltro = !admin && enVenta.length > 3 && cuantos > 0 && cuantos < enVenta.length;
+  if (!hayFiltro) filtroTienda = 'todo';
+  const vitrina = filtroTienda === 'alcanza' ? enVenta.filter(alcanza) : enVenta;
 
   abrirHoja(`
     ${cat.alDia ? '' : `<p class="aviso">Sin señal: esto es el catálogo que quedó guardado.
        Para canjear hace falta conexión, porque el saldo lo lleva el servidor.</p>`}
 
-    <div class="tienda-saldo">
-      ${ICO.moneda}<strong>${saldo}</strong>
-      <span>moneda${saldo === 1 ? '' : 's'} para gastar</span>
-      ${admin && porEntregar ? `<span class="pendiente">${porEntregar} por entregar</span>` : ''}
+    <div class="tres-cifras">
+      <div class="oro">
+        <span>Para gastar</span>
+        <b>${monedaPixel()}${saldo}</b>
+      </div>
+      <div>
+        <span>Ya te alcanzan</span>
+        <b>${cuantos}</b>
+      </div>
+      <div>
+        <span>${admin ? 'Por entregar' : 'Por recoger'}</span>
+        <b>${admin ? porEntregar : mios}</b>
+      </div>
     </div>
 
     ${admin ? `<button class="btn btn-lleno btn-ancho" id="nuevo-prod"
-       style="width:100%;margin-bottom:14px">Añadir un producto</button>` : ''}
+       style="width:100%">Añadir un producto</button>` : ''}
 
-    ${enVenta.length ? `<div class="vitrina">${enVenta.map((p) => {
+    ${hayFiltro ? `<div class="filtro-tienda">
+      <button class="pastilla" data-filtro="todo"
+        aria-pressed="${filtroTienda === 'todo'}">Todo · ${enVenta.length}</button>
+      <button class="pastilla" data-filtro="alcanza"
+        aria-pressed="${filtroTienda === 'alcanza'}">Ya me alcanza · ${cuantos}</button>
+    </div>` : ''}
+
+    ${vitrina.length ? `<div class="vitrina">${vitrina.map((p) => {
       const agotado = p.existencias != null && p.existencias <= 0;
       const falta = p.precio - saldo;
       const puede = !agotado && p.activo && falta <= 0 && cat.alDia;
@@ -1231,12 +1316,10 @@ async function panelTienda() {
             : !p.activo ? '<span class="cinta">Retirado</span>' : ''}</div>
         <div class="cuerpo">
           <h4>${esc(p.nombre)}</h4>
-          ${p.detalle ? `<p class="det">${esc(p.detalle)}</p>` : ''}
-          <div class="pie">
-            ${precio(p.precio)}
-            ${p.existencias != null && !agotado
-              ? `<span class="quedan">quedan ${p.existencias}</span>` : ''}
-          </div>
+          <p class="det">${[p.detalle ? esc(p.detalle) : '',
+              p.existencias != null && !agotado ? `quedan ${p.existencias}` : '']
+              .filter(Boolean).join(' · ') || '&nbsp;'}</p>
+          <div class="pie">${precio(p.precio)}</div>
           ${admin
             ? `<button class="btn btn-ancho editar-prod" data-id="${p.id}">Editar</button>`
             : puede
@@ -1246,8 +1329,9 @@ async function panelTienda() {
         </div>
       </article>`;
     }).join('')}</div>`
-      : `<p class="pista">La tienda está vacía todavía.${
-          admin ? ' Añade el primer producto ahí arriba.' : ' El administrador aún no ha puesto nada.'}</p>`}
+      : `<p class="pista">${enVenta.length ? 'Todavía no te alcanza para nada de la tienda. Sigue sumando.'
+          : `La tienda está vacía todavía.${admin ? ' Añade el primer producto ahí arriba.'
+              : ' El administrador aún no ha puesto nada.'}`}</p>`}
 
     <h3>${admin ? 'Pedidos de todos' : 'Lo que has canjeado'}</h3>
     ${mis.sinSenal ? '<p class="aviso">Hace falta señal para ver los pedidos.</p>'
@@ -1274,6 +1358,10 @@ async function panelTienda() {
   $('#volver').onclick = accion(() => panelMonedas(), { ocupado: '…' });
   const nuevo = $('#nuevo-prod');
   if (nuevo) nuevo.onclick = () => fichaProducto(null);
+
+  for (const b of document.querySelectorAll('.filtro-tienda .pastilla'))
+    b.onclick = accion(async () => { filtroTienda = b.dataset.filtro; await panelTienda(); },
+                       { ocupado: '…' });
 
   for (const b of document.querySelectorAll('.editar-prod'))
     b.onclick = () => fichaProducto(cat.lista.find((p) => p.id === b.dataset.id));
@@ -2893,7 +2981,7 @@ function avisar(texto) {
 // fecha de recogida —justo lo que uno va a mirar— habían quedado cinco
 // pantallas arriba. Quien no lo necesite lo deja vacío y la hoja se
 // comporta igual que siempre.
-function abrirHoja(html, fijo = '') {
+function abrirHoja(html, fijo = '', esquina = '') {
   // En la pantalla de ingreso todavía no existe el contenedor, y un aviso
   // no puede tumbar la app por no tener dónde ponerse.
   let m = $('#modal');
@@ -2902,9 +2990,14 @@ function abrirHoja(html, fijo = '') {
   // del todo, así que en una ficha con historial largo había que bajar
   // hasta abajo para salir. Quien abra una hoja la tiene sin hacer nada.
   // Si hay encabezado fijo, viaja dentro de él; si no, se pega sola.
+  //
+  // `esquina` es para el botón que acompaña a la equis, como el de la
+  // tienda dentro de Monedas. Va DESPUÉS de ella en el código y a su
+  // izquierda en la pantalla: los dos flotan a la derecha, y el primero
+  // que se escribe es el que queda más a la derecha del todo.
   const equis = `<button class="cerrar-hoja" id="x-hoja" aria-label="Cerrar">${ICO.cerrar}</button>`;
   m.innerHTML = `<div class="velo"><div class="hoja">
-    ${fijo ? `<div class="hoja-fija">${equis}${fijo}</div>` : equis}
+    ${fijo ? `<div class="hoja-fija">${equis}${esquina}${fijo}</div>` : equis + esquina}
     ${html}</div></div>`;
   $('#x-hoja').onclick = cerrarHoja;
   $('.velo').onclick = (e) => { if (e.target === $('.velo')) cerrarHoja(); };
