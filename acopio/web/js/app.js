@@ -157,6 +157,10 @@ const ICO = {
   // Bolsa de compra con asa: la tienda.
   bolsa:     ico('<path d="M6 2h12l2 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8l2-6z"/>'
                  + '<path d="M4 8h16"/><path d="M9 12a3 3 0 0 0 6 0"/>'),
+  // Matraz de laboratorio: el cuello estrecho y el cuerpo cónico. Es el
+  // dibujo que se reconoce sin leer nada al lado.
+  frasco:    ico('<path d="M9 3h6M10 3v6.5L4.6 18.4A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.6L14 9.5V3"/>'
+                 + '<path d="M7.2 14h9.6"/>'),
   // Triángulo de aviso, para los lotes que conviene mirar.
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
                  + '<path d="M12 9v4M12 17h.01"/>')
@@ -581,6 +585,7 @@ async function recargar() {
   if (!S.plataformas.some((p) => p.id === S.plataforma))
     S.plataforma = S.plataformas[0]?.id || null;
   pintarTareas();
+  pintarLaboratorio();
   S.lotes = lotes; S.pilas = pilas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   S.proveedores = prov.sort((a, b) => a.abreviatura.localeCompare(b.abreviatura));
   S.figuras = figuras; S.config = config;
@@ -748,6 +753,8 @@ function pantallaPrincipal() {
           >${ICO.capas}</button>
         <button class="icono trofeo" id="trofeo" aria-label="Monedas y clasificación"
           >${ICO.trofeo}</button>
+        <button class="icono lab" id="lab" aria-label="Muestras para el laboratorio" hidden
+          >${ICO.frasco}<span class="cuenta" id="lab-n"></span></button>
         <button class="icono campana" id="campana" aria-label="Tareas" hidden
           >${ICO.campana}<span class="cuenta" id="campana-n"></span></button>
         <button class="chip-sync" id="chip"><span class="punto"></span><span id="chip-txt">—</span></button>
@@ -775,6 +782,7 @@ function pantallaPrincipal() {
   $('#chip').onclick = sincronizar;
   $('#menu').onclick = menuCuenta;
   $('#campana').onclick = panelTareas;
+  $('#lab').onclick = accion(() => panelLaboratorio(), { ocupado: '…' });
   $('#chip-plat').onclick = panelPlataformas;
   $('#trofeo').onclick = accion(() => panelMonedas(), { ocupado: '…' });
   document.querySelectorAll('nav.pestanas button').forEach((b) => {
@@ -791,6 +799,7 @@ function pantallaPrincipal() {
 function pintar() {
   pintarSync();
   pintarTareas();
+  pintarLaboratorio();
   pintarChipPlataforma();
   // El mapa va a sangre completa: sin márgenes ni tope de ancho. La
   // lista sí se centra, porque un renglón de texto muy largo se lee mal.
@@ -1220,6 +1229,97 @@ async function panelMonedas(verA = null) {
   for (const li of document.querySelectorAll('.ranking li'))
     li.onclick = accion(() => panelMonedas(li.dataset.quien), { ocupado: '…' });
 }
+
+// ----------------------------------------------------------- laboratorio
+// Las muestras que están esperando a que alguien las lleve al laboratorio.
+//
+// Es una lista de trabajo del administrador, no un estado del lote: el
+// lote sigue donde estaba y como estaba, se apila, se traslada y se
+// despacha igual. Lo único que dice esta lista es "de estos lotes hay una
+// bolsa que todavía no ha salido para el laboratorio".
+//
+// El botón vive en la cabecera y va en NARANJA, que no lo lleva nada más:
+// el amarillo es del trofeo y el rojo de la campana. Se esconde solo
+// cuando no hay ninguna esperando, así que verlo ya significa algo.
+//
+// La lista se calcula con los eventos del celular, así que funciona sin
+// señal —ver `muestras` en store.js—. Marcar una entregada también: se
+// guarda aquí y sube cuando vuelva la conexión, como todo lo del patio.
+async function pintarLaboratorio() {
+  const b = $('#lab');
+  if (!b) return;
+  // Solo el administrador: es él quien recoge las bolsas y las lleva.
+  if (!esAdmin()) { b.hidden = true; return; }
+  const n = (await Store.muestras()).pendientes.length;
+  b.hidden = !n;
+  $('#lab-n').textContent = n || '';
+}
+
+async function panelLaboratorio() {
+  const { pendientes: espera, entregadas } = await Store.muestras();
+
+  // El lote puede haberse borrado del celular —o no haber llegado— y eso
+  // no puede tumbar la lista: esa línea simplemente no sale.
+  const conLote = (m) => {
+    const l = S.lotes.find((x) => x.id === m.lote_id);
+    return l ? { ...m, lote: l } : null;
+  };
+  const hoy = espera.map(conLote).filter(Boolean);
+  const hechas = entregadas.map(conLote).filter(Boolean);
+
+  const dias = (cuando) =>
+    Math.floor((Date.now() - new Date(cuando)) / 86400000);
+  const cuanto = (cuando) => {
+    const d = dias(cuando);
+    return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días`;
+  };
+
+  abrirHoja(`
+    <p class="pista">Cada línea es una bolsa de muestra que todavía no ha
+       salido. Marcarla entregada no le cambia nada al lote: solo la tacha
+       de aquí.</p>
+
+    <h3>Sin entregar${hoy.length ? ` · ${hoy.length}` : ''}</h3>
+    ${hoy.length ? `<ul class="muestras">${hoy.map((m) => `
+      <li data-id="${m.lote_id}">
+        <div class="linea">
+          <span class="cod">${esc(m.lote.codigo)}</span>
+          <span class="pt" style="background:${paletaActual()[m.lote.estado] || '#5f6863'}"></span>
+          <span class="dias${dias(m.muestreado_en) >= DIAS_MUESTRA_VIEJA ? ' tarde' : ''}"
+            >${cuanto(m.muestreado_en)}</span>
+        </div>
+        <div class="quien">Muestreado por ${esc(nombreDe(m.muestreado_por))} ·
+          ${new Date(m.muestreado_en).toLocaleString('es-CO')}</div>
+        <button class="btn btn-lleno entregar-lab" data-id="${m.lote_id}">Entregada</button>
+      </li>`).join('')}</ul>`
+      : '<p class="pista">Ninguna esperando. Todo lo muestreado ya salió.</p>'}
+
+    <h3>Entregadas</h3>
+    ${hechas.length ? `<ul class="muestras hechas">${hechas.map((m) => `
+      <li>
+        <div class="linea">
+          <span class="cod">${esc(m.lote.codigo)}</span>
+          <span class="dias">${cuanto(m.entregado_en)}</span>
+        </div>
+        <div class="quien">La llevó ${esc(nombreDe(m.entregado_por))} ·
+          ${new Date(m.entregado_en).toLocaleString('es-CO')}</div>
+      </li>`).join('')}</ul>`
+      : '<p class="pista">Todavía no se ha entregado ninguna.</p>'}`,
+    '<h2>Al laboratorio</h2>');
+
+  for (const b of document.querySelectorAll('.entregar-lab'))
+    b.onclick = accion(async () => {
+      await Store.entregarAlLaboratorio(b.dataset.id, S.perfil.id);
+      await recargar();
+      await panelLaboratorio();
+      sincronizar();
+    }, { ocupado: 'Marcando…' });
+}
+
+// A partir de cuántos días una muestra sin entregar se marca en rojo. Dos
+// días es lo que tarda una bolsa en volverse un problema: el laboratorio
+// trabaja sobre material que ya se movió.
+const DIAS_MUESTRA_VIEJA = 2;
 
 // ---------------------------------------------------------------- tienda
 // En qué se gastan las monedas. Sin esto, el sistema entero es un número

@@ -34,10 +34,17 @@ create type tipo_pila as enum ('alimentacion', 'devolucion', 'espera', 'otro');
 
 create type estado_pila as enum ('abierta', 'cerrada', 'consumida');
 
+--  'entrega_laboratorio': la muestra de ese lote salió para el
+--  laboratorio. No cambia el estado del lote ni nada suyo —el lote sigue
+--  donde estaba, haciendo lo que hacía—, solo tacha ese muestreo de la
+--  lista del administrador. Va como evento y no como columna porque
+--  puede pasar varias veces: si un lote se remuestrea, hay otra muestra
+--  que llevar, y las dos entregas tienen que quedar apuntadas con su
+--  fecha y su nombre.
 create type tipo_evento as enum
   ('recepcion', 'cambio_estado', 'ingreso_pila', 'salida_pila',
    'observacion', 'programar_recogida', 'movimiento', 'renombrado', 'anulacion',
-   'traslado');
+   'traslado', 'entrega_laboratorio');
 
 create type forma_figura as enum ('elipse', 'rectangulo', 'poligono');
 

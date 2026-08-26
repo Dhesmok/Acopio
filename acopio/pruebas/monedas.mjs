@@ -143,6 +143,44 @@ ok(/const enVenta[\s\S]{0,1200}gap: 18px 14px/.test(app + css)
    'y la vitrina va holgada: apretada no daba ganas de canjear nada');
 
 // ---------------------------------------------------------------------
+titulo('Las muestras que esperan al laboratorio.');
+
+// Es una lista de trabajo del admin, no un estado del lote: el lote
+// sigue donde estaba y como estaba. Por eso va como evento aparte y no
+// como columna ni como estado nuevo.
+ok(/'traslado', 'entrega_laboratorio'/.test(esquema),
+   'la entrega al laboratorio es un evento más, con su autor y su hora');
+ok(/alter type tipo_evento add value if not exists 'entrega_laboratorio'/.test(migracion),
+   'y la migración lo añade sin tocar nada de lo que ya hay');
+const lab = store.slice(store.indexOf('export async function muestras'),
+                        store.indexOf('// --------------------------------------------------------------- tienda'));
+ok(/idb\.todos\('eventos'\)/.test(lab) && !/sb\.from/.test(lab),
+   'la lista se saca de los eventos del CELULAR: en el patio la señal va y viene');
+ok(/!m\.entregado_en \|\| m\.entregado_en < m\.muestreado_en/.test(lab),
+   'espera cuando el muestreo es posterior a la entrega, así que un remuestreo la reabre solo');
+ok(/e\.ocurrido_en > m\.muestreado_en/.test(lab) && /e\.ocurrido_en > m\.entregado_en/.test(lab),
+   'y se queda con la ÚLTIMA de cada clase, no con la primera');
+ok(/registrarEvento\(\{[\s\S]{0,120}tipo: 'entrega_laboratorio'/.test(store),
+   'marcarla entregada pasa por la cola, como todo lo del patio');
+
+const pantallaLab = app.slice(app.indexOf('async function pintarLaboratorio'),
+                              app.indexOf('// ---------------------------------------------------------------- tienda'));
+ok(/if \(!esAdmin\(\)\) \{ b\.hidden = true; return; \}/.test(pantallaLab),
+   'el botón solo lo ve el admin, que es quien lleva las bolsas');
+ok(/b\.hidden = !n;/.test(pantallaLab),
+   'y se esconde cuando no hay ninguna esperando: verlo ya significa algo');
+ok(/\.icono\.lab \{[^}]*background: var\(--traje\)/.test(css),
+   'va en naranja, que en esa barra no lo lleva nada más');
+ok(/\.muestras \.dias\.tarde/.test(css) && /DIAS_MUESTRA_VIEJA = 2/.test(app),
+   'y la que lleva más de dos días esperando se marca en rojo');
+
+// La cabecera es una fila con seis cosas: hay que comprobar que quepan.
+ok(/@media \(max-width: 400px\)[^}]*\}[\s\S]{0,200}#chip-txt \{ display: none/.test(css),
+   'en un teléfono estrecho el chip de sincronización pierde la palabra y deja el punto');
+ok(/@media \(max-width: 344px\)[\s\S]{0,120}header h1 \{ display: none/.test(css),
+   'y en el más estrecho de todos se va el nombre de la app, entero y no recortado');
+
+// ---------------------------------------------------------------------
 titulo('La monedita de píxeles gira, y no marea a quien no quiere.');
 
 ok(/const monedaPixel = /.test(app) && /shape-rendering="crispEdges"/.test(app),
