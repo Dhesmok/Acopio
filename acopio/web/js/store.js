@@ -207,6 +207,69 @@ export async function historialMonedas(usuarioId, tope = 200) {
   return { lineas: data || [], sinSenal: false };
 }
 
+// ---------------------------------------------------------- laboratorio
+// Qué muestras están esperando a que alguien las lleve al laboratorio.
+//
+// No hay tabla ni columna para esto: se saca de los eventos que ya
+// existen. Un lote está esperando cuando su último muestreo es POSTERIOR
+// a su última entrega —o cuando no hay entrega ninguna—. Escrito así,
+// un remuestreo vuelve a poner el lote en la lista solo, sin que nadie
+// tenga que acordarse de reabrirlo: hay una muestra nueva que llevar.
+//
+// Se cuenta con los eventos del CELULAR y no con los del servidor, a
+// diferencia de las monedas. Es a propósito: esto se usa en el patio,
+// donde la señal va y viene, y una lista de pendientes que se queda en
+// blanco sin conexión no sirve para nada. Los muestreos pendientes son
+// recientes por definición, así que están todos en el celular.
+export async function muestras(topeEntregadas = 40) {
+  const eventos = await idb.todos('eventos');
+  const por = new Map();
+  const anota = (id) => {
+    if (!por.has(id)) por.set(id, {
+      lote_id: id, muestreado_en: null, muestreado_por: null,
+      entregado_en: null, entregado_por: null
+    });
+    return por.get(id);
+  };
+
+  for (const e of eventos) {
+    // La ÚLTIMA de cada clase, no la primera: un lote remuestreado tiene
+    // varias, y la que manda es la de ahora.
+    if (e.tipo === 'cambio_estado' && e.estado_nuevo === 'muestreado') {
+      const m = anota(e.lote_id);
+      if (!m.muestreado_en || e.ocurrido_en > m.muestreado_en) {
+        m.muestreado_en = e.ocurrido_en; m.muestreado_por = e.usuario_id;
+      }
+    } else if (e.tipo === 'entrega_laboratorio') {
+      const m = anota(e.lote_id);
+      if (!m.entregado_en || e.ocurrido_en > m.entregado_en) {
+        m.entregado_en = e.ocurrido_en; m.entregado_por = e.usuario_id;
+      }
+    }
+  }
+
+  const todas = [...por.values()].filter((m) => m.muestreado_en);
+  const espera = (m) => !m.entregado_en || m.entregado_en < m.muestreado_en;
+  return {
+    // Las más viejas primero: son las que llevan más tiempo esperando.
+    pendientes: todas.filter(espera)
+      .sort((a, b) => String(a.muestreado_en).localeCompare(b.muestreado_en)),
+    // Las entregadas, al revés, y solo las últimas: la lista de lo hecho
+    // crece para siempre y nadie baja hasta el año pasado.
+    entregadas: todas.filter((m) => !espera(m))
+      .sort((a, b) => String(b.entregado_en).localeCompare(a.entregado_en))
+      .slice(0, topeEntregadas)
+  };
+}
+
+// Marcar que la muestra salió para el laboratorio. Pasa por la cola como
+// todo lo del patio: se guarda en el celular y sube cuando haya señal.
+export async function entregarAlLaboratorio(loteId, usuarioId) {
+  return registrarEvento({
+    lote_id: loteId, tipo: 'entrega_laboratorio', usuario_id: usuarioId
+  });
+}
+
 // --------------------------------------------------------------- tienda
 // CANJEAR NO PASA POR LA COLA, y es la única cosa de toda la app que no
 // lo hace.

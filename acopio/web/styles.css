@@ -255,6 +255,35 @@ header .crece { flex: 1; }
 .chip-sync:active { transform: scale(.94); }
 @keyframes latir { 50% { opacity: .3; transform: scale(.8); } }
 
+/* La cabecera es una fila con seis cosas y no puede desbordarse: con el
+   botón del laboratorio puesto, en un teléfono de 360 px se salían el
+   estado de sincronización y el menú por el borde derecho.
+
+   Lo que sobra primero es la PALABRA del chip de sincronización: el punto
+   ya dice lo mismo por color —blanco al día, amarillo pendiente, rojo
+   error— y ese es el dato que se mira de lejos. El botón sigue estando y
+   sigue abriendo lo mismo; solo pierde el rótulo.
+
+   Los iconos no se tocan: cada uno es un sitio distinto de la app y
+   esconder uno sería esconder una función entera. */
+header { min-width: 0; }
+header h1 { flex: none; }
+.chip-sync { flex: none; white-space: nowrap; }
+
+@media (max-width: 400px) {
+  header { gap: 7px; padding-left: 11px; padding-right: 11px; }
+  .chip-sync { padding: 5px; }
+  .chip-sync #chip-txt { display: none; }
+  .chip-sync .punto { width: 10px; height: 10px; }
+}
+/* En los teléfonos más estrechos ni así cabe, y lo que sobra es el
+   nombre de la app: nadie necesita que le recuerden en qué programa
+   está. Se va entero, no recortado a "ACOPI…", que se lee peor que
+   nada. */
+@media (max-width: 344px) {
+  header h1 { display: none; }
+}
+
 /* Franja de advertencia: hay cambios sin subir. Vive en #flotantes, así
    que es una tarjeta que entra desde abajo, no una banda que empuja. */
 /* La misma cinta de peligro de la cabecera, ahora como aviso. No hace
@@ -1028,6 +1057,69 @@ button:focus:not(:focus-visible) { outline: none; }
   font-size: 11px; font-weight: 800; line-height: 17px; text-align: center;
 }
 .campana[data-hay="no"] .cuenta { display: none; }
+
+/* --- las muestras que esperan al laboratorio ------------------------
+
+   El botón va NARANJA y relleno. En esa barra el amarillo ya es del
+   trofeo y el rojo de la campana, así que el naranja es lo único que
+   queda que se distinga de un vistazo con guantes y sol de frente. Es
+   el mismo naranja del chaleco de la escena de muestreo: un color de
+   obra, no un color de estado, así que el admin no lo puede repintar
+   sin querer desde la paleta del plano.
+
+   Se esconde solo cuando no hay ninguna esperando. Verlo ya significa
+   que hay trabajo, y eso vale más que un número que siempre está ahí. */
+.icono.lab {
+  position: relative; display: grid; place-items: center;
+  background: var(--traje); border-color: var(--traje); color: #fff;
+}
+.icono.lab:hover { background: #e26100; border-color: #e26100; }
+.icono.lab .cuenta {
+  position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px;
+  padding: 0 4px; border-radius: 999px; background: #fff; color: var(--tinta);
+  font-size: 11px; font-weight: 800; line-height: 17px; text-align: center;
+}
+.icono.lab .cuenta:empty { display: none; }
+
+/* La lista. Manda el CÓDIGO: es lo que se coteja con la bolsa rotulada
+   que uno tiene en la mano, así que va en mono y a tamaño de titular,
+   igual que en la lista de lotes. */
+.muestras { list-style: none; margin: 8px 0 0; padding: 0; }
+.muestras li {
+  border: 2px solid var(--tinta); background: var(--superficie);
+  margin-bottom: 10px; padding: 11px 12px 12px;
+  box-shadow: 4px 4px 0 var(--tinta);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.muestras .linea { display: flex; align-items: center; gap: 9px; }
+.muestras .cod {
+  flex: 1; font-family: var(--mono); font-size: 19px; font-weight: 800;
+  letter-spacing: -.02em; font-variant-numeric: var(--cifras);
+}
+/* El punto lleva el color del estado en que está el lote AHORA. La
+   muestra espera igual, pero saber que ese lote ya se despachó cambia
+   la urgencia de ir a buscar la bolsa. */
+.muestras .pt {
+  width: 13px; height: 13px; flex: none; border: 2px solid var(--tinta);
+}
+.muestras .dias {
+  font-size: 11px; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--apagado);
+}
+/* Dos días es lo que tarda una bolsa en volverse un problema. */
+.muestras .dias.tarde {
+  background: var(--devolucion); color: #fff; padding: 2px 6px;
+}
+.muestras .quien { font-size: 11.5px; color: var(--apagado); line-height: 1.35; }
+.muestras .btn { align-self: flex-start; padding: 7px 16px; }
+
+/* Las entregadas: sin sombra, sin borde grueso y sin botón. Están ahí
+   para consultarlas, no para hacer nada con ellas. */
+.muestras.hechas li {
+  border: 1px solid var(--linea-suave); box-shadow: none;
+  margin-bottom: -1px; padding: 8px 11px; gap: 3px; opacity: .78;
+}
+.muestras.hechas .cod { font-size: 15px; }
 @media (prefers-reduced-motion: reduce) { .campana { animation: none; } }
 
 .tareas { list-style: none; padding: 0; margin: 8px 0 0; }

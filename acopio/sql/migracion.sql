@@ -30,6 +30,11 @@ alter type tipo_evento  add value if not exists 'renombrado';
 alter type estado_lote add value if not exists 'alimentado';
 alter type tipo_evento add value if not exists 'traslado';
 
+--  'entrega_laboratorio': la muestra de ese lote salió para el
+--  laboratorio. No toca el lote —sigue donde estaba y como estaba—, solo
+--  tacha ese muestreo de la lista del administrador.
+alter type tipo_evento add value if not exists 'entrega_laboratorio';
+
 -- -------------------------------------------------------------- lotes
 alter table lotes add column if not exists placa          text;
 alter table lotes add column if not exists material       tipo_material not null default 'granel';
