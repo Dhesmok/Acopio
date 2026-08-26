@@ -10,6 +10,12 @@ import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escUrl = (v) => {
+  const raw = String(v ?? '').trim();
+  const sinControl = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, '');
+  if (/^(?:javascript|vbscript|data:(?!image\/))/i.test(sinControl)) return 'about:blank';
+  return esc(raw);
+};
 
 // 'plataforma' ya no se ofrece: Plataforma 5 dejó de ser un estado y es
 // un sitio más, con su plano. Sigue en la lista para que los lotes
@@ -1410,7 +1416,7 @@ async function panelTienda() {
       const puede = !agotado && p.activo && falta <= 0 && cat.alDia;
       return `<article class="prod${p.activo ? '' : ' retirado'}" data-id="${p.id}">
         <div class="foto">${p.imagen_url
-          ? `<img src="${esc(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
+          ? `<img src="${escUrl(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
           : `<span class="sin-foto">${ICO.bolsa}</span>`}
           ${agotado ? '<span class="cinta">Agotado</span>'
             : !p.activo ? '<span class="cinta">Retirado</span>' : ''}</div>
@@ -1524,7 +1530,7 @@ function fichaProducto(p) {
 
     <div class="campo"><label>Foto</label>
       <div class="foto-prod" id="p-vista">${p?.imagen_url
-        ? `<img src="${esc(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
+        ? `<img src="${escUrl(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
       <input type="file" id="p-foto" accept="image/*" style="margin-top:8px">
       <p class="pista">Una foto de verdad vende diez veces más que un nombre.</p></div>
 
@@ -1560,7 +1566,7 @@ function fichaProducto(p) {
     $('#p-vista').innerHTML = '<span class="sin-foto">Subiendo…</span>';
     try {
       foto = await Store.subirImagenProducto(archivo);
-      $('#p-vista').innerHTML = `<img src="${esc(foto)}" alt="">`;
+      $('#p-vista').innerHTML = `<img src="${escUrl(foto)}" alt="">`;
     } catch (e) {
       $('#p-vista').innerHTML = `<span class="sin-foto">${ICO.bolsa}</span>`;
       decirError(e);

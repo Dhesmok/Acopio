@@ -19,6 +19,12 @@ let pinchInicial = null, movio = false;
 // del resto de la app a propósito: el mapa se dibuja solo.
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escUrl = (v) => {
+  const raw = String(v ?? '').trim();
+  const sinControl = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, '');
+  if (/^(?:javascript|vbscript|data:(?!image\/))/i.test(sinControl)) return 'about:blank';
+  return esc(raw);
+};
 
 // Un mismo lote puede llegar en varias volquetas, y como el código no se
 // puede repetir, en el patio se apunta la volqueta pegada al código:
@@ -240,7 +246,7 @@ export function pintar(d) {
       </pattern>
     </defs>
     <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${esc(c.color_fondo || '#e4e7e2')}"/>
-    ${c.imagen_url ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
+    ${c.imagen_url ? `<image href="${escUrl(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
         width="${c.imagen_ancho}" height="${c.imagen_alto}"
         opacity="${c.imagen_opacidad ?? 1}" preserveAspectRatio="none"/>` : ''}
     ${c.imagen_url ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}

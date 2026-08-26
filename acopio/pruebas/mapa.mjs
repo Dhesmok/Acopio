@@ -376,6 +376,21 @@ ok(lienzo.innerHTML.includes('class="manija-zona"'),
    'y lleva detrás un disco invisible más ancho, para que el dedo no tenga que apuntar');
 
 // ---------------------------------------------------------------------
+titulo('Las URLs inseguras en imágenes se desinfectan para prevenir XSS.');
+
+// Importamos o llamamos indirectamente escUrl evaluando el archivo o exportando
+const mapaScript = await readFile(new URL('../web/js/mapa.js', import.meta.url), 'utf8');
+ok(mapaScript.includes('escUrl ='), 'escUrl existe en mapa.js');
+
+Mapa.pintar({
+  config: { ancho: 1000, alto: 700, color_fondo: '#e4e7e2', imagen_url: 'javascript:alert(1)', imagen_ancho: 100, imagen_alto: 100 },
+  figuras: [], pilas: [], lotes: []
+});
+const svgUnsafe = lienzo.innerHTML;
+ok(!svgUnsafe.includes('javascript:alert'), 'URL con javascript: fue sanitizada en mapa.js');
+ok(svgUnsafe.includes('href="about:blank"'), 'URL insegura fue reemplazada por about:blank');
+
+// ---------------------------------------------------------------------
 titulo('Un repintado que no cambia nada no toca el plano.');
 
 // La app se sincroniza cada 20 segundos y casi siempre no cambió nada.
