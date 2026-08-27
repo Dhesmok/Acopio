@@ -76,4 +76,16 @@ const r = await Store.sincronizar();
 ok(r.motivo !== 'sin_conexion', `un 42501 no se reporta como falta de señal (${JSON.stringify(r)})`);
 delete servidor.reglas.eventos;
 
+// ---------------------------------------------------------------------
+titulo('salir() impide borrar los datos locales si hay cambios pendientes en la cola.');
+let seLanzoError = false;
+try {
+  await Store.salir();
+} catch (err) {
+  seLanzoError = true;
+  ok(/cambios sin subir/.test(err.message), `lanza error explicando los cambios pendientes: "${err.message}"`);
+}
+ok(seLanzoError, 'salir() lanzó error al haber elementos pendientes');
+ok((await Store.lotes()).length > 0, 'los datos locales se preservaron intactos');
+
 cerrar();

@@ -1179,6 +1179,10 @@ export async function subirImagenFondo(archivo) {
 }
 
 export async function salir() {
+  const cola = await pendientes();
+  if (cola.length > 0) {
+    throw new Error(`Hay ${cola.length} cambios sin subir en el dispositivo.`);
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }
