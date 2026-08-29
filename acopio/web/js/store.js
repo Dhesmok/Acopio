@@ -58,11 +58,22 @@ const idb = {
 export async function iniciar() { db = await abrir(); }
 
 // ------------------------------------------------------------ utilidades
-export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
-  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    }));
+export const uuid = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  const buf = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(buf);
+  } else {
+    for (let i = 0; i < 16; i++) buf[i] = (Math.random() * 256) | 0;
+  }
+  let byteIdx = 0, nibbleIdx = 0;
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const b = buf[byteIdx];
+    const r = (nibbleIdx++ % 2 === 0) ? (b >> 4) & 0x0f : b & 0x0f;
+    if (nibbleIdx % 2 === 0) byteIdx++;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+};
 const ahora = () => new Date().toISOString();
 
 // La fecha del patio es la del reloj de quien registra, no la de UTC.
