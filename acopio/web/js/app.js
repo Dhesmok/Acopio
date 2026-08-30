@@ -11,6 +11,15 @@ const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Sanitiza URLs para prevenir inyección de esquemas de URI peligrosos (javascript:, data: no imagen, etc.).
+// Solo permite http, https, blob, data:image/, o URLs relativas (/, ./).
+const seguroUrl = (url) => {
+  if (!url) return '';
+  const s = String(url).trim();
+  if (/^(https?:|blob:|data:image\/|\/|\.\/)/i.test(s)) return esc(s);
+  return '';
+};
+
 // 'plataforma' ya no se ofrece: Plataforma 5 dejó de ser un estado y es
 // un sitio más, con su plano. Sigue en la lista para que los lotes
 // viejos que lo tengan escrito se sepan nombrar.
@@ -1410,7 +1419,7 @@ async function panelTienda() {
       const puede = !agotado && p.activo && falta <= 0 && cat.alDia;
       return `<article class="prod${p.activo ? '' : ' retirado'}" data-id="${p.id}">
         <div class="foto">${p.imagen_url
-          ? `<img src="${esc(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
+          ? `<img src="${seguroUrl(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
           : `<span class="sin-foto">${ICO.bolsa}</span>`}
           ${agotado ? '<span class="cinta">Agotado</span>'
             : !p.activo ? '<span class="cinta">Retirado</span>' : ''}</div>
@@ -1524,7 +1533,7 @@ function fichaProducto(p) {
 
     <div class="campo"><label>Foto</label>
       <div class="foto-prod" id="p-vista">${p?.imagen_url
-        ? `<img src="${esc(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
+        ? `<img src="${seguroUrl(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
       <input type="file" id="p-foto" accept="image/*" style="margin-top:8px">
       <p class="pista">Una foto de verdad vende diez veces más que un nombre.</p></div>
 
@@ -1560,7 +1569,7 @@ function fichaProducto(p) {
     $('#p-vista').innerHTML = '<span class="sin-foto">Subiendo…</span>';
     try {
       foto = await Store.subirImagenProducto(archivo);
-      $('#p-vista').innerHTML = `<img src="${esc(foto)}" alt="">`;
+      $('#p-vista').innerHTML = `<img src="${seguroUrl(foto)}" alt="">`;
     } catch (e) {
       $('#p-vista').innerHTML = `<span class="sin-foto">${ICO.bolsa}</span>`;
       decirError(e);
