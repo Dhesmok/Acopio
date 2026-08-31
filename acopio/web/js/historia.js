@@ -136,8 +136,19 @@ export function indexar(eventos = []) {
     if (!suyos.has(e.lote_id)) suyos.set(e.lote_id, []);
     suyos.get(e.lote_id).push(e);
   }
+  // El desempate importa y no es adorno: los dos apuntes de un traslado
+  // —de dónde salió y a dónde llegó— se escribieron seguidos, y los
+  // guardados antes de que la hora avanzara sola comparten milisegundo.
+  // Sin desempatar, el orden lo decide cómo vengan de IndexedDB, que los
+  // devuelve por clave (un uuid al azar): la pareja llegaba al revés la
+  // mitad de las veces. `registrado_en` es la hora en que el servidor los
+  // recibió, y la cola sube en orden, así que ese sí los separa bien.
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   for (const lista of suyos.values())
-    lista.sort((a, b) => String(a.ocurrido_en).localeCompare(String(b.ocurrido_en)));
+    lista.sort((a, b) =>
+      cmp(String(a.ocurrido_en), String(b.ocurrido_en))
+      || cmp(String(a.registrado_en ?? ''), String(b.registrado_en ?? ''))
+      || cmp(String(a.id ?? ''), String(b.id ?? '')));
   return suyos;
 }
 

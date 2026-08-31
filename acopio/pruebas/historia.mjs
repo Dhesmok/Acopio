@@ -9,6 +9,7 @@ import { planoEn, desde, indexar } from '../web/js/historia.js';
 // Aquí no hay navegador, así que unas cuantas cosas se comprueban
 // LEYENDO el código de la app. Se lee una vez, al principio.
 const fuente = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
 
 const T = (d) => `2026-07-${String(d).padStart(2, '0')}T12:00:00.000Z`;
 
@@ -222,6 +223,45 @@ ok(/anotarRecorrido\(lote, antes\)/.test(soltar),
    'al meter un lote a una pila se apunta de dónde salió');
 ok(soltar.indexOf('anotarRecorrido') < soltar.indexOf("tipo: 'ingreso_pila'"),
    'y se apunta ANTES del ingreso, que es el orden en que pasó');
+
+// ---------------------------------------------------------------------
+titulo('La pareja de un traslado no se lee al revés por empatar la hora.');
+
+// Un traslado se apunta con DOS eventos seguidos, de dónde salió y a
+// dónde llegó, y hasta ahora los dos llevaban la misma hora: `ahora()`
+// mide en milisegundos y las dos escrituras caben en uno. Al releerlos,
+// IndexedDB los devuelve en orden de CLAVE —un uuid al azar—, así que la
+// pareja venía al revés la mitad de las veces y el lote salía en el sitio
+// al que iba, no en el que dejaba.
+const MISMO = T(13);
+const viajero2 = { id: 'l7', codigo: 'PG7', estado: 'muestreado', pila_id: null,
+  forma: 'elipse', x: 400, y: 300, rx: 40, ry: 40, rot: 0, creado_en: T(1) };
+// `registrado_en` es la hora a la que el servidor los recibió, y la cola
+// sube en orden, así que separa la pareja aunque `ocurrido_en` empate.
+const salio = { id: 'zzz', lote_id: 'l7', tipo: 'movimiento', x: 100, y: 100,
+                ocurrido_en: MISMO, registrado_en: `${MISMO}` };
+const llego = { id: 'aaa', lote_id: 'l7', tipo: 'movimiento', x: 400, y: 300,
+                ocurrido_en: MISMO, registrado_en: `${T(13)}1` };
+const dondeElOnce = (evs) => {
+  const p = planoEn(T(11), { lotes: [viajero2], pilas: [], eventos: evs }).lotes[0];
+  return `${p.x},${p.y}`;
+};
+ok(dondeElOnce([salio, llego]) === '100,100', 'el 11 estaba donde dice el apunte de salida');
+ok(dondeElOnce([llego, salio]) === '100,100',
+   'y da igual en qué orden los devuelva IndexedDB: manda registrado_en');
+
+// Y de aquí en adelante ni siquiera empatan: el apunte de SALIDA se
+// fecha un milisegundo antes que el de llegada, que además es lo que
+// pasó. El reloj general no se toca —uno que no pudiera retroceder se
+// quedaría pegado si al celular le corrigen la hora hacia atrás—: se
+// fecha a mano solo esta pareja, que es la única que lo necesita.
+const anotar = (fuente.match(/async function anotarRecorrido[\s\S]*?\n\}/) || [''])[0];
+ok(/ocurrido_en: new Date\(Date\.now\(\) - 1\)/.test(anotar),
+   'el apunte de "de dónde salió" va fechado antes que el de llegada');
+ok(anotar.indexOf('ocurrido_en') < anotar.indexOf('x: lote.x'),
+   'y es el de salida el que se atrasa, no el de llegada');
+ok(/ocurrido_en \|\| ahora\(\)/.test(fuenteStore),
+   'registrarEvento acepta esa hora; los demás eventos siguen con la del reloj');
 
 // ---------------------------------------------------------------------
 titulo('El índice se hace una vez y sirve para todos los momentos.');

@@ -2975,8 +2975,16 @@ async function anotarRecorrido(lote, origen) {
   if (!Mapa.movimientoReal(lote, origen)) return;
   const previos = (await Store.historial(lote.id)).filter((e) => e.tipo === 'movimiento');
   if (!previos.length) {
+    // De dónde SALIÓ va fechado un milisegundo antes que la llegada, y no
+    // "ahora" como todo lo demás. Es lo que pasó —estaba ahí antes de
+    // llegar— y hace falta: la hora de un evento se mide en milisegundos
+    // y las dos escrituras caben en uno, así que empataban. Al releerlas,
+    // IndexedDB las devuelve en orden de clave —un uuid al azar—, y la
+    // pareja venía al revés la mitad de las veces: mirar el pasado
+    // dibujaba el lote en el sitio al que iba, no en el que dejaba.
     await Store.registrarEvento({
-      lote_id: lote.id, tipo: 'movimiento', x: origen.x, y: origen.y, usuario_id: S.perfil.id
+      lote_id: lote.id, tipo: 'movimiento', x: origen.x, y: origen.y, usuario_id: S.perfil.id,
+      ocurrido_en: new Date(Date.now() - 1).toISOString()
     });
   }
   await Store.registrarEvento({
@@ -3404,7 +3412,7 @@ async function fichaLote(id) {
     <ul class="linea-tiempo">
       ${eventos.map((e) => `<li>
         <div class="cuando">${new Date(e.ocurrido_en).toLocaleString('es-CO')} · ${esc(quien(e.usuario_id))}</div>
-        <div class="que">${textoEvento(e)}</div>
+        <div class="que">${esc(textoEvento(e))}</div>
         ${e.nota ? `<div class="nota">${esc(e.nota)}</div>` : ''}</li>`).join('')}
     </ul>
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Cerrar</button>`,
