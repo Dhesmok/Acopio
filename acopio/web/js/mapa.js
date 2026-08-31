@@ -22,7 +22,10 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 
 // Un mismo lote puede llegar en varias volquetas, y como el código no se
 // puede repetir, en el patio se apunta la volqueta pegada al código:
-// ABG40(2) y ABG40.2 son los dos la SEGUNDA volqueta del lote ABG40.
+// ABG40(2), ABG40.2 y ABG40-2 son los tres la SEGUNDA volqueta del lote
+// ABG40. El guion se admite porque en algunos teléfonos el punto y los
+// paréntesis casi no se ven en la pantalla, y quien apunta desde el
+// patio acaba escribiendo la raya, que se distingue de lejos.
 //
 // Se separa para poder mostrar el código a secas y el número pequeño
 // arriba, como un exponente: dentro de un óvalo no sobra sitio, y así lo
@@ -34,8 +37,19 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 // deja tal cual: no sabemos qué quiso decir, y adivinar sería peor.
 export function partesCodigo(codigo) {
   const t = String(codigo ?? '');
-  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+))$/);
-  return m ? { base: m[1], volqueta: m[2] || m[3] } : { base: t, volqueta: '' };
+  // El guion pide cautelas que el punto y el paréntesis no piden, porque
+  // también es el separador de los códigos largos de proveedor
+  // (ABG-2026-000117). Se le exigen tres cosas, y con las tres juntas lo
+  // único que queda por volqueta es un código de patio con su raya:
+  // número sin ceros delante y de una o dos cifras —una volqueta es la 2
+  // o la 12, nunca la 000117—, ningún otro guion en la base, y una base
+  // que acabe en número, que es como son los códigos de aquí (ABG40): en
+  // ABG-26 el 26 es el número del lote, no la volqueta.
+  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-([1-9]\d?))$/);
+  if (!m) return { base: t, volqueta: '' };
+  if (m[4] !== undefined && (m[1].includes('-') || !/\d$/.test(m[1])))
+    return { base: t, volqueta: '' };
+  return { base: m[1], volqueta: m[2] || m[3] || m[4] };
 }
 
 export const COLORES_BASE = {

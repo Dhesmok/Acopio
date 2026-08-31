@@ -433,6 +433,7 @@ ok(recod('pg1042', 'PG', 'SJ') === 'SJ1042', 'y da igual cómo esté escrito');
 // formato y no es asunto de esta corrección cambiarlo.
 ok(recod('SJ115(2)', 'SJ', 'PG') === 'PG115(2)', 'el sufijo entre paréntesis se respeta');
 ok(recod('ABG40.2', 'ABG', 'PG') === 'PG40.2', 'y el sufijo con punto, también');
+ok(recod('ABG40-2', 'ABG', 'PG') === 'PG40-2', 'y el sufijo con guion, igual');
 // Abreviaturas de largos distintos.
 ok(recod('ABG50', 'ABG', 'PG') === 'PG50', 'de una sigla larga a una corta');
 ok(recod('PG50', 'PG', 'ABG') === 'ABG50', 'y al revés');
