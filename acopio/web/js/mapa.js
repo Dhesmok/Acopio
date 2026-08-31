@@ -37,17 +37,20 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 // deja tal cual: no sabemos qué quiso decir, y adivinar sería peor.
 export function partesCodigo(codigo) {
   const t = String(codigo ?? '');
-  // Al guion se le pide UNA cosa más que al punto: que lo de delante
-  // termine en número y no traiga ya otro guion. Es la forma de un
-  // código de aquí —la sigla, el número del lote, y como mucho un
-  // separador— dicha en código, y basta para que el guion de un código
-  // largo de proveedor (ABG-2026-000117) no se confunda con el de una
-  // volqueta, y para que en ABG-26 el 26 se lea como lo que es, el
-  // número del lote. Cumplido eso, el guion se comporta igual que el
-  // punto y no se le inventan más límites al número.
-  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-(\d+))$/);
+  // El guion es el único de los tres que también se usa DENTRO del
+  // código —ABG-1004 es el proveedor y el lote—, así que el de la
+  // volqueta se reconoce por dónde está y por lo que lleva detrás, no
+  // por ser el primero: ABG-1004-2 es el viaje 2 del lote ABG-1004.
+  //
+  // Delante tiene que haber un código de lote entero, que siempre acaba
+  // en el número del lote: por eso en ABG-26 el 26 es el lote y no una
+  // volqueta —"ABG" a secas no es un lote—. Y detrás va un número de
+  // viaje: una o dos cifras y sin ceros delante, porque un lote se trae
+  // en dos o en doce volquetas, nunca en la 000117. Así el guion de un
+  // código largo con serial (ABG-2026-000117) se queda donde está.
+  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-([1-9]\d?))$/);
   if (!m) return { base: t, volqueta: '' };
-  if (m[4] !== undefined && !/^[^-]*\d$/.test(m[1])) return { base: t, volqueta: '' };
+  if (m[4] !== undefined && !/\d$/.test(m[1])) return { base: t, volqueta: '' };
   return { base: m[1], volqueta: m[2] || m[3] || m[4] };
 }
 

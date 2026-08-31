@@ -418,18 +418,21 @@ ok(parte('ABG40(12)') === 'ABG40|12', 'el número puede tener dos cifras');
 ok(parte('ABG40-2') === 'ABG40|2', 'ABG40-2 es la volqueta 2 igual que ABG40.2');
 ok(parte('SJ1015-3') === 'SJ1015|3', 'y SJ1015-3');
 ok(parte('ABG40-12') === 'ABG40|12', 'con el guion el número también puede tener dos cifras');
-ok(parte('SJ1015-03') === 'SJ1015|03', 'y se porta igual que el punto: no se le inventan más límites');
+// El guion es el único que también se usa DENTRO del código, entre el
+// proveedor y el lote. El de la volqueta es el que va al final.
+ok(parte('ABG-1004-2') === 'ABG-1004|2', 'ABG-1004-2 es el viaje 2 del lote ABG-1004');
+ok(parte('PG-70-11') === 'PG-70|11', 'y con el lote de dos cifras y el viaje de dos, igual');
 
 // Lo que NO se toca, que es lo que evita estropear códigos de verdad
 ok(parte('PG1042') === 'PG1042|', 'un código normal se queda entero');
 ok(parte('PG213()') === 'PG213()|', 'un paréntesis vacío se deja tal cual: no sabemos qué quiso decir');
 ok(parte('ABG-2026-000117') === 'ABG-2026-000117|', 'un código con guiones y ceros no es una volqueta');
-// Un código de aquí es la sigla, el número del lote y como mucho UN
-// separador, así que al guion se le pide que lo de delante acabe en
-// número y no traiga ya otro guion. Con eso, el guion de un código
-// largo de proveedor no se confunde con el de una volqueta.
+// Delante del guion tiene que haber un código de lote ENTERO, que
+// siempre acaba en el número del lote; y detrás, un número de viaje: una
+// o dos cifras y sin ceros delante, que es como se traen los lotes.
 ok(parte('ABG-2026') === 'ABG-2026|', 'ABG-2026 es un código, no la volqueta 2026');
-ok(parte('ABG-26') === 'ABG-26|', 'ni ABG-26 la volqueta 26: el 26 es el número del lote');
+ok(parte('ABG-26') === 'ABG-26|', 'ni ABG-26 la volqueta 26: "ABG" a secas no es un lote');
+ok(parte('SJ1015-03') === 'SJ1015-03|', 'un cero delante no es un número de viaje');
 ok(parte('SJ1015-B') === 'SJ1015-B|', 'después del guion tiene que haber un número');
 ok(parte('SJ1015.B') === 'SJ1015.B|', 'después del punto tiene que haber un número');
 ok(parte('') === '|', 'y un código vacío no revienta');
