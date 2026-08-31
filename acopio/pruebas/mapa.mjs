@@ -406,18 +406,34 @@ ok(lienzo.innerHTML.includes('PG1'), 'y al remontar se dibuja igual, aunque el p
 titulo('El número de volqueta se separa del código.');
 
 // Un mismo lote llega en varias volquetas y el código no se puede
-// repetir, así que en el patio se apunta pegado: ABG40(2) y ABG40.2 son
-// los dos la segunda volqueta del lote ABG40.
+// repetir, así que en el patio se apunta pegado: ABG40(2), ABG40.2 y
+// ABG40-2 son los tres la segunda volqueta del lote ABG40.
 const parte = (c) => `${Mapa.partesCodigo(c).base}|${Mapa.partesCodigo(c).volqueta}`;
 ok(parte('ABG40(2)') === 'ABG40|2', 'ABG40(2) es el lote ABG40, volqueta 2');
 ok(parte('ABG40.2') === 'ABG40|2', 'ABG40.2 también');
 ok(parte('SJ1015.3') === 'SJ1015|3', 'y SJ1015.3, que es la forma que más se usa');
 ok(parte('ABG40(12)') === 'ABG40|12', 'el número puede tener dos cifras');
+// El guion, porque en algunos teléfonos el punto y los paréntesis casi
+// no se ven y desde el patio se acaba escribiendo la raya.
+ok(parte('ABG40-2') === 'ABG40|2', 'ABG40-2 es la volqueta 2 igual que ABG40.2');
+ok(parte('SJ1015-3') === 'SJ1015|3', 'y SJ1015-3');
+ok(parte('ABG40-12') === 'ABG40|12', 'con el guion el número también puede tener dos cifras');
+// El guion es el único que también se usa DENTRO del código, entre el
+// proveedor y el lote. El de la volqueta es el que va al final.
+ok(parte('ABG-1004-2') === 'ABG-1004|2', 'ABG-1004-2 es el viaje 2 del lote ABG-1004');
+ok(parte('PG-70-11') === 'PG-70|11', 'y con el lote de dos cifras y el viaje de dos, igual');
 
 // Lo que NO se toca, que es lo que evita estropear códigos de verdad
 ok(parte('PG1042') === 'PG1042|', 'un código normal se queda entero');
 ok(parte('PG213()') === 'PG213()|', 'un paréntesis vacío se deja tal cual: no sabemos qué quiso decir');
 ok(parte('ABG-2026-000117') === 'ABG-2026-000117|', 'un código con guiones y ceros no es una volqueta');
+// Delante del guion tiene que haber un código de lote ENTERO, que
+// siempre acaba en el número del lote; y detrás, un número de viaje: una
+// o dos cifras y sin ceros delante, que es como se traen los lotes.
+ok(parte('ABG-2026') === 'ABG-2026|', 'ABG-2026 es un código, no la volqueta 2026');
+ok(parte('ABG-26') === 'ABG-26|', 'ni ABG-26 la volqueta 26: "ABG" a secas no es un lote');
+ok(parte('SJ1015-03') === 'SJ1015-03|', 'un cero delante no es un número de viaje');
+ok(parte('SJ1015-B') === 'SJ1015-B|', 'después del guion tiene que haber un número');
 ok(parte('SJ1015.B') === 'SJ1015.B|', 'después del punto tiene que haber un número');
 ok(parte('') === '|', 'y un código vacío no revienta');
 

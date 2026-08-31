@@ -456,7 +456,8 @@ const leerPlacas = (id) => [...document.querySelectorAll(`#${id}-lista input.pla
   .join(' ');
 
 // Cómo se escribe un código en pantalla. La volqueta va pequeña y
-// arriba, como un exponente: ABG40.2 se lee "ABG40" con un 2 al lado.
+// arriba, como un exponente: ABG40.2 —o ABG40-2, o ABG40(2)— se lee
+// "ABG40" con un 2 al lado.
 // Lo hace `Mapa.partesCodigo`, que es quien conoce el formato; aquí solo
 // se le pone el HTML. El dato guardado no se toca: en el buscador, en la
 // corrección de datos y en el informe sigue saliendo entero.
@@ -471,8 +472,8 @@ function codigoHTML(codigo) {
 //
 // Se cambia SOLO el principio y se respeta todo lo demás tal cual, con
 // su número y con el sufijo de volqueta sea como sea que esté escrito
-// —SJ115(2) o ABG40.2—: quien lo tecleó eligió ese formato y no es
-// asunto de esta corrección cambiarlo.
+// —SJ115(2), ABG40.2 o ABG40-2—: quien lo tecleó eligió ese formato y
+// no es asunto de esta corrección cambiarlo.
 const recodificar = (codigo, vieja, nueva) => {
   const t = String(codigo || '').trim().toUpperCase();
   const v = String(vieja || '').toUpperCase(), n = String(nueva || '').toUpperCase();

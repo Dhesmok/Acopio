@@ -22,7 +22,10 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 
 // Un mismo lote puede llegar en varias volquetas, y como el código no se
 // puede repetir, en el patio se apunta la volqueta pegada al código:
-// ABG40(2) y ABG40.2 son los dos la SEGUNDA volqueta del lote ABG40.
+// ABG40(2), ABG40.2 y ABG40-2 son los tres la SEGUNDA volqueta del lote
+// ABG40. El guion se admite porque en algunos teléfonos el punto y los
+// paréntesis casi no se ven en la pantalla, y quien apunta desde el
+// patio acaba escribiendo la raya, que se distingue de lejos.
 //
 // Se separa para poder mostrar el código a secas y el número pequeño
 // arriba, como un exponente: dentro de un óvalo no sobra sitio, y así lo
@@ -34,8 +37,21 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 // deja tal cual: no sabemos qué quiso decir, y adivinar sería peor.
 export function partesCodigo(codigo) {
   const t = String(codigo ?? '');
-  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+))$/);
-  return m ? { base: m[1], volqueta: m[2] || m[3] } : { base: t, volqueta: '' };
+  // El guion es el único de los tres que también se usa DENTRO del
+  // código —ABG-1004 es el proveedor y el lote—, así que el de la
+  // volqueta se reconoce por dónde está y por lo que lleva detrás, no
+  // por ser el primero: ABG-1004-2 es el viaje 2 del lote ABG-1004.
+  //
+  // Delante tiene que haber un código de lote entero, que siempre acaba
+  // en el número del lote: por eso en ABG-26 el 26 es el lote y no una
+  // volqueta —"ABG" a secas no es un lote—. Y detrás va un número de
+  // viaje: una o dos cifras y sin ceros delante, porque un lote se trae
+  // en dos o en doce volquetas, nunca en la 000117. Así el guion de un
+  // código largo con serial (ABG-2026-000117) se queda donde está.
+  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-([1-9]\d?))$/);
+  if (!m) return { base: t, volqueta: '' };
+  if (m[4] !== undefined && !/\d$/.test(m[1])) return { base: t, volqueta: '' };
+  return { base: m[1], volqueta: m[2] || m[3] || m[4] };
 }
 
 export const COLORES_BASE = {
