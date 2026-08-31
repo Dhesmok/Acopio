@@ -37,18 +37,17 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 // deja tal cual: no sabemos qué quiso decir, y adivinar sería peor.
 export function partesCodigo(codigo) {
   const t = String(codigo ?? '');
-  // El guion pide cautelas que el punto y el paréntesis no piden, porque
-  // también es el separador de los códigos largos de proveedor
-  // (ABG-2026-000117). Se le exigen tres cosas, y con las tres juntas lo
-  // único que queda por volqueta es un código de patio con su raya:
-  // número sin ceros delante y de una o dos cifras —una volqueta es la 2
-  // o la 12, nunca la 000117—, ningún otro guion en la base, y una base
-  // que acabe en número, que es como son los códigos de aquí (ABG40): en
-  // ABG-26 el 26 es el número del lote, no la volqueta.
-  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-([1-9]\d?))$/);
+  // Al guion se le pide UNA cosa más que al punto: que lo de delante
+  // termine en número y no traiga ya otro guion. Es la forma de un
+  // código de aquí —la sigla, el número del lote, y como mucho un
+  // separador— dicha en código, y basta para que el guion de un código
+  // largo de proveedor (ABG-2026-000117) no se confunda con el de una
+  // volqueta, y para que en ABG-26 el 26 se lea como lo que es, el
+  // número del lote. Cumplido eso, el guion se comporta igual que el
+  // punto y no se le inventan más límites al número.
+  const m = t.match(/^(.+?)(?:\((\d+)\)|\.(\d+)|-(\d+))$/);
   if (!m) return { base: t, volqueta: '' };
-  if (m[4] !== undefined && (m[1].includes('-') || !/\d$/.test(m[1])))
-    return { base: t, volqueta: '' };
+  if (m[4] !== undefined && !/^[^-]*\d$/.test(m[1])) return { base: t, volqueta: '' };
   return { base: m[1], volqueta: m[2] || m[3] || m[4] };
 }
 
