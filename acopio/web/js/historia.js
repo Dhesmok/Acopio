@@ -66,17 +66,56 @@ function aplicar(l, e) {
 // apunte: el último anterior al momento pedido, y si no hay ninguno, el
 // primero posterior, que es la marca de "de dónde salió" que se escribe
 // la primera vez que un lote se traslada.
+// `apuntado` dice de dónde salió la posición: de un apunte de traslado,
+// o heredada de donde está el lote hoy. Quien llama lo necesita porque
+// heredarla no siempre vale (ver `repartirAlrededor`).
 function dondeEstaba(l, suyos, t) {
   const mov = (e) => e.tipo === 'movimiento' && e.x != null;
   const despues = suyos.find((e) => mov(e) && e.ocurrido_en > t);
-  if (!despues) return { x: l.x, y: l.y };
+  if (!despues) return { x: l.x, y: l.y, apuntado: false };
   let ultimo = null;
   for (const e of suyos) {
     if (e.ocurrido_en > t) break;
     if (mov(e)) ultimo = e;
   }
   const p = ultimo || despues;
-  return { x: Number(p.x), y: Number(p.y) };
+  return { x: Number(p.x), y: Number(p.y), apuntado: true };
+}
+
+// Un lote que HOY está dentro de una pila NO tiene sitio propio en el
+// plano: no se dibuja suelto, y la posición que lleva guardada es la del
+// punto donde se soltó el dedo al meterlo, encima de la pila. Así que
+// mirando un día en que todavía andaba suelto, "donde está hoy" no dice
+// nada: los que comparten pila salen todos en el mismo punto, montados
+// unos sobre otros. Eso es lo que se veía en el patio.
+//
+// Dónde estaba de verdad no se puede saber sin un apunte de traslado, y
+// los que entraron a la pila antes de que eso se registrara no lo
+// tienen. Lo que sí se sabe es que estaban POR AHÍ: una pila se arma con
+// lo que ya está junto. Así que se reparten en un anillo alrededor de la
+// pila —en orden fijo, para que no bailen al mover el deslizador— y van
+// marcados como aproximados, igual que todo lo que aquí se supone.
+//
+// El radio sale de dos exigencias: caer FUERA de la pila, que puede
+// estar dibujada si a esa hora ya tenía otros lotes dentro, y quedar
+// suficientemente separados entre sí, que con muchos lotes es lo que
+// manda. `sin(π/n)` es la mitad del hueco entre dos vecinos del anillo.
+const radioDe = (o) => Math.max(Number(o.rx) || 40, Number(o.ry) || 40);
+
+function repartirAlrededor(grupo, pila) {
+  grupo.sort((a, b) => String(a.codigo ?? a.id).localeCompare(String(b.codigo ?? b.id),
+    'es', { numeric: true }));
+  const mayor = Math.max(...grupo.map(radioDe));
+  const cx = Number(pila?.x ?? grupo[0].x), cy = Number(pila?.y ?? grupo[0].y);
+  const afuera = (pila ? radioDe(pila) : 0) + mayor + 14;
+  const holgados = grupo.length > 1 ? (mayor * 1.15) / Math.sin(Math.PI / grupo.length) : 0;
+  const r = Math.max(afuera, holgados);
+  grupo.forEach((l, i) => {
+    const a = (2 * Math.PI * i) / grupo.length - Math.PI / 2;
+    l.x = cx + r * Math.cos(a);
+    l.y = cy + r * Math.sin(a);
+    l._aprox = true;
+  });
 }
 
 // Hasta dónde alcanza la reconstrucción: el evento más viejo que hay.
@@ -111,6 +150,7 @@ export function planoEn(t, { lotes = [], pilas = [], eventos = [], indice = null
   const suyos = indice || indexar(eventos);
 
   const reconstruidos = [];
+  const sinSitio = new Map();          // los que hay que repartir, por pila
   let aproximados = 0;
   for (const l of lotes) {
     const mios = suyos.get(l.id) || [];
@@ -169,8 +209,19 @@ export function planoEn(t, { lotes = [], pilas = [], eventos = [], indice = null
     // pisa con cada traslado apuntado y aquí manda otro criterio.
     const sitio = dondeEstaba(l, mios, t);
     copia.x = sitio.x; copia.y = sitio.y;
+    // Suelto entonces, en una pila hoy y sin ningún traslado apuntado:
+    // la posición que trae es la del sitio donde se soltó el dedo al
+    // meterlo a la pila, no la del patio. Se aparta para repartirla.
+    if (l.pila_id && !copia.pila_id && !sitio.apuntado) {
+      if (!sinSitio.has(l.pila_id)) sinSitio.set(l.pila_id, []);
+      sinSitio.get(l.pila_id).push(copia);
+    }
     reconstruidos.push(copia);
   }
+
+  for (const [pilaId, grupo] of sinSitio)
+    repartirAlrededor(grupo, pilas.find((p) => p.id === pilaId));
+  aproximados = reconstruidos.filter((l) => l._aprox).length;
 
   // Una pila se ve si ya existía y si en ese momento tenía algo dentro.
   // Su ciclo de vida no se guarda como evento, pero no hace falta: una

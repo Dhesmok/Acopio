@@ -6,6 +6,10 @@ import { readFile } from 'node:fs/promises';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
 import { planoEn, desde, indexar } from '../web/js/historia.js';
 
+// Aquí no hay navegador, así que unas cuantas cosas se comprueban
+// LEYENDO el código de la app. Se lee una vez, al principio.
+const fuente = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+
 const T = (d) => `2026-07-${String(d).padStart(2, '0')}T12:00:00.000Z`;
 
 // Un lote que entra el 10, se muestrea el 12, se mete en una pila el 14
@@ -158,6 +162,68 @@ ok(antesDelCambio.pila_id === 'p1', 'pero de la pila no se sabe nada nuevo, así
 ok(antesDelCambio._aprox === true, 'y el lote va marcado, porque el estado es un supuesto');
 
 // ---------------------------------------------------------------------
+titulo('Los que hoy están en una pila no salen montados unos sobre otros.');
+
+// ESTO es lo que se veía en el patio. Meter un lote a una pila se hace
+// arrastrándolo encima, y eso PISA su posición con la del punto donde se
+// soltó el dedo. Como el lote pasa a dibujarse dentro de la pila, esa
+// posición ya no se ve nunca... hasta que se mira un día en que todavía
+// andaba suelto: entonces salen todos los de la pila en el mismo punto,
+// unos encima de otros, ilegibles.
+//
+// Dónde estaba de verdad no se sabe —no hay apunte de traslado—, pero sí
+// se sabe que estaba por ahí: una pila se arma con lo que ya está junto.
+// Así que se reparten alrededor de la pila y se marcan como aproximados.
+const enPila = (id, x, y) => ({ id, codigo: id, estado: 'muestreado', pila_id: 'p9',
+  forma: 'elipse', x, y, rx: 40, ry: 40, rot: 0, fecha_recogida: null, creado_en: T(2) });
+// Los tres cayeron casi en el mismo punto, que es como quedan de verdad
+const montados = [enPila('A', 505, 500), enPila('B', 495, 502), enPila('C', 500, 495)];
+const pila9 = { id: 'p9', codigo: '9', estado: 'abierta', forma: 'elipse',
+                x: 500, y: 500, rx: 90, ry: 60, rot: 0, creado_en: T(20) };
+const entradas = montados.map((l) => ({ lote_id: l.id, tipo: 'ingreso_pila',
+                                        pila_id: 'p9', ocurrido_en: T(20) }));
+const sueltos = planoEn(T(15), { lotes: montados, pilas: [pila9], eventos: entradas }).lotes;
+
+ok(sueltos.length === 3, 'el día 15 los tres andaban sueltos');
+ok(sueltos.every((l) => l.pila_id === null), 'la pila todavía no existía');
+const lejos = sueltos.every((a) => sueltos.every((b) =>
+  a.id === b.id || Math.hypot(a.x - b.x, a.y - b.y) > a.rx + b.rx));
+ok(lejos, 'y ninguno se traslapa con otro: se reparten alrededor de la pila');
+ok(sueltos.every((l) => l._aprox === true),
+   'van marcados como aproximados, porque el sitio exacto no se sabe');
+// El deslizador repinta muchas veces el mismo instante: si el reparto no
+// fuera fijo, los lotes bailarían por el plano en cada tirón del dedo.
+const otraVez = planoEn(T(15), { lotes: montados, pilas: [pila9], eventos: entradas }).lotes;
+ok(otraVez.every((l, i) => l.x === sueltos[i].x && l.y === sueltos[i].y),
+   'y el reparto es el mismo cada vez: no bailan al mover el deslizador');
+ok(montados.every((l) => l.x >= 495 && l.x <= 505),
+   'los lotes de verdad no se tocan: siguen con su posición guardada');
+
+// Con un apunte de traslado NO se inventa nada: manda el apunte.
+const conApunte = [...entradas,
+  { lote_id: 'A', tipo: 'movimiento', x: 120, y: 340, ocurrido_en: T(10) },
+  { lote_id: 'A', tipo: 'movimiento', x: 505, y: 500, ocurrido_en: T(19) }];
+const sabido = planoEn(T(15), { lotes: montados, pilas: [pila9], eventos: conApunte })
+  .lotes.find((l) => l.id === 'A');
+ok(sabido.x === 120 && sabido.y === 340,
+   `el que sí tiene apunte va donde dice el apunte (${sabido.x}, ${sabido.y})`);
+
+// Y mirando un día en que YA estaban dentro, no se reparte nada: el lote
+// no se dibuja suelto y la pila ocupa su sitio.
+const dentro = planoEn(T(25), { lotes: montados, pilas: [pila9], eventos: entradas }).lotes;
+ok(dentro.every((l) => l.pila_id === 'p9'), 'el 25 ya estaban los tres dentro');
+ok(dentro.every((l, i) => l.x === montados[i].x && l.y === montados[i].y),
+   'y a esos no se les toca la posición: no se dibujan sueltos');
+
+// Meter un lote a una pila tiene que APUNTAR el traslado, o el arreglo de
+// arriba se queda siendo un parche para siempre.
+const soltar = (fuente.match(/if \(blanco\.tipo === 'pila'\)[\s\S]*?^  \}/m) || [''])[0];
+ok(/anotarRecorrido\(lote, antes\)/.test(soltar),
+   'al meter un lote a una pila se apunta de dónde salió');
+ok(soltar.indexOf('anotarRecorrido') < soltar.indexOf("tipo: 'ingreso_pila'"),
+   'y se apunta ANTES del ingreso, que es el orden en que pasó');
+
+// ---------------------------------------------------------------------
 titulo('El índice se hace una vez y sirve para todos los momentos.');
 
 const idx = indexar(eventos);
@@ -180,13 +246,12 @@ ok(desde([]) === null, 'y sin eventos, que no se puede');
 // ---------------------------------------------------------------------
 titulo('El deslizador no se rehace mientras el dedo lo arrastra.');
 
-// Aquí no hay navegador, así que esto se mira en el código. Y merece
-// una prueba porque fue el fallo: cada tirón del deslizador volvía a
-// escribir la barra entera, y con ella el propio <input> que el dedo
-// tenía cogido. El navegador perdía el elemento a mitad del gesto y el
-// arrastre se cortaba solo, así que mover el deslizador era pelearse
-// con él. Ahora al moverlo solo cambian dos textos y el plano.
-const fuente = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+// Esto se mira en el código, y merece una prueba porque fue el fallo:
+// cada tirón del deslizador volvía a escribir la barra entera, y con
+// ella el propio <input> que el dedo tenía cogido. El navegador perdía
+// el elemento a mitad del gesto y el arrastre se cortaba solo, así que
+// mover el deslizador era pelearse con él. Ahora al moverlo solo cambian
+// dos textos y el plano.
 const alMover = (fuente.match(/campo\.oninput = .*/) || [''])[0];
 ok(alMover.includes('rotularHistoria') && alMover.includes('pedirPintado'),
    'al mover se rotula y se pide un pintado');

@@ -2931,6 +2931,13 @@ async function manejarSoltar(lote, blanco, antes) {
     });
     if (!ok) return volver();
     await Store.guardarFigura('lotes', { ...lote });
+    // Meterlo a la pila LO MUEVE: la posición que se acaba de guardar es
+    // la del punto donde se soltó el dedo, encima de la pila, y pisa la
+    // que tenía en el patio. Sin apuntar ese traslado, mirar un día en
+    // que el lote todavía andaba suelto lo dibujaba sobre la pila, junto
+    // a todos los demás que entraron igual: montados unos sobre otros.
+    // Va ANTES del ingreso porque eso fue lo que pasó: primero se movió.
+    await anotarRecorrido(lote, antes);
     await Store.registrarEvento({
       lote_id: lote.id, tipo: 'ingreso_pila', pila_id: blanco.obj.id, usuario_id: S.perfil.id
     });
