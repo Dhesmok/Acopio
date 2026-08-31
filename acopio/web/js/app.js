@@ -3295,7 +3295,7 @@ function confirmarSalida() {
     </div>`);
   $('#quedarse').onclick = cerrarHoja;
   $('#salir-igual').onclick = accion(async () => {
-    await Store.salir();
+    await Store.salir(true);
     location.reload();
   }, { ocupado: 'Cerrando…' });
 }

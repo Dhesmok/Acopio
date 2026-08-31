@@ -58,9 +58,12 @@ const idb = {
 export async function iniciar() { db = await abrir(); }
 
 // ------------------------------------------------------------ utilidades
+// Generación segura de UUID para claves primarias y eventos locales
 export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
+      const buf = new Uint8Array(1);
+      crypto.getRandomValues(buf);
+      const r = buf[0] & 15;
       return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     }));
 const ahora = () => new Date().toISOString();
@@ -1178,7 +1181,14 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+// Protege la cola local contra borrado accidental de datos offline sin subir
+export async function salir(forzar = false) {
+  if (!forzar) {
+    const cola = await pendientes();
+    if (cola.length > 0) {
+      throw new Error(`Hay ${cola.length} cambios sin subir.`);
+    }
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }
