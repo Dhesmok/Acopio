@@ -690,11 +690,13 @@ export async function renombrarPila(id, cambios) {
   return fila;
 }
 
+// `ocurrido_en` se puede dar de fuera, y solo hace falta para una cosa:
+// la pareja de apuntes de un traslado. Ver `anotarRecorrido` en app.js.
 export async function registrarEvento({
   lote_id, tipo, estado_nuevo, pila_id, plataforma_id, punto_id,
-  fecha_recogida, x, y, nota, usuario_id
+  fecha_recogida, x, y, nota, usuario_id, ocurrido_en
 }) {
-  const t = ahora();
+  const t = ocurrido_en || ahora();
   const fila = {
     id: uuid(), lote_id, tipo,
     estado_nuevo: estado_nuevo || null, pila_id: pila_id || null,

@@ -1221,6 +1221,26 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .con-sigla input { border-radius: 0 var(--r) var(--r) 0; }
 
+/* El número del lote y el del viaje, en la misma fila y cada uno con su
+   casilla. Van separados a propósito: el teclado numérico del celular no
+   tiene guion ni punto ni paréntesis, así que "1004-2" no se podía
+   escribir de corrido en un solo campo. Con dos casillas los dos
+   conservan el teclado de números grande —el que se usa con guantes— y
+   el código lo arma la app.
+
+   El viaje ocupa lo justo para dos cifras: más ancho invitaría a meter
+   ahí otra cosa, y estrecho se lee como lo que es, un añadido al número
+   de al lado. */
+.fila-lote { display: flex; gap: 8px; align-items: flex-start; }
+.fila-lote .campo { flex: 1; min-width: 0; }
+.fila-lote .campo-viaje { flex: 0 0 84px; }
+.campo-viaje input { text-align: center; }
+/* La casilla vacía no puede parecer un olvido: la mayoría de los lotes
+   llegan en un solo viaje y se deja en blanco. La raya lo dice. */
+.campo-viaje input::placeholder { color: var(--linea-suave); }
+#f-quedara { margin: -6px 0 13px; font-family: var(--mono); }
+#f-quedara:empty { display: none; }
+
 /* --- fila de lote dentro de una pila, con su botón de salida --- */
 .fila-pila { display: flex; gap: 7px; align-items: stretch; margin-bottom: 8px; }
 .fila-pila .lote { flex: 1; }
