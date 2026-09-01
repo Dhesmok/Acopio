@@ -57,6 +57,9 @@ const evento = (x, y, { manija, figura } = {}) => ({
 });
 
 const Mapa = await import('../web/js/mapa.js');
+// Aquí no hay navegador, así que varias cosas se comprueban LEYENDO el
+// código de la app. Se lee una vez, al principio.
+const fuenteApp = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
 Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {});
 
 titulo('Un código o una etiqueta con caracteres raros no rompen el mapa.');
@@ -437,6 +440,26 @@ ok(parte('SJ1015-B') === 'SJ1015-B|', 'después del guion tiene que haber un nú
 ok(parte('SJ1015.B') === 'SJ1015.B|', 'después del punto tiene que haber un número');
 ok(parte('') === '|', 'y un código vacío no revienta');
 
+// El círculo se cierra aquí: el código que ARMA el formulario de nuevo
+// lote —número y viaje en casillas aparte, porque el teclado numérico de
+// un celular no tiene guion— tiene que ser exactamente uno de los que
+// esta función sabe partir. Si un día se separan, el lote se guardaría
+// bien y se dibujaría mal, y nadie ataría una cosa con la otra.
+const armaCodigo = new Function('num', 'crudo', `
+  const $ = (sel) => sel === '#f-num' ? { value: num } : { value: crudo };
+  ${(() => {
+    const a = fuenteApp.indexOf('const limpiarViaje =');
+    const b = fuenteApp.indexOf('const rotular =', a);
+    return fuenteApp.slice(a, b);
+  })()}
+  const sigla = () => 'PG';
+  return codigoDe();
+`);
+ok(parte(armaCodigo('1004', '2')) === 'PG1004|2',
+   'el código que arma el formulario se dibuja con el viaje arriba');
+ok(parte(armaCodigo('70', '11')) === 'PG70|11', 'también con lote y viaje de dos cifras');
+ok(parte(armaCodigo('1004', '')) === 'PG1004|', 'y sin viaje no hay nada que elevar');
+
 // En el plano, el código va entero y el número pequeño encima
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
   lotes: [{ id: 'lv', codigo: 'ABG40.2', estado: 'muestreado', pila_id: null,
@@ -495,7 +518,6 @@ titulo('Los botones de cambiar estado llevan el color de su estado.');
 // agregar "alimentado" el estado se quedó sin color en las tres partes
 // —la variable, el botón y la etiqueta— y salió gris sobre gris sin que
 // nada se quejara. Así, un estado nuevo sin color rompe la prueba.
-const fuenteApp = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
 const elegibles = (fuenteApp.match(/const ESTADOS_ELEGIBLES = \[([^\]]+)\]/) || [])[1]
   .match(/'([a-z_]+)'/g).map((s) => s.replace(/'/g, ''));
 ok(elegibles.length >= 7, `se leyeron los ${elegibles.length} estados elegibles de app.js`);

@@ -443,6 +443,43 @@ ok(recod('XX1042', 'PG', 'SJ') === 'SJ1042', 'un código que no seguía la regla
 ok(recod('1042', 'PG', 'SJ') === 'SJ1042', 'y a uno sin letras se le pone la sigla delante');
 
 // ---------------------------------------------------------------------
+titulo('El número de viaje tiene su propia casilla.');
+
+// El teclado numérico de un celular NO tiene guion, ni punto, ni
+// paréntesis: en un iPhone, escribir "1004-2" en el campo del número era
+// sencillamente imposible. Con dos casillas los dos campos conservan el
+// teclado de números grande —el que se usa con guantes— y el código lo
+// arma la app.
+const campos = trozo('<label for="f-num">', '${cajaPlacas(');
+ok(/id="f-viaje"[^>]*inputmode="numeric"/s.test(campos),
+   'el viaje tiene su propio campo, también con teclado de números');
+ok(/id="f-num"[^>]*inputmode="numeric"/s.test(campos),
+   'y el número del lote conserva el suyo: nadie tiene que teclear un símbolo');
+
+// Se limpia a lo que `partesCodigo` sabe leer como viaje, o el lote
+// quedaría con un código que luego no se muestra con el número arriba y
+// la diferencia no se vería hasta después.
+const armarCodigo = new Function('S', 'num', 'crudo', `
+  const $ = (sel) => sel === '#f-num' ? { value: num } : { value: crudo };
+  ${trozo('const limpiarViaje =', 'const rotular =')}
+  const sigla = () => 'PG';
+  return codigoDe();
+`);
+const arma = (num, viaje) => armarCodigo({}, num, viaje);
+
+ok(arma('1004', '') === 'PG1004', 'sin viaje, el código es el de siempre');
+ok(arma('1004', '2') === 'PG1004-2', 'con viaje 2 queda PG1004-2');
+ok(arma('1004', '12') === 'PG1004-12', 'y el viaje puede tener dos cifras');
+// Lo que se limpia, y por qué
+ok(arma('1004', '02') === 'PG1004-2', 'un cero delante se cae: "-02" no se mostraría arriba');
+ok(arma('1004', '0') === 'PG1004', 'y un cero solo es no haber puesto viaje');
+ok(arma('1004', '123') === 'PG1004-12', 'más de dos cifras no es un viaje: se recorta');
+ok(arma('1004', 'a-2') === 'PG1004-2', 'y si algún teclado cuela letras o el guion, se quitan');
+// Que lo que arma el formulario sea justo lo que el plano dibuja con el
+// número arriba se comprueba en la tanda del mapa, que es donde vive
+// `partesCodigo`.
+
+// ---------------------------------------------------------------------
 titulo('La escena de muestreo encuadra ANTES de montarse.');
 
 // La escena se dibuja sobre el encuadre que hay en ese momento: montarla
