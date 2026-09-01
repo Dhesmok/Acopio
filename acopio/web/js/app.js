@@ -1872,7 +1872,7 @@ async function hojaNuevaTarea() {
   const pintarElegidos = () => {
     $('#t-elegidos').innerHTML = [...elegidos].map((k) => {
       const c = catalogo.find((o) => o.k === k);
-      return `<button type="button" class="pastilla quita" data-k="${k}"
+      return `<button type="button" class="pastilla quita" data-k="${esc(k)}"
         >${esc(c ? c.txt : k)} <span aria-hidden="true">×</span></button>`;
     }).join('');
     for (const b of document.querySelectorAll('#t-elegidos .quita'))
@@ -1884,7 +1884,7 @@ async function hojaNuevaTarea() {
     const hay = catalogo.filter((o) => !elegidos.has(o.k)
       && (!q || o.txt.toUpperCase().includes(q)));
     $('#t-opciones').innerHTML = !q && !hay.length ? ''
-      : hay.length ? hay.slice(0, 15).map((o) => `<button type="button" data-k="${o.k}"
+      : hay.length ? hay.slice(0, 15).map((o) => `<button type="button" data-k="${esc(o.k)}"
           ><strong>${esc(o.txt)}</strong><span class="dias">${esc(o.sub)}</span></button>`).join('')
           + (hay.length > 15 ? `<p class="pista">y ${hay.length - 15} más: escribe una letra más</p>` : '')
         : '<p class="pista">Ningún lote ni pila con ese código.</p>';
