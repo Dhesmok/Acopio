@@ -4,6 +4,7 @@
 import * as Store from './store.js';
 import { sb } from './store.js';
 import * as Mapa from './mapa.js';
+import { esUrlSegura } from './mapa.js';
 import { planoEn, desde, indexar } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
 
@@ -1410,7 +1411,7 @@ async function panelTienda() {
       const falta = p.precio - saldo;
       const puede = !agotado && p.activo && falta <= 0 && cat.alDia;
       return `<article class="prod${p.activo ? '' : ' retirado'}" data-id="${p.id}">
-        <div class="foto">${p.imagen_url
+        <div class="foto">${p.imagen_url && esUrlSegura(p.imagen_url)
           ? `<img src="${esc(p.imagen_url)}" alt="${esc(p.nombre)}" loading="lazy">`
           : `<span class="sin-foto">${ICO.bolsa}</span>`}
           ${agotado ? '<span class="cinta">Agotado</span>'
@@ -1524,7 +1525,7 @@ function fichaProducto(p) {
     </div>
 
     <div class="campo"><label>Foto</label>
-      <div class="foto-prod" id="p-vista">${p?.imagen_url
+      <div class="foto-prod" id="p-vista">${p?.imagen_url && esUrlSegura(p.imagen_url)
         ? `<img src="${esc(p.imagen_url)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`}</div>
       <input type="file" id="p-foto" accept="image/*" style="margin-top:8px">
       <p class="pista">Una foto de verdad vende diez veces más que un nombre.</p></div>
@@ -1561,7 +1562,7 @@ function fichaProducto(p) {
     $('#p-vista').innerHTML = '<span class="sin-foto">Subiendo…</span>';
     try {
       foto = await Store.subirImagenProducto(archivo);
-      $('#p-vista').innerHTML = `<img src="${esc(foto)}" alt="">`;
+      $('#p-vista').innerHTML = esUrlSegura(foto) ? `<img src="${esc(foto)}" alt="">` : `<span class="sin-foto">${ICO.bolsa}</span>`;
     } catch (e) {
       $('#p-vista').innerHTML = `<span class="sin-foto">${ICO.bolsa}</span>`;
       decirError(e);

@@ -4,6 +4,7 @@
 // =====================================================================
 import { readFile } from 'node:fs/promises';
 import { ok, titulo, cerrar } from './ayudas/decir.mjs';
+import { esUrlSegura } from '../web/js/mapa.js';
 
 globalThis.addEventListener = () => {};
 // El vuelo hasta una figura buscada usa los cuadros del navegador. Aquí
@@ -857,5 +858,16 @@ ok(/this\.innerHTML = antes;/.test(acc), 'y se le devuelve entero al terminar');
 // marcado, un mensaje con un < rompería el botón.
 ok(/this\.textContent = ocupado;/.test(acc),
    'y lo que se enseña mientras trabaja se pinta como texto, nunca como marcado');
+
+// ---------------------------------------------------------------------
+titulo('Las URLs de imágenes se sanearán para prevenir XSS.');
+
+ok(fuenteMapa.includes('esUrlSegura'), 'mapa.js valida URLs con esUrlSegura');
+ok(fuenteApp.includes('esUrlSegura'), 'app.js valida URLs con esUrlSegura');
+
+ok(esUrlSegura('https://ejemplo.com/foto.jpg'), 'acepta https://');
+ok(esUrlSegura('data:image/png;base64,123'), 'acepta data:image/png');
+ok(!esUrlSegura('javascript:alert(1)'), 'bloquea javascript:');
+ok(!esUrlSegura('data:text/html,<script>alert(1)</script>'), 'bloquea data:text/html');
 
 cerrar();
