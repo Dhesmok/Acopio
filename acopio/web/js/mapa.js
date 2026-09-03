@@ -20,6 +20,13 @@ let pinchInicial = null, movio = false;
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Sanitización de URLs de imagen para prevenir esquemas no seguros (como javascript:)
+export const esUrlSegura = (url) => {
+  if (!url) return false;
+  const u = String(url).trim().toLowerCase();
+  return u.startsWith('https://') || u.startsWith('http://') || u.startsWith('/') || u.startsWith('./') || u.startsWith('blob:');
+};
+
 // Un mismo lote puede llegar en varias volquetas, y como el código no se
 // puede repetir, en el patio se apunta la volqueta pegada al código:
 // ABG40(2), ABG40.2 y ABG40-2 son los tres la SEGUNDA volqueta del lote
@@ -256,10 +263,10 @@ export function pintar(d) {
       </pattern>
     </defs>
     <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${esc(c.color_fondo || '#e4e7e2')}"/>
-    ${c.imagen_url ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
+    ${c.imagen_url && esUrlSegura(c.imagen_url) ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
         width="${c.imagen_ancho}" height="${c.imagen_alto}"
         opacity="${c.imagen_opacidad ?? 1}" preserveAspectRatio="none"/>` : ''}
-    ${c.imagen_url ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}
+    ${c.imagen_url && esUrlSegura(c.imagen_url) ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
           fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
     ${datos.figuras.map(figuraFondo).join('')}

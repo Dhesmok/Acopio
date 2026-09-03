@@ -858,4 +858,27 @@ ok(/this\.innerHTML = antes;/.test(acc), 'y se le devuelve entero al terminar');
 ok(/this\.textContent = ocupado;/.test(acc),
    'y lo que se enseña mientras trabaja se pinta como texto, nunca como marcado');
 
+// ---------------------------------------------------------------------
+titulo('Las URLs de imagen no seguras se bloquean.');
+
+ok(Mapa.esUrlSegura('https://ejemplo.com/foto.jpg'), 'https:// es una URL segura');
+ok(Mapa.esUrlSegura('http://ejemplo.com/foto.jpg'), 'http:// es una URL segura');
+ok(Mapa.esUrlSegura('./foto.jpg'), './ es una URL segura');
+ok(Mapa.esUrlSegura('/foto.jpg'), '/ es una URL segura');
+ok(Mapa.esUrlSegura('blob:http://localhost/123'), 'blob: es una URL segura');
+ok(!Mapa.esUrlSegura('javascript:alert(1)'), 'javascript: es bloqueada');
+ok(!Mapa.esUrlSegura('data:text/html,<script>alert(1)</script>'), 'data: no-imagen es bloqueada');
+
+Mapa.pintar({
+  config: { ancho: 1000, alto: 700, color_fondo: '#e4e7e2', imagen_url: 'javascript:alert(1)' },
+  figuras: [], pilas: [], lotes: []
+});
+ok(!lienzo.innerHTML.includes('javascript:alert'), 'una URL con javascript: no se dibuja en el mapa');
+
+Mapa.pintar({
+  config: { ancho: 1000, alto: 700, color_fondo: '#e4e7e2', imagen_url: 'https://ejemplo.com/fondo.jpg' },
+  figuras: [], pilas: [], lotes: []
+});
+ok(lienzo.innerHTML.includes('https://ejemplo.com/fondo.jpg'), 'una URL de imagen https:// sí se dibuja en el mapa');
+
 cerrar();
