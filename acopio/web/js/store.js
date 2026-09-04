@@ -331,10 +331,24 @@ export async function resolverCanje(id, estado) {
   return { ok: true };
 }
 
+const EXTENSIONES_IMAGEN = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+
+function validarImagen(archivo) {
+  if (!archivo) throw new Error('No se seleccionó ningún archivo.');
+  if (archivo.type && !archivo.type.startsWith('image/')) {
+    throw new Error('El archivo seleccionado debe ser una imagen.');
+  }
+  const ext = (archivo.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!EXTENSIONES_IMAGEN.has(ext)) {
+    throw new Error('Formato de imagen no permitido. Usa JPG, PNG, WEBP o GIF.');
+  }
+  return ext;
+}
+
 // La foto del producto va al mismo depósito que el fondo del mapa: ya es
 // público para leer y solo el admin sube, que es justo lo que hace falta.
 export async function subirImagenProducto(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = validarImagen(archivo);
   const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
@@ -1172,7 +1186,7 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = validarImagen(archivo);
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
