@@ -1180,7 +1180,18 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+// Blindar el cierre de sesión para evitar pérdida accidental de datos locales
+// sin sincronizar. Si hay cambios pendientes o fallidos en el celular, se
+// exige confirmación explícita (forzar = true).
+export async function salir(forzar = false) {
+  if (!forzar) {
+    const cola = await pendientes();
+    const malos = await fallidos();
+    const total = cola.length + malos.length;
+    if (total > 0) {
+      throw new Error(`Hay ${total} cambio${total === 1 ? '' : 's'} sin subir en el celular.`);
+    }
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

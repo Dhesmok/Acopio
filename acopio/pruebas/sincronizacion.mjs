@@ -291,4 +291,21 @@ const enServidor = [...servidor.tablas.eventos.values()]
   .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
 ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
 
+// ---------------------------------------------------------------------
+titulo('Salir sin forzar falla si hay cambios pendientes o fallidos.');
+
+// Añadir un elemento a la cola simulada en IndexedDB
+await tiendas.get('cola').set('test_op', { id: 'test_op', orden: 1 });
+let falloSalir = false;
+try {
+  await Store.salir();
+} catch (e) {
+  falloSalir = true;
+  ok(/sin subir/.test(e.message), `lanza error al intentar salir con cola pendiente: ${e.message}`);
+}
+ok(falloSalir, 'salir() impidió cerrar sesión cuando había cola pendiente');
+
+// Limpiar la cola
+await tiendas.get('cola').delete('test_op');
+
 cerrar();
