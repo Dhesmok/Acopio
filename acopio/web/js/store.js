@@ -331,10 +331,25 @@ export async function resolverCanje(id, estado) {
   return { ok: true };
 }
 
+// Valida tipo de archivo, extensión y tamaño antes de subir.
+function validarImagen(archivo) {
+  if (!archivo || !archivo.type || !archivo.type.startsWith('image/')) {
+    throw new Error('El archivo debe ser una imagen.');
+  }
+  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  if (!['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+    throw new Error('Formato de imagen no permitido.');
+  }
+  if (archivo.size > 10 * 1024 * 1024) {
+    throw new Error('La imagen excede el tamaño máximo permitido (10 MB).');
+  }
+  return ext;
+}
+
 // La foto del producto va al mismo depósito que el fondo del mapa: ya es
 // público para leer y solo el admin sube, que es justo lo que hace falta.
 export async function subirImagenProducto(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = validarImagen(archivo);
   const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
@@ -1172,7 +1187,7 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = validarImagen(archivo);
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
