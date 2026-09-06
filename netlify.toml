@@ -1,0 +1,10 @@
+[build]
+  base = "acopio"
+  publish = "web"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; media-src 'self'; font-src 'self'; object-src 'none';"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
