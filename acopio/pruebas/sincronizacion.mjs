@@ -291,4 +291,46 @@ const enServidor = [...servidor.tablas.eventos.values()]
   .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
 ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
 
+// ---------------------------------------------------------------------
+titulo('Las imágenes restringen extensiones y los UUIDs usan aleatoriedad segura.');
+
+const uMock = Store.uuid();
+ok(typeof uMock === 'string' && uMock.length > 0,
+   `uuid() funciona con randomUUID (${uMock})`);
+
+// Probamos la aleatoriedad segura fallback cuando no hay randomUUID
+const origRandomUUID = globalThis.crypto.randomUUID;
+delete globalThis.crypto.randomUUID;
+globalThis.crypto.getRandomValues = (arr) => {
+  for (let i = 0; i < arr.length; i++) arr[i] = (i * 17 + 5) & 0xff;
+  return arr;
+};
+
+const uFallback = Store.uuid();
+globalThis.crypto.randomUUID = origRandomUUID;
+
+ok(typeof uFallback === 'string' && uFallback.length === 36 && uFallback.includes('-'),
+   `uuid() fallback genera un UUID v4 usando getRandomValues (${uFallback})`);
+
+ok(Store.obtenerExtImagenSegura({ name: 'foto.jpg' }) === 'jpg', 'foto.jpg es permitida');
+ok(Store.obtenerExtImagenSegura({ name: 'FOTO.PNG' }) === 'png', 'FOTO.PNG es permitida');
+
+let errorExt = null;
+try {
+  Store.obtenerExtImagenSegura({ name: 'archivo.html' });
+} catch (e) {
+  errorExt = e.message;
+}
+ok(!!errorExt && /permiten imágenes/.test(errorExt),
+   `rechaza extensiones no permitidas (.html): "${errorExt}"`);
+
+let errorSvg = null;
+try {
+  Store.obtenerExtImagenSegura({ name: 'script.svg' });
+} catch (e) {
+  errorSvg = e.message;
+}
+ok(!!errorSvg && /permiten imágenes/.test(errorSvg),
+   `rechaza extensiones no permitidas (.svg): "${errorSvg}"`);
+
 cerrar();

@@ -58,11 +58,21 @@ const idb = {
 export async function iniciar() { db = await abrir(); }
 
 // ------------------------------------------------------------ utilidades
-export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
-  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    }));
+export const uuid = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+};
 const ahora = () => new Date().toISOString();
 
 // La fecha del patio es la del reloj de quien registra, no la de UTC.
@@ -331,11 +341,22 @@ export async function resolverCanje(id, estado) {
   return { ok: true };
 }
 
+const EXTENSIONES_IMAGEN_PERMITIDAS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+
+export function obtenerExtImagenSegura(archivo) {
+  const ext = (archivo && archivo.name ? archivo.name.split('.').pop() : '').toLowerCase();
+  if (!EXTENSIONES_IMAGEN_PERMITIDAS.has(ext)) {
+    throw new Error('Solo se permiten imágenes (jpg, jpeg, png, webp, gif).');
+  }
+  return ext;
+}
+
 // La foto del producto va al mismo depósito que el fondo del mapa: ya es
 // público para leer y solo el admin sube, que es justo lo que hace falta.
 export async function subirImagenProducto(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
-  const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const ext = obtenerExtImagenSegura(archivo);
+  const token = uuid().slice(0, 8);
+  const ruta = `tienda/${Date.now()}-${token}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
   const { data } = sb.storage.from('mapa').getPublicUrl(ruta);
@@ -1172,8 +1193,9 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
-  const ruta = `fondo-${Date.now()}.${ext}`;
+  const ext = obtenerExtImagenSegura(archivo);
+  const token = uuid().slice(0, 8);
+  const ruta = `fondo-${Date.now()}-${token}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
   const { data } = sb.storage.from('mapa').getPublicUrl(ruta);
