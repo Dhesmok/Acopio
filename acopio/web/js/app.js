@@ -3311,7 +3311,7 @@ function confirmarSalida() {
     </div>`);
   $('#quedarse').onclick = cerrarHoja;
   $('#salir-igual').onclick = accion(async () => {
-    await Store.salir();
+    await Store.salir(true);
     location.reload();
   }, { ocupado: 'Cerrando…' });
 }
@@ -4081,7 +4081,7 @@ function fichaFigura(id) {
     </div>
     <div class="campo">
       <label for="g-color">Color</label>
-      <input type="color" id="g-color" value="${f.color}">
+      <input type="color" id="g-color" value="${esc(f.color)}">
     </div>
     <h3>Forma</h3>
     <div class="acciones">

@@ -333,8 +333,18 @@ export async function resolverCanje(id, estado) {
 
 // La foto del producto va al mismo depósito que el fondo del mapa: ya es
 // público para leer y solo el admin sube, que es justo lo que hace falta.
+// Solo formatos de imagen rasterizados seguros.
+const EXTENSIONES_IMAGEN = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
+function extensionSegura(nombre) {
+  const ext = String(nombre || '').split('.').pop().toLowerCase();
+  return EXTENSIONES_IMAGEN.has(ext) ? ext : 'jpg';
+}
+
 export async function subirImagenProducto(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  if (archivo?.type && !archivo.type.startsWith('image/')) {
+    throw new Error('El archivo debe ser una imagen.');
+  }
+  const ext = extensionSegura(archivo.name);
   const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
@@ -1172,7 +1182,10 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  if (archivo?.type && !archivo.type.startsWith('image/')) {
+    throw new Error('El archivo debe ser una imagen.');
+  }
+  const ext = extensionSegura(archivo.name);
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
@@ -1180,7 +1193,16 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+// Cierra sesión y limpia los datos locales.
+// Si hay cambios pendientes en la cola y `forzar` es false, rechaza para
+// evitar pérdida accidental de datos antes de sincronizar.
+export async function salir(forzar = false) {
+  if (!forzar) {
+    const cola = await idb.todos('cola');
+    if (cola?.length > 0) {
+      throw new Error(`Hay ${cola.length} cambios pendientes por subir. Sincroniza antes de salir.`);
+    }
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

@@ -291,4 +291,20 @@ const enServidor = [...servidor.tablas.eventos.values()]
   .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
 ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
 
+// ---------------------------------------------------------------------
+titulo('salir() no borra la cola si no se fuerza.');
+
+await Store.crearLote({ codigo: 'PG-SALIR-TEST', proveedor_id: 'p1',
+  placa: 'XYZ999', material: 'granel', forma: 'elipse', x: 0, y: 0,
+  plataforma_id: 'PL-TOPSOIL', usuario_id: 'yo' });
+
+let falloNormal = false;
+try {
+  await Store.salir();
+} catch (e) {
+  falloNormal = true;
+}
+ok(falloNormal, 'salir() sin forzar falla cuando hay cambios en la cola');
+ok((await Store.lote('PG-SALIR-TEST')) !== null, 'el lote pendiente no fue borrado');
+
 cerrar();
