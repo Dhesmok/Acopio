@@ -1180,7 +1180,16 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
+// Cerrar sesión vacía IndexedDB. Para prevenir pérdida imprevista de datos
+// si salir() es llamado directamente sin haber verificado la cola local,
+// se comprueba si hay cambios pendientes o rechazados sin subir antes de proceder.
 export async function salir() {
+  const p = await pendientes();
+  const f = await fallidos();
+  const total = p.length + f.length;
+  if (total > 0) {
+    throw new Error(`Hay ${total} cambio${total === 1 ? '' : 's'} sin subir en el celular.`);
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

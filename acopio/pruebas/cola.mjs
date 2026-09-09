@@ -76,4 +76,28 @@ const r = await Store.sincronizar();
 ok(r.motivo !== 'sin_conexion', `un 42501 no se reporta como falta de señal (${JSON.stringify(r)})`);
 delete servidor.reglas.eventos;
 
+// ---------------------------------------------------------------------
+titulo('salir() impide vaciar datos si hay cambios pendientes o fallidos.');
+let lanzoError = false;
+try {
+  await Store.salir();
+} catch (e) {
+  lanzoError = true;
+  ok(/sin subir/.test(e.message), `salir() lanza error cuando hay pendientes/fallidos: "${e.message}"`);
+}
+ok(lanzoError, 'salir() lanzo un error y previno borrar la base local');
+
+// Al reintentar y sincronizar exitosamente, salir() debe proceder sin error.
+await Store.reintentarFallidos();
+await Store.sincronizar();
+ok(cola().length === 0 && malos().length === 0, 'la cola y los fallidos están vacíos');
+
+let salioSinError = true;
+try {
+  await Store.salir();
+} catch (e) {
+  salioSinError = false;
+}
+ok(salioSinError, 'salir() se ejecuta con éxito cuando no hay nada pendiente');
+
 cerrar();
