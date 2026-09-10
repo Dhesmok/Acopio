@@ -76,4 +76,20 @@ const r = await Store.sincronizar();
 ok(r.motivo !== 'sin_conexion', `un 42501 no se reporta como falta de señal (${JSON.stringify(r)})`);
 delete servidor.reglas.eventos;
 
+// ---------------------------------------------------------------------
+titulo('uuid genera UUIDs v4 seguros cuando crypto.randomUUID no está disponible.');
+const uuidReg = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const origRandomUUID = globalThis.crypto.randomUUID;
+delete globalThis.crypto.randomUUID;
+globalThis.crypto.getRandomValues = (buf) => {
+  for (let i = 0; i < buf.length; i++) buf[i] = (Math.random() * 256) | 0;
+  return buf;
+};
+const uFallback = Store.uuid();
+globalThis.crypto.randomUUID = origRandomUUID;
+delete globalThis.crypto.getRandomValues;
+
+ok(uuidReg.test(uFallback), `UUID con fallback crypto.getRandomValues es un v4 válido (${uFallback})`);
+
 cerrar();
