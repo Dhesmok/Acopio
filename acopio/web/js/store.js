@@ -1180,7 +1180,13 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+export async function salir({ forzar = false } = {}) {
+  if (!forzar) {
+    const cola = await pendientes();
+    if (cola.length > 0) {
+      throw new Error(`Hay ${cola.length} cambios pendientes sin subir.`);
+    }
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

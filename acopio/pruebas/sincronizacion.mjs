@@ -291,4 +291,25 @@ const enServidor = [...servidor.tablas.eventos.values()]
   .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
 ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
 
+// ---------------------------------------------------------------------
+titulo('Cerrar sesión rechaza borrar si quedan cambios pendientes sin subir.');
+
+tiendas.get('cola').set('pend1', { id: 'pend1', op: 'evento', cuerpo: {} });
+let restrOcurrio = false;
+try {
+  await Store.salir();
+} catch (err) {
+  restrOcurrio = err.message.includes('cambios pendientes');
+}
+ok(restrOcurrio, 'Store.salir() falla si hay cola pendiente');
+
+let forzadoExito = false;
+try {
+  await Store.salir({ forzar: true });
+  forzadoExito = true;
+} catch (err) {
+  forzadoExito = false;
+}
+ok(forzadoExito, 'Store.salir({ forzar: true }) permite cerrar perdiendo los datos');
+
 cerrar();
