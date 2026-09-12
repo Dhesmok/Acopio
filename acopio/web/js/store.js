@@ -1180,7 +1180,15 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
-export async function salir() {
+// Cierre de sesión seguro: evita borrar los datos de IndexedDB si hay
+// cambios pendientes en la cola offline, salvo que se fuerce explícitamente.
+export async function salir(forzar = false) {
+  if (!forzar) {
+    const cola = await pendientes();
+    if (cola.length > 0) {
+      throw new Error(`Hay ${cola.length} cambios sin subir.`);
+    }
+  }
   await sb.auth.signOut();
   for (const t of TIENDAS) await idb.vaciar(t);
 }

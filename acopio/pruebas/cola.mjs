@@ -76,4 +76,19 @@ const r = await Store.sincronizar();
 ok(r.motivo !== 'sin_conexion', `un 42501 no se reporta como falta de señal (${JSON.stringify(r)})`);
 delete servidor.reglas.eventos;
 
+// ---------------------------------------------------------------------
+titulo('salir() rechaza cerrar sesión sin forzar si hay datos en la cola.');
+let lanzoError = false;
+try {
+  await Store.salir();
+} catch (e) {
+  lanzoError = true;
+  ok(/cambios sin subir/.test(e.message), `salir() avisa de datos sin subir: "${e.message}"`);
+}
+ok(lanzoError, 'salir() lanzó un error al haber items en la cola');
+
+// Con forzar = true sí se limpia la cola y las tiendas de IndexedDB
+await Store.salir(true);
+ok((await Store.pendientes()).length === 0, 'salir(true) forzó la limpieza de la cola local');
+
 cerrar();
