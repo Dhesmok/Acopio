@@ -334,7 +334,7 @@ export async function resolverCanje(id, estado) {
 // La foto del producto va al mismo depósito que el fondo del mapa: ya es
 // público para leer y solo el admin sube, que es justo lo que hace falta.
 export async function subirImagenProducto(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const ruta = `tienda/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
@@ -1172,7 +1172,7 @@ async function bajar() {
 }
 
 export async function subirImagenFondo(archivo) {
-  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
+  const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
   if (error) throw new Error(error.message);
