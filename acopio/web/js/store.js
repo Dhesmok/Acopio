@@ -60,7 +60,8 @@ export async function iniciar() { db = await abrir(); }
 // ------------------------------------------------------------ utilidades
 export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
+      // Usar generador criptográficamente seguro si Math.random no es adecuado
+      const r = (crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(1))[0] % 16 : (Math.random() * 16) | 0);
       return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     }));
 const ahora = () => new Date().toISOString();
