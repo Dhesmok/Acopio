@@ -1180,7 +1180,16 @@ export async function subirImagenFondo(archivo) {
   return data.publicUrl;
 }
 
+// Cerrar sesión borra los datos de autenticación y vacía las tiendas locales.
+// Se usa un bloque try/finally para asegurar que el vaciado de IndexedDB se ejecute
+// siempre, incluso si la llamada a Supabase falla (por ejemplo, al estar sin red),
+// evitando que datos sensibles o la sesión queden expuestos en dispositivos compartidos.
 export async function salir() {
-  await sb.auth.signOut();
-  for (const t of TIENDAS) await idb.vaciar(t);
+  try {
+    await sb.auth.signOut();
+  } catch (e) {
+    console.error('Fallo al cerrar sesión en el servidor:', e);
+  } finally {
+    for (const t of TIENDAS) await idb.vaciar(t);
+  }
 }
