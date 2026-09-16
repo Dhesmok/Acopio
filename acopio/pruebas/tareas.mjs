@@ -17,6 +17,17 @@ const Store = await cargarStore();
 
 await Store.iniciar();
 
+// ---------------------------------------------------------------------
+titulo('Sanitización y validación de extensiones de imágenes.');
+
+const { limpiarExtension } = Store;
+ok(limpiarExtension('foto.jpg') === 'jpg', 'admite extensión jpg');
+ok(limpiarExtension('imagen.PNG') === 'png', 'convierte extensión en mayúsculas a minúsculas');
+ok(limpiarExtension('plano.webp') === 'webp', 'admite extensión webp');
+ok(limpiarExtension('script.php') === 'jpg', 'reemplaza extensión peligrosa php por jpg');
+ok(limpiarExtension('../../malicioso.html') === 'jpg', 'reemplaza extensión maliciosa html con path traversal por jpg');
+ok(limpiarExtension('sin_extension') === 'jpg', 'reemplaza nombre sin extensión por jpg');
+
 const enCola = async () => (await Store.pendientes());
 const modoDe = async (id) => (await enCola()).find((o) => o.id === id)?.modo;
 
