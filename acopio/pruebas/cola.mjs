@@ -76,4 +76,18 @@ const r = await Store.sincronizar();
 ok(r.motivo !== 'sin_conexion', `un 42501 no se reporta como falta de señal (${JSON.stringify(r)})`);
 delete servidor.reglas.eventos;
 
+// ---------------------------------------------------------------------
+titulo('salir() bloquea el cierre si hay cambios pendientes salvo que se fuerce.');
+let eProhibido = false;
+try {
+  await Store.salir();
+} catch (e) {
+  eProhibido = true;
+  ok(/pendientes/i.test(e.message), 'el error explica que hay cambios sin subir');
+}
+ok(eProhibido, 'Store.salir() lanzó un error al haber pendientes');
+
+await Store.salir(true);
+ok(cola().length === 0, 'Store.salir(true) forzó el cierre y vació las tiendas locales');
+
 cerrar();
