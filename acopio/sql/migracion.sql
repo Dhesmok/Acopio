@@ -1027,6 +1027,37 @@ select v.id, v.codigo, v.placa, v.estado, v.registro, v.salida,
 -- moneda del otro vale más que cualquier candado.
 grant select on v_monedas, v_saldos, v_clasificacion, v_lotes_dudosos to authenticated;
 
+-- ===================================================================
+--  ALIMENTAR ES DEL ADMIN. Ver schema.sql para el porqué: la pantalla
+--  esconde el botón, y esto lo hace cumplir aunque se llame a la API
+--  a mano.
+-- ===================================================================
+create or replace function fn_solo_admin_alimenta()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  alimenta boolean;
+begin
+  if auth.uid() is null or fn_mi_rol() = 'admin' then return new; end if;
+  -- Separado por tabla: PL/pgSQL no deja ni nombrar `new.tipo` en lotes.
+  if tg_table_name = 'eventos' then
+    alimenta := new.tipo = 'cambio_estado' and new.estado_nuevo = 'alimentado';
+  else
+    alimenta := new.estado = 'alimentado';
+  end if;
+  if alimenta then
+    raise exception 'Solo el administrador puede pasar lotes a alimentado'
+      using errcode = '42501';
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists trg_solo_admin_alimenta_evento on eventos;
+create trigger trg_solo_admin_alimenta_evento
+  before insert on eventos for each row execute function fn_solo_admin_alimenta();
+drop trigger if exists trg_solo_admin_alimenta_lote on lotes;
+create trigger trg_solo_admin_alimenta_lote
+  before insert on lotes for each row execute function fn_solo_admin_alimenta();
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

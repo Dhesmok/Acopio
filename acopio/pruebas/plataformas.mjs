@@ -400,10 +400,12 @@ titulo('Un lote recién llegado SOLO puede pasar a muestreado.');
 // No es un permiso, es el orden del trabajo: hasta que no hay muestra no
 // se sabe qué material es, así que facturarlo o devolverlo sería decidir
 // sobre algo que nadie ha mirado. Por eso vale también para el admin.
-const posibles = new Function('S', `
+const posiblesDe = (rol) => new Function('S', `
+  const esAdmin = () => S.perfil?.rol === 'admin';
   ${trozo('const ESTADOS_ELEGIBLES = ', '// para ordenar la barra de colores')}
   return estadosPosibles;
-`)({});
+`)({ perfil: { rol } });
+const posibles = posiblesDe('admin');
 
 const desdeNuevo = posibles({ estado: 'por_muestrear' });
 ok(desdeNuevo.length === 1 && desdeNuevo[0] === 'muestreado',
@@ -417,6 +419,12 @@ for (const e of ['facturado', 'devolucion', 'alimentado', 'despachado', 'remuest
 // Y se puede volver atrás: un estado puesto por error se corrige.
 ok(posibles({ estado: 'facturado' }).includes('por_muestrear'),
    'y desde cualquier otro se puede devolver a "por muestrear" si fue un error');
+
+// Alimentar es solo del admin: la base rechaza a los demás, así que la
+// pantalla tampoco se lo ofrece.
+const delContratista = posiblesDe('contratista')({ estado: 'muestreado' });
+ok(!delContratista.includes('alimentado'), 'al contratista no se le ofrece alimentado');
+ok(delContratista.includes('facturado'), 'pero el resto de estados sí');
 
 // ---------------------------------------------------------------------
 titulo('Cambiar el proveedor corrige el código.');
