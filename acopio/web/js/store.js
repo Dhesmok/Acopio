@@ -601,6 +601,28 @@ export async function trasladarPila(pilaId, plataformaId, usuarioId) {
   return fila;
 }
 
+// Alimentar una pila entera: cada lote de dentro recibe su propio cambio
+// de estado, con el mismo punto, para que el informe lo cuente lote a
+// lote como si se hubiera hecho uno por uno. Los que siguen por muestrear
+// NO se tocan —sin muestra no se sabe qué material es— y los ya
+// alimentados tampoco, para no duplicar el apunte. Quién puede hacerlo y
+// desde qué plataforma lo decide la pantalla.
+//
+// Si al final no queda nadie vivo dentro, la pila se archiva. Los lotes
+// alimentados se quedan apuntando a ella: así se sabe con qué pila entraron.
+export async function alimentarPila(pilaId, puntoId, usuarioId) {
+  const p = await idb.uno('pilas', pilaId);
+  if (!p) return { alimentados: 0, pendientes: 0 };
+  const dentro = (await idb.todos('lotes')).filter((x) => x.pila_id === pilaId);
+  const listos = dentro.filter((x) => x.estado !== 'alimentado' && x.estado !== 'por_muestrear');
+  for (const l of listos)
+    await registrarEvento({ lote_id: l.id, tipo: 'cambio_estado', estado_nuevo: 'alimentado',
+                            punto_id: puntoId, usuario_id: usuarioId });
+  const pendientes = dentro.filter((x) => x.estado === 'por_muestrear').length;
+  if (!pendientes) await renombrarPila(pilaId, { estado: 'consumida' });
+  return { alimentados: listos.length, pendientes };
+}
+
 // ---------------------------------------------------------------- tareas
 export async function crearTarea({ titulo, detalle, prioridad, asignado_a,
                                    lotes_ids, pilas_ids, monedas, usuario_id }) {

@@ -552,4 +552,44 @@ for (const q of tres.slice(1)) {
      `${q.codigo} viaja con la pila y sigue dentro`);
 }
 
+// ---------------------------------------------------------------------
+titulo('Alimentar una pila entera apunta a cada lote, no a la pila.');
+
+// Quién puede y desde qué plataforma lo decide la pantalla; aquí se
+// prueba que cada lote quede con su apunte y que no se cuele ninguno
+// sin muestrear.
+const comida = await Store.crearPila({ codigo: '50', tipo: 'alimentacion', nota: null,
+  x: 300, y: 300, rx: 80, ry: 60, plataforma_id: P5, usuario_id: 'yo' });
+const tres5 = [];
+for (const c of ['PG5001', 'PG5002', 'PG5003']) {
+  const x = await nuevoLote(c, P5);
+  await Store.registrarEvento({ lote_id: x.id, tipo: 'ingreso_pila',
+    pila_id: comida.id, usuario_id: 'yo' });
+  tres5.push(x);
+}
+for (const x of tres5.slice(0, 2))
+  await Store.registrarEvento({ lote_id: x.id, tipo: 'cambio_estado',
+    estado_nuevo: 'muestreado', usuario_id: 'yo' });
+
+let r = await Store.alimentarPila(comida.id, 'BATCH', 'admin');
+ok(r.alimentados === 2 && r.pendientes === 1, 'pasan los dos muestreados y queda uno');
+for (const x of tres5.slice(0, 2)) {
+  const s = await Store.lote(x.id);
+  ok(s.estado === 'alimentado' && s.punto_id === 'BATCH' && s.alimentado_en,
+     `${x.codigo} queda alimentado por Batch y con su fecha`);
+}
+ok((await Store.lote(tres5[2].id)).estado === 'por_muestrear',
+   'el que no tiene muestra no se toca');
+ok((await Store.pila(comida.id)).estado === 'abierta',
+   'y la pila sigue abierta mientras le quede alguien');
+
+await Store.registrarEvento({ lote_id: tres5[2].id, tipo: 'cambio_estado',
+  estado_nuevo: 'muestreado', usuario_id: 'yo' });
+r = await Store.alimentarPila(comida.id, 'BATCH', 'admin');
+ok(r.alimentados === 1, 'la segunda vez solo pasa el que faltaba');
+const veces = (await Store.historial(tres5[0].id))
+  .filter((e) => e.estado_nuevo === 'alimentado').length;
+ok(veces === 1, 'los ya alimentados no se apuntan dos veces');
+ok((await Store.pila(comida.id)).estado === 'consumida', 'y la pila se archiva');
+
 cerrar();
