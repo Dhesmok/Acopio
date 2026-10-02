@@ -110,6 +110,10 @@ const alimentado = (l) => l.estado === 'alimentado';
 const enElPatio = (l) => !alimentado(l)
   && l.estado !== 'despachado' && l.estado !== 'plataforma';
 const nombrePlataforma = (id) => S.plataformas.find((p) => p.id === id)?.nombre || '—';
+// Plataforma 5 es la que da a la planta: solo desde ahí se alimenta una
+// pila entera de un golpe. Se reconoce por el nombre, que es lo único que
+// la tabla garantiza único.
+const esPlataforma5 = (id) => /^plataforma\s*5$/i.test(nombrePlataforma(id).trim());
 const nombrePunto = (id) => S.puntos.find((p) => p.id === id)?.nombre || '—';
 const seVeEnLaLista = (l) => !alimentado(l) || esAdmin();
 
@@ -3320,7 +3324,9 @@ async function fichaLote(id) {
   const l = await Store.lote(id);
   if (!l) return;
   const prov = S.proveedores.find((p) => p.id === l.proveedor_id);
-  const pila = S.pilas.find((p) => p.id === l.pila_id);
+  // Solo una pila abierta: un lote alimentado con su pila sigue apuntando a
+  // ella, y ofrecer "sacarlo" de una pila archivada no tiene sentido.
+  const pila = S.pilas.find((p) => p.id === l.pila_id && p.estado === 'abierta');
   const eventos = await Store.historial(id);
   const r = textoRecogida(l);
   const lectura = soloLectura();
@@ -3633,6 +3639,44 @@ function pedirPunto(l) {
     }, { ocupado: 'Guardando…' });
 }
 
+// Lo mismo para una pila entera. La regla —admin y Plataforma 5— se
+// vuelve a mirar aquí y no solo al pintar el botón: la ficha pudo quedarse
+// abierta mientras la pila se movía de plataforma.
+function pedirPuntoPila(p, dentro) {
+  if (!esAdmin() || !esPlataforma5(p.plataforma_id)) {
+    return avisar('Una pila entera solo la puede alimentar el administrador, y solo en Plataforma 5.');
+  }
+  if (!S.puntos.length) {
+    return avisar('No hay puntos de alimentación configurados todavía. '
+      + 'Se añaden en la tabla `puntos_alimentacion`.');
+  }
+  const listos = dentro.filter((l) => l.estado !== 'alimentado' && l.estado !== 'por_muestrear');
+  const sinMuestra = dentro.filter((l) => l.estado === 'por_muestrear');
+  if (!listos.length) {
+    return avisar(sinMuestra.length
+      ? 'Todos los lotes de la pila están por muestrear: hay que muestrearlos antes de alimentarlos.'
+      : 'No queda ningún lote por alimentar en esta pila.');
+  }
+  abrirHoja(`
+    <div class="sub">¿Por dónde se alimentó?</div>
+    <div class="acciones acciones-plat" id="pt-lista">
+      ${S.puntos.map((x) => `<button class="btn btn-ancho" data-id="${x.id}"
+        >${esc(x.nombre)}</button>`).join('')}
+    </div>
+    <p class="pista">Pasan a alimentado ${listos.length} lote${listos.length === 1 ? '' : 's'}.
+      ${sinMuestra.length ? `Se quedan en la pila ${sinMuestra.length} por muestrear:
+      ${sinMuestra.map((l) => esc(l.codigo)).join(', ')}.` : 'La pila se archiva al terminar.'}
+      Nada se borra: cada lote conserva su historial.</p>
+    <div class="acciones"><button id="pt-cancelar">Cancelar</button></div>`,
+    `<h2>Pila ${esc(p.codigo)} · alimentada</h2>`);
+  $('#pt-cancelar').onclick = () => fichaPila(p.id);
+  for (const b of document.querySelectorAll('#pt-lista button'))
+    b.onclick = accion(async () => {
+      await Store.alimentarPila(p.id, b.dataset.id, S.perfil.id);
+      cerrarHoja(); await recargar(); pintar(); sincronizar();
+    }, { ocupado: 'Guardando…' });
+}
+
 function pedirRecogida(l) {
   abrirHoja(`
     <h2>${codigoHTML(l.codigo)} · devolución</h2>
@@ -3730,6 +3774,14 @@ async function fichaPila(id) {
       dentro.length === 1 ? '' : 's'}: siguen dentro y con el estado que tengan, solo cambian de patio.
       Quitarla del mapa devuelve los lotes al patio y la archiva; su historial se conserva.</p>`}
 
+    ${!lectura && esAdmin() && esPlataforma5(p.plataforma_id) && dentro.length ? `
+    <h3>Alimentar</h3>
+    <button id="alimentar-pila" class="btn-lleno btn-ancho" style="width:100%"
+      >Pasar toda la pila a Alimentado</button>
+    <p class="pista">Cada lote queda alimentado por el mismo punto, con su apunte en el
+      historial. Los que estén por muestrear no se tocan. Solo el administrador, y solo
+      en Plataforma 5.</p>` : ''}
+
     <h3>Lotes en esta pila</h3>
     <div class="lista">
       ${dentro.length ? dentro.map((l) => `
@@ -3802,6 +3854,9 @@ async function fichaPila(id) {
       cerrarHoja(); await recargar(); pintar(); sincronizar();
     }
   });
+
+  const al = $('#alimentar-pila');
+  if (al) al.onclick = () => pedirPuntoPila(p, dentro);
 
   const arch = $('#archivar-pila');
   if (arch) arch.onclick = accion(async () => {
