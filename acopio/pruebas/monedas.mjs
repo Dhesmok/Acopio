@@ -401,4 +401,24 @@ ok(/if \(soloLectura\(\)\) return t\.asignado_a === S\.perfil\?\.id;/.test(app),
 ok(/\['contratista', 'admin', 'empresa'\]\.includes\(p\.rol\)/.test(app),
    'y aparece en la lista de "para quién" al crear una tarea');
 
+// ---------------------------------------------------------------------
+titulo('Alimentar es solo del admin, también llamando a la API a mano.');
+
+// La pantalla esconde el botón, pero con la clave publicable y una cuenta
+// activa se puede escribir directo. Este es el cerrojo que no se salta.
+const PG1 = 'dddddddd-0000-4000-8000-000000000001';
+const evento = (quien, estado) => `select set_config('request.jwt.claim.sub','${quien}',false);
+  insert into eventos (id, lote_id, tipo, estado_nuevo, usuario_id, ocurrido_en)
+  values (gen_random_uuid(), '${PG1}', 'cambio_estado', '${estado}', '${quien}', now())`;
+ok(rechaza(evento(A, 'alimentado')), 'un contratista no puede pasar un lote a alimentado');
+ok(rechaza(`select set_config('request.jwt.claim.sub','${A}',false);
+  insert into lotes (id, codigo, proveedor_id, placa, plataforma_id, creado_por, estado)
+  values (gen_random_uuid(), 'PG9', 'aaaaaaaa-0000-4000-8000-000000000001', 'AAA111',
+          'bbbbbbbb-0000-4000-8000-000000000001', '${A}', 'alimentado')`),
+   'ni crear un lote que ya nazca alimentado');
+ok(!rechaza(evento(A, 'facturado')), 'el resto de cambios de estado le siguen funcionando');
+ok(!rechaza(evento(CARLA, 'alimentado')), 'y el admin sí puede alimentar');
+ok(sql(`select estado from lotes where id = '${PG1}'`) === 'alimentado',
+   'y el lote queda alimentado');
+
 cerrar();

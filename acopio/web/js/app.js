@@ -38,9 +38,11 @@ const ESTADOS_ELEGIBLES = ['por_muestrear', 'muestreado', 'remuestreo',
 // Corregir un estado puesto por error sigue siendo posible: el que ya
 // pasó de por_muestrear tiene la lista entera, y ahí está por_muestrear
 // para devolverlo al principio si hizo falta.
+// Alimentar es solo del admin: la base rechaza a cualquier otro
+// (fn_solo_admin_alimenta), así que tampoco se le ofrece.
 const estadosPosibles = (l) => l.estado === 'por_muestrear'
   ? ['muestreado']
-  : ESTADOS_ELEGIBLES.filter((k) => k !== l.estado);
+  : ESTADOS_ELEGIBLES.filter((k) => k !== l.estado && (k !== 'alimentado' || esAdmin()));
 // para ordenar la barra de colores del tablero de plataformas
 const ORDEN_ESTADO = Object.fromEntries(ESTADOS_ELEGIBLES.map((k, i) => [k, i]));
 const MATERIALES = { granel: 'Granel', bigbag: 'Bigbag' };

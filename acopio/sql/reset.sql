@@ -23,6 +23,7 @@ drop function if exists fn_proteger_derivados() cascade;
 drop function if exists fn_evento_recepcion() cascade;
 drop function if exists fn_nuevo_usuario() cascade;
 drop function if exists fn_mi_rol() cascade;
+drop function if exists fn_solo_admin_alimenta() cascade;
 
 drop type if exists forma_figura cascade;
 drop type if exists tipo_evento cascade;

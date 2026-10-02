@@ -341,6 +341,38 @@ end; $$;
 create trigger trg_evento_recepcion
   after insert on lotes for each row execute function fn_evento_recepcion();
 
+-- ALIMENTAR ES DEL ADMIN. La pantalla ya solo le enseña el botón a él,
+-- pero eso no basta: con la clave publicable y una cuenta activa,
+-- cualquiera puede llamar a la API directamente. Este es el cerrojo de
+-- abajo. Cubre las dos puertas: el cambio de estado y crear un lote que
+-- ya nazca alimentado.
+--
+-- Sin `auth.uid()` no hay usuario de la app: es el editor SQL o una
+-- migración, y eso lo corre el dueño de la base. No se le cierra.
+create or replace function fn_solo_admin_alimenta()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  alimenta boolean;
+begin
+  if auth.uid() is null or fn_mi_rol() = 'admin' then return new; end if;
+  -- Separado por tabla: PL/pgSQL no deja ni nombrar `new.tipo` en lotes.
+  if tg_table_name = 'eventos' then
+    alimenta := new.tipo = 'cambio_estado' and new.estado_nuevo = 'alimentado';
+  else
+    alimenta := new.estado = 'alimentado';
+  end if;
+  if alimenta then
+    raise exception 'Solo el administrador puede pasar lotes a alimentado'
+      using errcode = '42501';
+  end if;
+  return new;
+end; $$;
+
+create trigger trg_solo_admin_alimenta_evento
+  before insert on eventos for each row execute function fn_solo_admin_alimenta();
+create trigger trg_solo_admin_alimenta_lote
+  before insert on lotes for each row execute function fn_solo_admin_alimenta();
+
 -- -------------------------------------------------------------- tareas
 --  Encargos del admin a los contratistas.
 --
