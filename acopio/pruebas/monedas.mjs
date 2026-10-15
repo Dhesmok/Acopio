@@ -92,8 +92,8 @@ titulo('La cabecera: iconos, y la leyenda de colores al lado del trofeo.');
 // El selector de plataformas de la cabecera sobraba: la pestaña
 // Plataformas ya lleva a cualquiera. Su sitio es ahora la leyenda, que
 // es lo que un recién llegado necesita para leer el plano.
-ok(/id="colores"[^>]*>\$\{ICO\.colores\}/.test(app),
-   'el botón de colores es un icono en la cabecera');
+ok(/id="colores"[^>]*>\$\{ICO\.info\}/.test(app),
+   'el botón de información es un icono en la cabecera');
 ok(/\$\('#colores'\)\.onclick = hojaColores/.test(app),
    'y abre la hoja de colores');
 ok(!/chip-plat/.test(app) && !/function panelPlataformas/.test(app),
