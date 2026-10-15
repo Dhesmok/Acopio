@@ -722,14 +722,6 @@ const irAlMapaSrc = fuenteApp.slice(fuenteApp.indexOf('function irAlMapa()'),
 ok(/m\.className = 'a-sangre'/.test(irAlMapaSrc),
    'irAlMapa deja el plano a sangre, sin esperar a la vuelta siguiente');
 
-// Y el nombre de la plataforma se repinta donde cambia el dato, no en
-// cada pantalla: los dos caminos que llevan al mapa no pasan por
-// `pintar`, así que el chip de arriba se quedaba con el nombre anterior.
-const irAPlat = fuenteApp.slice(fuenteApp.indexOf('const irAPlataforma = '),
-                                fuenteApp.indexOf('const alimentado = '));
-ok(/pintarChipPlataforma\(\)/.test(irAPlat),
-   'y cambiar de plataforma repinta su nombre en la cabecera');
-
 // ---------------------------------------------------------------------
 titulo('La volqueta ENTRA: la salida no puede rellenar hacia atrás.');
 

@@ -87,26 +87,23 @@ ok(/tus monedas NO se borran/.test(pantalla),
    'y avisa de que lo que se reinicia es la tabla, no el saldo');
 
 // ---------------------------------------------------------------------
-titulo('La cabecera: iconos, y el nombre de la plataforma donde cabe.');
+titulo('La cabecera: iconos, y la leyenda de colores al lado del trofeo.');
 
-// Con cinco cosas arriba, "Plataforma 3" se comía media barra y salía
-// cortado en "PLATAFO…", que no dice ni cuál es.
-ok(/id="chip-plat"[^>]*>\$\{ICO\.capas\}/.test(app),
-   'el botón de plataformas es un icono, no el nombre');
+// El selector de plataformas de la cabecera sobraba: la pestaña
+// Plataformas ya lleva a cualquiera. Su sitio es ahora la leyenda, que
+// es lo que un recién llegado necesita para leer el plano.
+ok(/id="colores"[^>]*>\$\{ICO\.colores\}/.test(app),
+   'el botón de colores es un icono en la cabecera');
+ok(/\$\('#colores'\)\.onclick = hojaColores/.test(app),
+   'y abre la hoja de colores');
+ok(!/chip-plat/.test(app) && !/function panelPlataformas/.test(app),
+   'ya no hay botón de plataformas en la cabecera');
 ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
    'y hay un trofeo que lleva derecho a la clasificación');
-// Hubo un rato una SEGUNDA pastilla con el nombre suelta sobre el mapa.
-// Sobraba: nadie la pidió y quitaba sitio al plano, que es lo que se
-// viene a mirar.
-ok(!/chip-plat-mapa/.test(app) && !/chip-plat-mapa/.test(css),
-   'no hay una segunda pastilla de plataformas encima del mapa');
-ok(/aria-label', p \? `Plataforma: \$\{p\.nombre\}/.test(app)
-   && /'title', p \? `Plataforma: \$\{p\.nombre\}/.test(app),
-   'el propio icono lleva el nombre, para el dedo encima y para quien no ve la pantalla');
-// Y donde se elige, se dice cuál está puesta: el borde amarillo solo
-// significa algo si ya sabes qué significa.
-ok(/aquí estás/.test(app) && /\.mini \.aqui/.test(css),
-   'y la hoja de Plataformas marca con palabras en cuál estás');
+ok(!/id="zoom-mas"|id="zoom-menos"|id="encuadrar"/.test(app),
+   'el plano no lleva botones de zoom: se acerca con los dedos');
+ok(/\$\{esAdmin\(\) \? `<button class="btn-mapa" id="r-historia"/.test(app),
+   '"Otro día" solo le sale al admin');
 
 // ---------------------------------------------------------------------
 titulo('La tienda tiene su propia entrada, y se ve.');
