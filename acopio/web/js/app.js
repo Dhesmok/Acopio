@@ -166,9 +166,8 @@ const ICO = {
   // dibujo que se reconoce sin leer nada al lado.
   frasco:    ico('<path d="M9 3h6M10 3v6.5L4.6 18.4A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.6L14 9.5V3"/>'
                  + '<path d="M7.2 14h9.6"/>'),
-  // Paleta de pintor: abre la leyenda de colores del plano.
-  colores:   ico('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.1-4-7.7-9-7.7z"/>'
-                 + '<circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="14.5" cy="7" r="1"/><circle cx="17" cy="11" r="1"/>'),
+  // La "i" en un círculo: abre la leyenda de colores del plano.
+  info:      ico('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>'),
   // Triángulo de aviso, para los lotes que conviene mirar.
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
                  + '<path d="M12 9v4M12 17h.01"/>')
@@ -758,8 +757,8 @@ function pantallaPrincipal() {
       <header>
         <h1>Acopio</h1>
         <span class="crece"></span>
-        <button class="icono" id="colores" aria-label="Qué significa cada color"
-          title="Qué significa cada color">${ICO.colores}</button>
+        <button class="icono" id="colores" aria-label="Información: qué significa cada color"
+          title="Información">${ICO.info}</button>
         <button class="icono trofeo" id="trofeo" aria-label="Monedas y clasificación"
           >${ICO.trofeo}</button>
         <button class="icono lab" id="lab" aria-label="Muestras para el laboratorio" hidden
@@ -1013,7 +1012,7 @@ function hojaColores() {
         fill="${esc(c.facturado)}" opacity=".25" stroke="#14171a" stroke-width="2"/></svg>`,
         'Pálido', 'No coincide con el filtro o la búsqueda.')}
     </div>`,
-    `<h2>Colores</h2><p class="sub">Qué significa cada color del plano.</p>`);
+    `<h2>Información</h2><p class="sub">Qué significa cada color del plano.</p>`);
 }
 
 // Mandar algo a otra plataforma. Lo puede hacer cualquiera que trabaje
