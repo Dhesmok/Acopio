@@ -190,10 +190,6 @@ const res = app.slice(app.indexOf('const resumen = (id) =>'),
                       app.indexOf('function pintarPlataformas()'));
 ok(/l\.plataforma_id === id && enElPatio\(l\)/.test(res),
    'la cuenta de la tarjeta la usa');
-const mini = app.slice(app.indexOf('function panelPlataformas()'),
-                       app.indexOf('function panelPlataformas()') + 2500);
-ok(/enElPatio\(l\) && !l\.pila_id/.test(mini),
-   'y la miniatura del selector dibuja lo mismo que la cuenta');
 
 // ---------------------------------------------------------------------
 titulo('Las cuentas de la tarjeta salen bien, no solo están escritas.');

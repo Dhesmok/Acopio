@@ -98,7 +98,6 @@ const plataformaActual = () =>
 const irAPlataforma = (id) => {
   S.plataforma = id;
   recordar('acopio-plataforma', id);
-  pintarChipPlataforma();
 };
 
 // Un lote alimentado se consumió en planta: sigue en la base con todo su
@@ -167,6 +166,9 @@ const ICO = {
   // dibujo que se reconoce sin leer nada al lado.
   frasco:    ico('<path d="M9 3h6M10 3v6.5L4.6 18.4A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.6L14 9.5V3"/>'
                  + '<path d="M7.2 14h9.6"/>'),
+  // Paleta de pintor: abre la leyenda de colores del plano.
+  colores:   ico('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.1-4-7.7-9-7.7z"/>'
+                 + '<circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="14.5" cy="7" r="1"/><circle cx="17" cy="11" r="1"/>'),
   // Triángulo de aviso, para los lotes que conviene mirar.
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
                  + '<path d="M12 9v4M12 17h.01"/>')
@@ -756,8 +758,8 @@ function pantallaPrincipal() {
       <header>
         <h1>Acopio</h1>
         <span class="crece"></span>
-        <button class="icono" id="chip-plat" aria-label="Cambiar de plataforma"
-          >${ICO.capas}</button>
+        <button class="icono" id="colores" aria-label="Qué significa cada color"
+          title="Qué significa cada color">${ICO.colores}</button>
         <button class="icono trofeo" id="trofeo" aria-label="Monedas y clasificación"
           >${ICO.trofeo}</button>
         <button class="icono lab" id="lab" aria-label="Muestras para el laboratorio" hidden
@@ -790,7 +792,7 @@ function pantallaPrincipal() {
   $('#menu').onclick = menuCuenta;
   $('#campana').onclick = panelTareas;
   $('#lab').onclick = accion(() => panelLaboratorio(), { ocupado: '…' });
-  $('#chip-plat').onclick = panelPlataformas;
+  $('#colores').onclick = hojaColores;
   $('#trofeo').onclick = accion(() => panelMonedas(), { ocupado: '…' });
   document.querySelectorAll('nav.pestanas button').forEach((b) => {
     b.onclick = () => {
@@ -807,7 +809,6 @@ function pintar() {
   pintarSync();
   pintarTareas();
   pintarLaboratorio();
-  pintarChipPlataforma();
   // El mapa va a sangre completa: sin márgenes ni tope de ancho. La
   // lista sí se centra, porque un renglón de texto muy largo se lee mal.
   const m = $('#main');
@@ -892,18 +893,13 @@ function montarMapa() {
                 ${ICO.filtro}<span>Filtrar</span></button>
               ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
                 ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
-              <button class="btn-mapa" id="r-historia" aria-label="Ver el patio de otro día"
-                ${S.historia ? 'aria-pressed="true"' : ''}>${ICO.reloj}<span>Otro día</span></button>
+              ${esAdmin() ? `<button class="btn-mapa" id="r-historia" aria-label="Ver el patio de otro día"
+                ${S.historia ? 'aria-pressed="true"' : ''}>${ICO.reloj}<span>Otro día</span></button>` : ''}
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
-          </div>
-          <div class="ctrl-grupo">
-            <button class="ctrl" id="zoom-mas" aria-label="Acercar">${ICO.mas}</button>
-            <button class="ctrl" id="zoom-menos" aria-label="Alejar">${ICO.menos}</button>
-            <button class="ctrl" id="encuadrar" aria-label="Ver todo el patio">${ICO.encuadrar}</button>
           </div>
         </div>
       </div>
@@ -946,9 +942,6 @@ function montarMapa() {
   refrescarMapa();
   Mapa.fijarVista(vistaPrevia);
 
-  $('#zoom-mas').onclick = () => Mapa.acercar(0.8);
-  $('#zoom-menos').onclick = () => Mapa.acercar(1.25);
-  $('#encuadrar').onclick = () => Mapa.encuadrar();
   if ($('#nuevo')) $('#nuevo').onclick = formLote;
   $('#r-buscar').onclick = () => {
     S.buscarMapa = !S.buscarMapa;
@@ -959,12 +952,11 @@ function montarMapa() {
   };
   pintarBuscadorMapa();
   $('#r-filtrar').onclick = panelFiltro;
-  $('#r-historia').onclick = accion(alternarHistoria, { ocupado: 'Leyendo…' });
+  if ($('#r-historia')) $('#r-historia').onclick = accion(alternarHistoria, { ocupado: 'Leyendo…' });
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
   if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
-  pintarChipPlataforma();
 
   // Mirando otro día no se edita nada: ni mover, ni ajustar, ni soltar
   // un lote sobre una pila. El botón de editar se apaga para que no
@@ -976,6 +968,52 @@ function montarMapa() {
   } else if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
+}
+
+// La leyenda del plano. Quien llega nuevo ve óvalos de colores y no tiene
+// cómo saber que el ámbar es "falta muestra" o que el negro es una
+// devolución que nadie ha recogido. Los colores salen de la paleta
+// guardada: si el admin repinta un estado, la leyenda lo sigue sola.
+function hojaColores() {
+  const c = paletaActual();
+  const muestra = (col, pila) => `<svg width="48" height="30" viewBox="0 0 48 30" aria-hidden="true">
+    <ellipse cx="24" cy="15" rx="22" ry="13" fill="${esc(col)}" ${pila
+      ? `fill-opacity=".14" stroke="${esc(col)}" stroke-width="3"`
+      : 'stroke="#14171a" stroke-width="2"'}/></svg>`;
+  const fila = (dibujo, titulo, detalle = '') => `<div class="ley-fila">${dibujo}
+    <div><b>${titulo}</b>${detalle ? `<small>${detalle}</small>` : ''}</div></div>`;
+  const LOTES = [
+    ['por_muestrear', 'Recién llegado. Falta tomarle la muestra.'],
+    ['muestreado', 'Ya tiene muestra, espera resultado.'],
+    ['remuestreo', 'Hay que volver a tomarle muestra.'],
+    ['facturado', 'Aprobado y facturado.'],
+    ['devolucion', 'Se le devuelve al proveedor.']
+  ];
+  abrirHoja(`
+    <h3>Lotes · el relleno es su estado</h3>
+    <div class="ley">
+      ${LOTES.map(([k, d]) => fila(muestra(c[k]), ESTADOS[k], d)).join('')}
+      ${fila(muestra('#14171a'), 'Negro: recogida vencida', 'Devolución cuya fecha de recogida ya pasó.')}
+    </div>
+    <p class="ley-nota">Alimentado y despachado no aparecen en el plano: ya salieron del patio.</p>
+    <h3>Pilas · óvalo con borde de color</h3>
+    <div class="ley">
+      ${Object.entries(TIPOS_PILA).map(([k, v]) => fila(muestra(c[`pila_${k}`], true), v)).join('')}
+    </div>
+    <h3>Formas y marcas</h3>
+    <div class="ley">
+      ${fila(muestra('#fdfbf7'), 'Óvalo', 'Lote a granel.')}
+      ${fila(`<svg width="48" height="30" viewBox="0 0 48 30" aria-hidden="true"><rect x="3" y="3" width="42" height="24"
+        fill="#fdfbf7" stroke="#14171a" stroke-width="2"/></svg>`, 'Rectángulo', 'Lote en bigbag.')}
+      ${fila(`<svg width="48" height="30" viewBox="0 0 48 30" aria-hidden="true"><text x="20" y="21" text-anchor="middle"
+        font-family="ui-monospace, monospace" font-weight="800" font-size="12">ABG-4</text><text x="42" y="13"
+        font-family="ui-monospace, monospace" font-weight="800" font-size="8">2</text></svg>`,
+        'Número pequeño arriba', 'Viaje de volqueta: ABG-4 viaje 2.')}
+      ${fila(`<svg width="48" height="30" viewBox="0 0 48 30" aria-hidden="true"><ellipse cx="24" cy="15" rx="22" ry="13"
+        fill="${esc(c.facturado)}" opacity=".25" stroke="#14171a" stroke-width="2"/></svg>`,
+        'Pálido', 'No coincide con el filtro o la búsqueda.')}
+    </div>`,
+    `<h2>Colores</h2><p class="sub">Qué significa cada color del plano.</p>`);
 }
 
 // Mandar algo a otra plataforma. Lo puede hacer cualquiera que trabaje
@@ -997,28 +1035,9 @@ function hojaTrasladar({ titulo, detalle, desde, alSoltar }) {
 }
 
 // ------------------------------------------------- pantalla de plataformas
-// El nombre de la plataforma va SIEMPRE a la vista, en la cabecera: sin
-// eso, mirando un plano vacío no hay manera de saber si es que la
-// plataforma está vacía o es que estás en otra.
-// El botón de la cabecera es un ICONO, no el nombre: con cinco cosas
-// arriba, un nombre largo como "Plataforma 3" se comía media barra y
-// acababa cortado en "PLATAFO…", que no dice ni cuál es.
-//
-// Hubo un rato una segunda pastilla con el nombre suelta sobre el mapa,
-// debajo de las herramientas. Sobraba: nadie la pidió y quitaba sitio al
-// plano, que es lo que se viene a mirar. El nombre vive ahora en el
-// propio icono —`title` para quien pase el dedo o el ratón por encima,
-// `aria-label` para quien lo oye— y en la hoja de Plataformas, donde la
-// que está puesta va marcada.
-function pintarChipPlataforma() {
-  const c = $('#chip-plat');
-  const p = plataformaActual();
-  if (!c) return;
-  c.hidden = S.plataformas.length < 2;
-  c.setAttribute('aria-label', p ? `Plataforma: ${p.nombre}. Tocar para cambiar` : 'Cambiar de plataforma');
-  c.setAttribute('title', p ? `Plataforma: ${p.nombre}` : 'Cambiar de plataforma');
-}
-
+// El botón de plataformas de la cabecera se quitó: la pestaña
+// Plataformas ya lleva a cualquiera de ellas, y ese sitio quedó para la
+// leyenda de colores, que es lo que un recién llegado necesita.
 // Cuánto tiene que llevar un lote para contar como recién llegado, y
 // cuánto sin que le pase nada para contar como atascado. Tres semanas
 // quietos es material del que alguien se olvidó.
@@ -1110,37 +1129,6 @@ function pintarPlataformas() {
     S.recorrido = null; S.historia = null;
     irAlMapa();
     Mapa.encuadrar();
-  };
-}
-
-// El selector rápido: las cinco en miniatura, para saltar sin salir del
-// mapa. Es SOLO para escoger; los lotes no se arrastran de aquí.
-function panelPlataformas() {
-  abrirHoja(`<div class="mini-plats">${S.plataformas.map((p) => {
-    const r = resumen(p.id);
-    return `<button class="mini${p.id === S.plataforma ? ' viva' : ''}" data-id="${p.id}">
-      <svg viewBox="0 0 ${p.ancho || 1000} ${p.alto || 700}" preserveAspectRatio="xMidYMid meet">
-        <rect width="${p.ancho || 1000}" height="${p.alto || 700}"
-          fill="${esc(p.color_fondo || '#e4e7e2')}"/>
-        ${S.lotes.filter((l) => l.plataforma_id === p.id && enElPatio(l) && !l.pila_id)
-          .slice(0, 60).map((l) => `<circle cx="${l.x}" cy="${l.y}" r="${Math.max(l.rx || 40, 26)}"
-            fill="${paletaActual()[l.estado] || '#5f6863'}"/>`).join('')}
-        ${S.pilas.filter((x) => x.plataforma_id === p.id && x.estado === 'abierta')
-          .map((x) => `<ellipse cx="${x.x}" cy="${x.y}" rx="${x.rx}" ry="${x.ry}"
-            fill="none" stroke="#14171a" stroke-width="8" stroke-dasharray="26 14"/>`).join('')}
-      </svg>
-      <span class="nom">${esc(p.nombre)}${
-        p.id === S.plataforma ? '<span class="aqui">aquí estás</span>' : ''}</span>
-      <span class="cnt">${r.total}
-        <span class="cnt-sub">${r.pilas ? `${r.pilas} pila${r.pilas === 1 ? '' : 's'}` : 'sin pilas'}${
-          r.sinRecoger ? ` · <b class="alerta">${r.sinRecoger} sin recoger</b>` : ''}</span></span>
-    </button>`;
-  }).join('')}</div>`, '<h2>Plataformas</h2>');
-
-  for (const b of document.querySelectorAll('.mini')) b.onclick = () => {
-    irAPlataforma(b.dataset.id);
-    S.recorrido = null; S.historia = null;
-    cerrarHoja(); irAlMapa(); Mapa.encuadrar();
   };
 }
 
