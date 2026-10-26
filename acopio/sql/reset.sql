@@ -9,6 +9,7 @@ drop view if exists v_tablero cascade;
 drop view if exists v_pila_composicion cascade;
 drop view if exists v_lote_historial cascade;
 
+drop table if exists ubicaciones cascade;
 drop table if exists eventos cascade;
 drop table if exists lotes cascade;
 drop table if exists pilas cascade;

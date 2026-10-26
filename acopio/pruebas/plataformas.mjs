@@ -164,8 +164,10 @@ titulo('El tamaño del plano es de CADA plataforma, no de todas.');
 // escribiendo en `mapa_config`: cambiar el tamaño no habría hecho nada, y
 // peor, habría escrito en columnas que ya no existen.
 const app = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+// La función entera, hasta la siguiente: con una ventana fija de
+// caracteres, cualquier sección nueva del panel dejaba el guardado fuera.
 const fondo = app.slice(app.indexOf('function panelFondo()'),
-                        app.indexOf('function panelFondo()') + 6000);
+                        app.indexOf('function fichaFigura('));
 ok(/guardarPlataforma\(\{ \.\.\.plat, \.\.\.cfg \}\)/.test(fondo),
    'el tamaño y el fondo se guardan en la plataforma que se está mirando');
 ok(!/guardarConfig\([^)]*ancho/.test(fondo),

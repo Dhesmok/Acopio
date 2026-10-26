@@ -284,8 +284,70 @@ export function pintar(d) {
   // guardan pero no se ven nunca.
   if (dibujo === ultimoDibujo) return;
   ultimoDibujo = dibujo;
-  svg.innerHTML = dibujo;
+  // La capa del GPS va aparte y al final, encima de todo. NO entra en la
+  // comparación de arriba: el punto se mueve cada segundo, y si contara
+  // como cambio del plano se rearmarían cientos de figuras por nada.
+  svg.innerHTML = `${dibujo}<g id="capa-gps" class="capa-gps">${capaGps()}</g>`;
 }
+
+// ------------------------------------------------------------------ GPS
+// Quién está dónde, ya en coordenadas del plano. Lo calcula la app; aquí
+// solo se dibuja:
+//   { yo: {x, y, radio, viejo}, otros: [{x, y, nombre, viejo}],
+//     marcas: [{x, y, etiqueta}] }   ← los puntos de una calibración
+let gps = null;
+let gpsAncho = 0;                     // con qué zoom se dibujó la capa
+
+export function pintarGps(g) {
+  gps = g;
+  ponerGps();
+}
+
+// Solo se toca la capa, nunca el plano.
+function ponerGps() {
+  const n = svg?.querySelector('#capa-gps');
+  if (n) n.innerHTML = capaGps();
+}
+
+// Los puntos se miden en PÍXELES DE PANTALLA, como las manijas: el punto
+// de una persona no puede volverse una mota al alejar ni un plato al
+// acercar. El círculo de precisión sí va en unidades del plano, porque
+// es una distancia de verdad sobre el patio.
+function capaGps() {
+  if (!gps || !svg) return '';
+  gpsAncho = vista.w;
+  const u = unidadesPorPixel();
+  const n = (v) => +v.toFixed(1);
+  const marcas = (gps.marcas || []).map((m) => `<g class="gps-marca">
+      <circle cx="${n(m.x)}" cy="${n(m.y)}" r="${n(11 * u)}" stroke-width="${n(3 * u)}"/>
+      <text x="${n(m.x)}" y="${n(m.y + 4.5 * u)}" text-anchor="middle"
+        font-size="${n(13 * u)}">${esc(m.etiqueta)}</text></g>`).join('');
+  const otros = (gps.otros || []).map((o) => `<g class="gps-otro${o.viejo ? ' gps-viejo' : ''}">
+      <circle cx="${n(o.x)}" cy="${n(o.y)}" r="${n(7 * u)}" stroke-width="${n(2.5 * u)}"/>
+      <text x="${n(o.x)}" y="${n(o.y - 13 * u)}" text-anchor="middle"
+        font-size="${n(12.5 * u)}" stroke-width="${n(3.5 * u)}">${esc(o.nombre)}</text></g>`).join('');
+  const y = gps.yo;
+  const yo = y ? `<g class="gps-yo${y.viejo ? ' gps-viejo' : ''}">
+      ${y.radio > 0 ? `<circle class="gps-precision" cx="${n(y.x)}" cy="${n(y.y)}" r="${n(y.radio)}"/>` : ''}
+      <circle class="gps-punto" cx="${n(y.x)}" cy="${n(y.y)}" r="${n(8 * u)}" stroke-width="${n(3 * u)}"/>
+    </g>` : '';
+  return marcas + otros + yo;
+}
+
+// Al acercar o alejar, los puntos se quedarían con el tamaño del zoom
+// anterior hasta la siguiente lectura del GPS. Se vuelven a dibujar en
+// cuanto el zoom cambia de verdad —no en cada cuadro del pellizco—, y
+// son cuatro círculos: no cuesta nada.
+function gpsAlZoom() {
+  if (gps && Math.abs(vista.w - gpsAncho) > gpsAncho * .12) ponerGps();
+}
+
+// Marcar un punto del plano con un toque. Lo usa la calibración: el
+// admin se para en un sitio y toca dónde queda ese sitio en el dibujo.
+// Mientras esté puesto, un toque NO abre fichas: marca. Desplazar y
+// acercar siguen funcionando igual, para poder buscar el sitio.
+let marcador = null;
+export function alMarcar(fn) { marcador = fn || null; }
 // Qué está pintado ahora mismo. Se vacía al montar: el lienzo es otro y
 // está en blanco, así que hay que volver a dibujarlo aunque toque lo
 // mismo que había en el anterior.
@@ -644,6 +706,7 @@ function aPlanoPunto(cx, cy, v = vista) {
 // y solo recalcula el encuadre.
 function aplicarVista() {
   svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
+  gpsAlZoom();
 }
 
 // Unidades del plano que cubre un píxel de pantalla. Con
@@ -978,9 +1041,12 @@ function arriba(ev) {
     return;
   }
 
+  // Calibrando, un toque marca el punto, caiga sobre una figura o no.
+  if (modo === 'paneando' && marcador && !movio) {
+    marcador(aPlano(ev));
   // Fuera de modo edición el dedo sobre una figura panea; si no llegó a
   // moverse, era un toque y lo que se quiere es ver la ficha.
-  if (modo === 'paneando' && arrastre?.toque && !movio) {
+  } else if (modo === 'paneando' && arrastre?.toque && !movio) {
     cb.alTocar?.(arrastre.toque.tipo, arrastre.toque.id);
   }
 

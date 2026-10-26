@@ -108,6 +108,12 @@ create table plataformas (
   imagen_ancho    numeric not null default 1000,
   imagen_alto     numeric not null default 700,
   imagen_opacidad numeric not null default 1,
+  -- Dónde cae el plano en el mundo, para poder dibujar el GPS encima.
+  -- Son DOS puntos del plano con su coordenada real:
+  --   {"a": {"x":…, "y":…, "lat":…, "lon":…}, "b": {…}}
+  -- Con dos basta para sacar la escala, el giro y el desplazamiento.
+  -- Vacío = sin calibrar: el plano funciona igual, solo que sin GPS.
+  geo             jsonb,
   creado_en       timestamptz not null default now(),
   actualizado_en  timestamptz not null default now()
 );
@@ -495,6 +501,29 @@ create table mapa_config (
 
 insert into mapa_config (id) values ('unico');
 
+-- ---------------------------------------------------------- ubicaciones
+--  Dónde está cada persona que tiene el GPS prendido en la app.
+--
+--  Una fila por persona, que se pisa en cada lectura: no es un rastro,
+--  es el "ahora". Nadie necesita saber por dónde anduvo alguien ayer, y
+--  guardarlo sería vigilar en vez de ayudar.
+--
+--  La hora la pone el servidor (fn_marcar_actualizado), no el celular:
+--  un teléfono con el reloj corrido no puede decidir si una posición es
+--  vieja. Por eso también se lee desde v_ubicaciones, que hace la cuenta
+--  de la antigüedad en el servidor.
+create table ubicaciones (
+  usuario_id     uuid primary key references perfiles (id) on delete cascade,
+  lat            double precision not null check (lat between -90 and 90),
+  lon            double precision not null check (lon between -180 and 180),
+  -- radio de error que da el teléfono, en metros
+  precision_m    real check (precision_m >= 0),
+  actualizado_en timestamptz not null default now()
+);
+
+create trigger trg_marcar_actualizado before insert or update on ubicaciones
+  for each row execute function fn_marcar_actualizado();
+
 -- ------------------------------------------------------------- tienda
 --  En qué se gastan las monedas. El admin pone los productos con su
 --  precio y su foto; los demás canjean.
@@ -570,6 +599,17 @@ select e.lote_id, l.codigo as lote, e.ocurrido_en, e.tipo, e.estado_nuevo,
   join lotes l on l.id = e.lote_id
   left join pilas pi on pi.id = e.pila_id
   left join perfiles pe on pe.id = e.usuario_id;
+
+--  Quién está en el patio AHORA. Lo de hace más de diez minutos no sale:
+--  quien cerró la app o apagó el GPS deja de verse solo, sin que nadie
+--  tenga que borrar nada. `segundos` es la antigüedad contada con el
+--  reloj del servidor, para que la app sepa qué punto pintar desvaído.
+create view v_ubicaciones with (security_invoker = true) as
+select u.usuario_id, pe.nombre, u.lat, u.lon, u.precision_m, u.actualizado_en,
+       extract(epoch from now() - u.actualizado_en)::int as segundos
+  from ubicaciones u
+  join perfiles pe on pe.id = u.usuario_id
+ where u.actualizado_en > now() - interval '10 minutes';
 
 -- ------------------------------------------------------------- monedas
 --  El saldo NO se guarda: se calcula desde los eventos que ya existen.
@@ -829,6 +869,7 @@ alter table mapa_config  enable row level security;
 alter table tareas       enable row level security;
 alter table plataformas  enable row level security;
 alter table puntos_alimentacion enable row level security;
+alter table ubicaciones  enable row level security;
 
 -- Lectura: solo perfiles activos
 create policy p_leer_perfiles    on perfiles     for select to authenticated using (fn_mi_rol() is not null);
@@ -841,6 +882,16 @@ create policy p_leer_config      on mapa_config  for select to authenticated usi
 create policy p_leer_tareas      on tareas       for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_plataformas on plataformas  for select to authenticated using (fn_mi_rol() is not null);
 create policy p_leer_puntos      on puntos_alimentacion for select to authenticated using (fn_mi_rol() is not null);
+create policy p_leer_ubicaciones on ubicaciones  for select to authenticated using (fn_mi_rol() is not null);
+
+-- La ubicación: cada uno escribe y borra SOLO la suya. Nadie puede
+-- poner a otro en un sitio donde no está, ni esconderlo.
+create policy p_mi_ubicacion_ins on ubicaciones for insert to authenticated
+  with check (usuario_id = auth.uid() and fn_mi_rol() is not null);
+create policy p_mi_ubicacion_upd on ubicaciones for update to authenticated
+  using (usuario_id = auth.uid()) with check (usuario_id = auth.uid() and fn_mi_rol() is not null);
+create policy p_mi_ubicacion_del on ubicaciones for delete to authenticated
+  using (usuario_id = auth.uid());
 
 -- Escritura de operación
 create policy p_crear_lotes on lotes for insert to authenticated
@@ -906,6 +957,8 @@ grant insert, update, delete on productos to authenticated;   -- filtrado por RL
 grant update on canjes to authenticated;                      -- filtrado por RLS
 grant execute on function fn_canjear(uuid) to authenticated;
 grant select on v_monedas, v_saldos, v_clasificacion, v_lotes_dudosos to authenticated;
+grant select, insert, update, delete on ubicaciones to authenticated;   -- filtrado por RLS
+grant select on v_ubicaciones to authenticated;
 
 revoke update, delete on eventos from authenticated, anon;
 revoke delete on lotes from authenticated, anon;
