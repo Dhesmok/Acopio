@@ -960,6 +960,18 @@ grant select on v_monedas, v_saldos, v_clasificacion, v_lotes_dudosos to authent
 grant select, insert, update, delete on ubicaciones to authenticated;   -- filtrado por RLS
 grant select on v_ubicaciones to authenticated;
 
+-- En vivo: Supabase Realtime avisa a la app cada vez que una fila de
+-- ubicaciones cambia, y así se ve moverse a los compañeros sin esperar.
+-- Para eso la tabla tiene que estar en su publicación. Lo que llega a
+-- cada uno lo sigue filtrando la RLS de arriba.
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables
+                      where pubname = 'supabase_realtime' and tablename = 'ubicaciones') then
+    alter publication supabase_realtime add table ubicaciones;
+  end if;
+end $$;
+
 revoke update, delete on eventos from authenticated, anon;
 revoke delete on lotes from authenticated, anon;
 -- Insertar un canje a mano sería inventarse un saldo: solo fn_canjear.

@@ -280,6 +280,27 @@ ok(subeUbicacion.length > 0 && !/encolar\(/.test(subeUbicacion),
    'la ubicación no pasa por la cola: subirla tarde pintaría a alguien donde ya no está');
 ok(/v_ubicaciones/.test(subeUbicacion), 'los demás se leen de la vista, que descarta lo viejo en el servidor');
 ok(/if \(document\.hidden\) pararGps\(\)/.test(app), 'con la app en el bolsillo el GPS se apaga');
+
+// ---------------------------------------------------------------------
+titulo('A los demás se los ve en vivo, y sin prender lo propio.');
+
+const lectura = app.slice(app.indexOf('async function leerOtros'), app.indexOf('// El primer nombre basta'));
+ok(!/S\.gps\.activo \|\| document\.hidden/.test(lectura) && /if \(document\.hidden \|\| S\.pestana !== 'mapa' \|\| S\.historia\) return;/.test(lectura),
+   'se pregunta por los demás aunque la ubicación propia esté apagada');
+const pinta = app.slice(app.indexOf('function pintarGps()'), app.indexOf('function botonGps()'));
+ok(/if \(!t \|\| S\.historia\) return/.test(pinta) && /const yo = S\.gps\.activo && S\.gps\.yo/.test(pinta),
+   'los compañeros se dibujan siempre; el punto azul, solo con lo propio prendido');
+ok(/Store\.escucharUbicaciones\(\{/.test(app) && /postgres_changes', \{ event: '\*', schema: 'public', table: 'ubicaciones' \}/.test(store),
+   'la app escucha los cambios de ubicaciones en vivo');
+const enVivo = app.slice(app.indexOf('function alCambiarOtro'), app.indexOf('function alCambiarOtro') + 1200);
+ok(/tipo === 'DELETE'/.test(enVivo) && /id === S\.perfil\?\.id\) return/.test(enVivo),
+   'quien apaga su GPS desaparece en el acto, y uno no se dibuja a sí mismo como compañero');
+ok(/const espera = S\.gps\.enVivo \|\| \(!S\.gps\.otros\.length && !S\.gps\.activo\)\s*\? SIN_NADIE_CADA_MS/.test(lectura),
+   'con la conexión en vivo, o sin nadie compartiendo, se pregunta solo cada minuto');
+ok(/const MOVIDO_M = 3;/.test(app) && /const ENTRE_ENVIOS_MS = 2000;/.test(app),
+   'lo propio sube en cuanto se mueve 3 m, como mucho cada 2 s');
+ok(/vivos\.get\(u\.usuario_id\) \|\|/.test(lectura),
+   'una respuesta que llega tarde no pisa una posición más nueva que llegó en vivo');
 const falla = app.slice(app.indexOf('function alFallarGps'), app.indexOf('const BUSCAR_CALIBRACION_CADA_MS'));
 ok(/Gps\.detener\(\)/.test(falla) && !/pararGps\(\)/.test(falla),
    'sin permiso de ubicación se apaga el GPS propio, pero se sigue viendo a los demás');
@@ -388,5 +409,8 @@ ok(filas(ANA, `select string_agg(nombre, ',') from v_ubicaciones`) === 'Ana',
    'la ubicación de hace once minutos ya no sale en la vista');
 ok(Number(filas(ANA, `select segundos from v_ubicaciones`)) < 60,
    'y la vista dice cuántos segundos tiene cada una, contados en el servidor');
+ok(base.sql(`select count(*) from pg_publication_tables
+              where pubname = 'supabase_realtime' and tablename = 'ubicaciones'`) === '1',
+   'la tabla está en la publicación de Realtime: sin eso no llega nada en vivo');
 
 cerrar();

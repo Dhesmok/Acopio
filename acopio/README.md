@@ -91,14 +91,14 @@ La pantalla principal es el plano del patio.
 
 ### GPS: dónde estoy yo y dónde están los demás
 
-El botón **Ubicación** (la flecha, en las herramientas del mapa) prende el GPS del celular.
+**Ver a los compañeros no hace falta prender nada**: a todo el que tenga la ubicación prendida se le ve en el plano, **en tiempo real**. El botón **Ubicación** (la flecha, en las herramientas del mapa) es solo lo propio: tu punto azul, y compartirlo.
 
 - **Uno mismo es el punto azul**, con un halo que es el margen de error que da el teléfono (±5 m es lo normal a cielo abierto). Al prenderlo, el plano va hasta el punto; la pastilla que aparece debajo de las herramientas dice la precisión y cuántos compañeros hay en ese plano, y tocarla vuelve a llevar el plano hasta uno.
-- **Los compañeros son puntos negros con su nombre.** Se ve a todo el que tenga la ubicación prendida en ese momento. Si su última posición tiene más de minuto y medio, el punto sale desvaído; a los diez minutos deja de verse solo.
-- **Compartir es parte de prenderlo, y solo dentro del patio.** La posición sube mientras cae en el plano de alguna plataforma calibrada (con 30 m de margen para la vía de entrada). Fuera de ahí no sale nada del teléfono y se retira la que hubiera. Al apagar el botón o cerrar sesión se borra al instante. No se guarda ningún rastro: hay una sola fila por persona, que se pisa en cada lectura. La primera vez que se prende, la app lo explica antes de pedir el permiso.
+- **Los compañeros son puntos negros con su nombre**, y se mueven en vivo: quien comparte sube su posición cada vez que se mueve 3 m (como mucho cada 2 segundos; quieto, cada 15), y el servidor avisa al instante a todos los que tienen el mapa abierto (Supabase Realtime). Mientras nadie comparte no viaja nada. Si la conexión en vivo se cae —la señal del patio—, la app sigue preguntando cada 15 segundos hasta que vuelve. Si de alguien no se sabe nada en minuto y medio, su punto sale desvaído; a los 10 minutos deja de verse.
+- **Compartir es solo dentro del patio.** La posición sube mientras cae en el plano de alguna plataforma calibrada (con 30 m de margen para la vía de entrada). Fuera de ahí no sale nada del teléfono y se retira la que hubiera. Al apagar el botón o cerrar sesión se borra al instante. No se guarda ningún rastro: hay una sola fila por persona, que se pisa en cada lectura. La primera vez que se prende, la app lo explica antes de pedir el permiso.
 - **Si estás en otra plataforma**, la pastilla dice "Estás en Ye · ir" y con un toque cambia de plano.
 - **Si no hay nadie en el plano que miras pero sí en otro**, la pastilla dice "2 en Topsoil" y con un toque lleva allá.
-- **Desde la oficina se ve a los demás aunque el navegador no dé la ubicación**: la pastilla dice "2 compañeros aquí · sin tu GPS".
+- **Desde la oficina se ve a los demás** sin prender nada, y aunque el navegador no dé la ubicación.
 - **Si el servidor no acepta la posición** (por ejemplo, porque falta correr el bloque GPS de `sql/migracion.sql`), la pastilla sale en rojo y al tocarla dice qué respondió el servidor.
 - **La calibración llega sola a los teléfonos.** Mientras un teléfono con el GPS prendido no conozca un plano calibrado donde esté, pregunta por las plataformas cada dos minutos, en vez de esperar la descarga de cada hora.
 - **Solo funciona con la app abierta.** Con el teléfono en el bolsillo el GPS se apaga para no gastar batería, y vuelve al sacarlo. Necesita HTTPS (Netlify ya lo da) y el permiso de ubicación del navegador.
@@ -113,7 +113,7 @@ Con **dos puntos** basta: el plano se escala, se gira y se mueve. Con **cuatro o
 
 La foto satelital es la de **Google**, por su URL de cuadros, la misma que se usa en QGIS: no pide clave ni API. Google no la publica oficialmente, así que podría cambiarla o cortarla algún día. Por eso, con el botón de capas (debajo del + y el −) se pasa a la foto de **Esri** en un toque, y la ventana recuerda cuál se eligió. Las dos dan el mismo sitio para la misma coordenada, así que da igual sobre cuál se marque. La ventana de calibrar necesita internet; el resto de la app sigue funcionando sin señal.
 
-Requiere correr `sql/migracion.sql` una vez: agrega la columna de calibración a `plataformas`, la tabla `ubicaciones` y sus permisos (cada uno escribe y borra solo la suya; la hora la pone el servidor).
+Requiere correr `sql/migracion.sql` una vez: agrega la columna de calibración a `plataformas`, la tabla `ubicaciones` y sus permisos (cada uno escribe y borra solo la suya; la hora la pone el servidor), y la mete en la publicación de Realtime para que los cambios lleguen en vivo.
 
 ### El fondo, solo para el admin
 

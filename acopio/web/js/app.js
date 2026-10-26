@@ -87,7 +87,7 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             // lo usa lo quiere cada vez que abre la app, sin volver a
             // pedirlo. `yo` es la última lectura; `otros`, los que el
             // servidor dice que están en el patio ahora.
-            gps: { activo: localStorage.getItem('acopio-gps') === '1', yo: null, otros: [],
+            gps: { activo: localStorage.getItem('acopio-gps') === '1', yo: null, otros: [], enVivo: false,
                    error: null, compartiendo: false, enviado: null, enviando: false, leidoEn: 0,
                    // lo que respondió el servidor si no aceptó la posición o no dejó leer
                    fallaSubir: null, fallaLeer: null },
@@ -568,9 +568,14 @@ async function abrirSesion(usuario) {
   // pantalla apagada nadie mira el plano, y el GPS es de lo que más
   // batería gasta en un teléfono.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) pararGps(); else if (S.gps.activo) arrancarGps();
+    if (document.hidden) pararGps();
+    else {
+      if (S.gps.activo) arrancarGps();
+      leerOtros({ yaMismo: true });       // lo de hace un rato ya no es "ahora"
+    }
   });
   if (S.gps.activo) arrancarGps();
+  vigilarOtros();
   // La ventana de calibrar (calibrar.html) escribe en la misma base del
   // navegador. Avisa al guardar, y aquí se recarga en el acto en vez de
   // esperar a la vuelta de sincronización: el admin que acaba de calibrar
@@ -1009,7 +1014,7 @@ function montarMapa() {
 
   if (S.calibrando) dibujarCalibracion();
   // Volver al mapa desde la lista: lo de los demás puede tener un rato.
-  if (S.gps.activo && Date.now() - (S.gps.leidoEn || 0) > CADA_LECTURA_AJENA_MS) leerOtros();
+  leerOtros();
   pintarGps();
 }
 
@@ -4041,14 +4046,31 @@ function formLote() {
 // El punto azul es uno mismo; los negros con nombre, los compañeros. Todo
 // se dibuja en una capa aparte del plano (ver mapa.js).
 //
-// Compartir es parte de prenderlo, y SOLO dentro del patio: la posición
-// se sube mientras cae en el plano de alguna plataforma calibrada. Fuera
-// de ahí —en la oficina, en la casa, camino al trabajo— no sale nada del
-// teléfono, y se borra la que hubiera. Ver dónde están los demás no
-// necesita estar en el patio: el admin puede mirarlos desde la oficina.
-const CADA_ENVIO_MS = 15_000;             // una subida cada 15 s como mucho…
-const MOVIDO_M = 5;                       // …o antes, si se movió más que esto
-const CADA_LECTURA_AJENA_MS = 15_000;     // cada cuánto se pregunta por los demás
+// Ver y compartir van por separado.
+//
+// A los demás se los ve SIEMPRE, sin tocar nada: quien mira el plano
+// desde la oficina, o un contratista buscando a un compañero, no tiene
+// por qué prender su propio GPS para eso.
+//
+// El botón «Ubicación» es solo lo propio: el punto azul, y compartirlo.
+// Y compartir es SOLO dentro del patio: la posición se sube mientras cae
+// en el plano de alguna plataforma calibrada. Fuera de ahí —en la
+// oficina, en la casa, camino al trabajo— no sale nada del teléfono, y se
+// borra la que hubiera.
+// Lo propio sube en cuanto se mueve 3 m, como mucho cada 2 s: eso es lo
+// que los demás ven en tiempo real. Quieto, cada 15 s, para seguir vivo.
+const CADA_ENVIO_MS = 15_000;
+const MOVIDO_M = 3;
+const ENTRE_ENVIOS_MS = 2000;
+// A los demás se los ve EN VIVO (ver escucharUbicaciones en store.js).
+// Preguntar sigue haciendo falta, pero de respaldo: al abrir, para saber
+// quién estaba ya; cada minuto, por si se perdió algún aviso; y cada 15 s
+// mientras la conexión en vivo esté caída, que con la señal del patio pasa.
+const CADA_LECTURA_AJENA_MS = 15_000;
+const SIN_NADIE_CADA_MS = 60_000;
+// Un punto del que no se sabe nada en este rato deja de dibujarse: es lo
+// mismo que hace la vista del servidor con los de hace diez minutos.
+const OLVIDAR_MS = 10 * 60_000;
 const VIEJO_S = 90;                       // a partir de aquí el punto se pinta desvaído
 // Una lectura peor que esto no se comparte: es la del teléfono adivinando
 // con las antenas, y pintaría a la persona en la otra punta del patio.
@@ -4057,7 +4079,50 @@ const PRECISION_COMPARTIR_M = 60;
 // entrada, el parqueadero de las volquetas, justo al borde.
 const MARGEN_PLANO_M = 30;
 
-let relojGps = 0;
+let relojGps = 0, relojOtros = 0, vivoAlgunaVez = false;
+
+// Arranca al abrir la sesión y no para: leerOtros mismo se salta las
+// vueltas con la app escondida o fuera del mapa.
+function vigilarOtros() {
+  clearInterval(relojOtros);
+  Store.escucharUbicaciones({
+    alEstado: (e) => {
+      const antes = S.gps.enVivo;
+      S.gps.enVivo = e === 'SUBSCRIBED';
+      // Al RECONECTAR puede haberse perdido algo mientras estuvo caída. La
+      // primera conexión no: el mapa acaba de preguntar al abrirse.
+      if (S.gps.enVivo && !antes && vivoAlgunaVez) leerOtros({ yaMismo: true });
+      if (S.gps.enVivo) vivoAlgunaVez = true;
+    },
+    alCambiar: alCambiarOtro
+  });
+  leerOtros();
+  relojOtros = setInterval(() => {
+    // Lo que lleva diez minutos sin noticias se olvida, y el resto se
+    // vuelve a pintar: un punto se va desvaneciendo aunque no llegue nada.
+    const antes = S.gps.otros.length;
+    S.gps.otros = S.gps.otros.filter((o) => Date.now() - o.recibido < OLVIDAR_MS);
+    if (S.gps.otros.length !== antes || S.gps.otros.length) pintarGps();
+    leerOtros();
+  }, CADA_LECTURA_AJENA_MS);
+}
+
+// Un aviso en vivo: alguien se movió, prendió su GPS o lo apagó.
+function alCambiarOtro(tipo, nueva, vieja) {
+  const id = nueva?.usuario_id || vieja?.usuario_id;
+  if (!id || id === S.perfil?.id) return;
+  const resto = S.gps.otros.filter((o) => o.usuario_id !== id);
+  if (tipo === 'DELETE') S.gps.otros = resto;
+  else {
+    // El aviso trae la fila, no el nombre: el nombre sale de lo que ya se
+    // sabía de esa persona, o de la lista de perfiles del celular.
+    const antes = S.gps.otros.find((o) => o.usuario_id === id);
+    const nombre = antes?.nombre || S.gente.find((p) => p.id === id)?.nombre || '?';
+    S.gps.otros = [...resto, { usuario_id: id, nombre, lat: nueva.lat, lon: nueva.lon,
+                               precision_m: nueva.precision_m, recibido: Date.now() }];
+  }
+  if (!document.hidden && S.pestana === 'mapa') pintarGps();
+}
 
 async function prenderGps() {
   // La primera vez se explica qué implica: prenderlo es dejarse ver.
@@ -4087,8 +4152,8 @@ async function apagarGps() {
   S.gps.activo = false;
   recordar('acopio-gps', '0');
   pararGps();
-  S.gps.yo = null; S.gps.otros = []; S.gps.error = null;
-  S.gps.fallaSubir = null; S.gps.fallaLeer = null;
+  // A los demás se los sigue viendo: apagar es dejar de verse uno.
+  S.gps.yo = null; S.gps.error = null; S.gps.fallaSubir = null;
   botonGps();
   pintarGps();
   await soltarUbicacion();
@@ -4101,9 +4166,7 @@ function arrancarGps() {
   if (!Gps.transformacion(plataformaActual()?.geo)) buscarCalibracion();
   Gps.seguir(alLeerGps, alFallarGps);
   clearInterval(relojGps);
-  leerOtros();
   relojGps = setInterval(() => {
-    leerOtros();
     // Quieto, el teléfono puede pasar minutos sin dar lectura nueva: la
     // última sigue siendo la buena, y sin esto la persona se iría
     // desvaneciendo de la pantalla de los demás sin haberse movido. Pero
@@ -4182,7 +4245,7 @@ async function compartirSiToca(l) {
   }
   const t = Date.now();
   const toca = !g.enviado || t - g.enviado.cuando > CADA_ENVIO_MS
-    || (t - g.enviado.cuando > 4000 && Gps.distanciaM(g.enviado, l) > MOVIDO_M);
+    || (t - g.enviado.cuando > ENTRE_ENVIOS_MS && Gps.distanciaM(g.enviado, l) > MOVIDO_M);
   if (!toca) return;
   g.enviando = true;
   try {
@@ -4203,15 +4266,28 @@ async function compartirSiToca(l) {
   } finally { g.enviando = false; }
 }
 
-async function leerOtros() {
-  if (!S.gps.activo || document.hidden || S.pestana !== 'mapa') return;
-  S.gps.leidoEn = Date.now();
+async function leerOtros({ yaMismo = false } = {}) {
+  if (document.hidden || S.pestana !== 'mapa' || S.historia) return;
+  const espera = S.gps.enVivo || (!S.gps.otros.length && !S.gps.activo)
+    ? SIN_NADIE_CADA_MS : CADA_LECTURA_AJENA_MS;
+  // el segundo de holgura es para que el reloj de 15 s no caiga justo antes
+  if (!yaMismo && Date.now() - S.gps.leidoEn < espera - 1000) return;
+  const inicio = S.gps.leidoEn = Date.now();
   try {
-    S.gps.otros = (await Store.ubicaciones()).filter((u) => u.usuario_id !== S.perfil?.id);
+    const filas = await Store.ubicaciones();
+    // Lo que llegó EN VIVO mientras se esperaba la respuesta es más nuevo
+    // que la respuesta: se queda. La antigüedad la cuenta el servidor
+    // (`segundos`), así que el reloj del celular no tiene que estar bien.
+    const vivos = new Map(S.gps.otros.filter((o) => o.recibido >= inicio).map((o) => [o.usuario_id, o]));
+    const ahora = Date.now();
+    S.gps.otros = filas.filter((u) => u.usuario_id !== S.perfil?.id)
+      .map((u) => vivos.get(u.usuario_id) || { ...u, recibido: ahora - (u.segundos || 0) * 1000 });
+    for (const [id, o] of vivos) if (!S.gps.otros.some((x) => x.usuario_id === id)) S.gps.otros.push(o);
     S.gps.fallaLeer = null;
   } catch (e) {
+    // Sin respuesta se queda lo que había: se irá desvaneciendo solo si de
+    // verdad no llega nada más, en vez de vaciarse el plano de golpe.
     console.error(e);
-    S.gps.otros = [];
     S.gps.fallaLeer = e?.message || String(e);
   }
   pintarGps();
@@ -4228,15 +4304,15 @@ function pintarGps() {
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
   const marcas = marcasCalibracion();
-  if (!S.gps.activo || !t || S.historia) return Mapa.pintarGps(marcas.length ? { marcas } : null);
+  if (!t || S.historia) return Mapa.pintarGps(marcas.length ? { marcas } : null);
   const enPlano = (lat, lon) => {
     const pt = t.aPlano(lat, lon);
     return Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M) ? pt : null;
   };
-  const yo = S.gps.yo && enPlano(S.gps.yo.lat, S.gps.yo.lon);
+  const yo = S.gps.activo && S.gps.yo && enPlano(S.gps.yo.lat, S.gps.yo.lon);
   const otros = S.gps.otros.map((o) => {
     const pt = enPlano(o.lat, o.lon);
-    return pt && { ...pt, nombre: nombreCorto(o.nombre), viejo: o.segundos > VIEJO_S };
+    return pt && { ...pt, nombre: nombreCorto(o.nombre), viejo: Date.now() - o.recibido > VIEJO_S * 1000 };
   }).filter(Boolean);
   Mapa.pintarGps({
     yo: yo && { ...yo, radio: S.gps.yo.precision * t.escala },
@@ -4257,7 +4333,7 @@ function chipGps() {
   const caja = $('#chip-gps-caja');
   if (!caja) return;
   const g = S.gps;
-  if (!g.activo || S.historia || S.calibrando) { caja.innerHTML = ''; return; }
+  if (S.historia || S.calibrando) { caja.innerHTML = ''; return; }
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
   // Los demás: cuántos en este plano, y si no hay ninguno, en cuál hay.
@@ -4281,9 +4357,18 @@ function chipGps() {
   };
   const gente = aquiOtros ? ` · ${aquiOtros} más aquí`
     : otraPlat ? ` · ${enOtra} en ${otraPlat.nombre}` : '';
+  const compas = (n) => `${n} compañero${n === 1 ? '' : 's'}`;
   let texto, alTocar, malo = false;
-  const falla = g.fallaSubir || g.fallaLeer;
-  if (falla) {
+  // Con lo propio apagado no se dice el error de leer a cualquiera —le
+  // saldría en rojo a todo el patio sin que pueda hacer nada—, solo al
+  // admin, que es quien puede arreglarlo.
+  const falla = g.fallaSubir || ((g.activo || esAdmin()) && g.fallaLeer);
+  if (!g.activo && !falla) {
+    // Sin la ubicación propia, la pastilla solo sale si hay a quién ver.
+    if (!aquiOtros && !otraPlat) { caja.innerHTML = ''; return; }
+    texto = aquiOtros ? `${compas(aquiOtros)} aquí` : `${enOtra} en ${otraPlat.nombre} · ir`;
+    alTocar = aquiOtros ? () => enfocarOtros(plat, t) : irA(otraPlat);
+  } else if (falla) {
     malo = true;
     texto = g.fallaSubir ? 'El servidor no acepta tu ubicación · ver' : 'No se pudo ver a los demás · ver';
     alTocar = () => avisar(`El servidor respondió: «${falla}». `
@@ -4298,7 +4383,7 @@ function chipGps() {
     // Sin GPS propio —la oficina, un navegador sin permiso— igual se ve a
     // los demás: la pastilla lo dice, en vez de enseñar solo el error.
     malo = true;
-    texto = `${aquiOtros ? `${aquiOtros} compañero${aquiOtros === 1 ? '' : 's'} aquí`
+    texto = `${aquiOtros ? `${compas(aquiOtros)} aquí`
       : otraPlat ? `${enOtra} en ${otraPlat.nombre}` : 'Nadie más compartiendo'} · sin tu GPS`;
     alTocar = () => { avisar(g.error); arrancarGps(); };
   } else if (g.error) {
@@ -4327,6 +4412,14 @@ function chipGps() {
     ${ICO.gps}<span>${esc(texto)}</span></button>`;
   const b = $('#chip-gps');
   if (alTocar) b.onclick = gesto(alTocar); else b.disabled = true;
+}
+
+// Lleva el plano hasta los compañeros que están en este plano.
+function enfocarOtros(plat, t) {
+  const pts = S.gps.otros.map((o) => t.aPlano(o.lat, o.lon))
+    .filter((pt) => Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M));
+  if (pts.length) Mapa.enfocar(pts.map((pt) => ({ x: pt.x, y: pt.y, rx: 0, ry: 0 })),
+    { margen: Math.max(25 * t.escala, 60) });
 }
 
 // Lleva el plano hasta el punto azul, con un poco de patio alrededor.

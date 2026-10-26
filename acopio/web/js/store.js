@@ -1256,6 +1256,25 @@ export async function refrescarPlataformas() {
 // Los de los últimos diez minutos, con la antigüedad contada por el
 // servidor. Sin señal no hay nadie que mostrar: devolver la lista vieja
 // pintaría gente donde estaba hace rato como si fuera ahora.
+// En vivo: el servidor avisa en el acto cada vez que alguien con el GPS
+// prendido sube o borra su posición. Es lo que hace que se vea moverse a
+// los compañeros, y no a saltos de quince segundos.
+//
+// Mientras nadie comparte no viaja nada, salvo el latido con que la
+// conexión se mantiene abierta. Necesita la tabla en la publicación de
+// Realtime de Supabase (ver el bloque GPS de migracion.sql); sin eso, o
+// con la conexión caída, la app sigue preguntando de tanto en tanto.
+//
+// Devuelve con qué cerrarla.
+export function escucharUbicaciones({ alCambiar, alEstado }) {
+  if (typeof sb.channel !== 'function') return () => {};
+  const canal = sb.channel('ubicaciones-patio')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ubicaciones' },
+      (p) => alCambiar(p.eventType, p.new, p.old))
+    .subscribe((estado) => alEstado?.(estado));
+  return () => sb.removeChannel(canal);
+}
+
 export async function ubicaciones() {
   if (!navigator.onLine) return [];
   const { data, error } = await sb.from('v_ubicaciones')
