@@ -440,25 +440,20 @@ ok(parte('SJ1015-B') === 'SJ1015-B|', 'después del guion tiene que haber un nú
 ok(parte('SJ1015.B') === 'SJ1015.B|', 'después del punto tiene que haber un número');
 ok(parte('') === '|', 'y un código vacío no revienta');
 
-// El círculo se cierra aquí: el código que ARMA el formulario de nuevo
-// lote —número y viaje en casillas aparte, porque el teclado numérico de
-// un celular no tiene guion— tiene que ser exactamente uno de los que
-// esta función sabe partir. Si un día se separan, el lote se guardaría
-// bien y se dibujaría mal, y nadie ataría una cosa con la otra.
-const armaCodigo = new Function('num', 'crudo', `
-  const $ = (sel) => sel === '#f-num' ? { value: num } : { value: crudo };
+// El formulario de nuevo lote ya no tiene casilla de viaje: arma la
+// sigla y el número, y eso se dibuja entero, sin nada que elevar. Los
+// lotes viejos que sí llevan viaje se siguen partiendo como arriba.
+const armaCodigo = new Function('num', `
+  const $ = () => ({ value: num });
   ${(() => {
-    const a = fuenteApp.indexOf('const limpiarViaje =');
+    const a = fuenteApp.indexOf('const codigoDe =');
     const b = fuenteApp.indexOf('const rotular =', a);
     return fuenteApp.slice(a, b);
   })()}
   const sigla = () => 'PG';
   return codigoDe();
 `);
-ok(parte(armaCodigo('1004', '2')) === 'PG1004|2',
-   'el código que arma el formulario se dibuja con el viaje arriba');
-ok(parte(armaCodigo('70', '11')) === 'PG70|11', 'también con lote y viaje de dos cifras');
-ok(parte(armaCodigo('1004', '')) === 'PG1004|', 'y sin viaje no hay nada que elevar');
+ok(parte(armaCodigo('1004')) === 'PG1004|', 'el código que arma el formulario no lleva viaje');
 
 // En el plano, el código va entero y el número pequeño encima
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
