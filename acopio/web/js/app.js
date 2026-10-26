@@ -937,7 +937,7 @@ function montarMapa() {
   // tampoco: no es momento de registrar nada, y taparía la barra.
   const nb = $('#boton-nuevo');
   if (nb && !soloLectura() && !S.historia && !S.calibrando) nb.innerHTML =
-    `<button class="btn-mapa btn-mapa-primario" id="nuevo">${ICO.mas}<span>Nuevo lote</span></button>`;
+    `<button class="btn-mapa btn-mapa-primario" id="nuevo" aria-label="Nuevo lote" title="Nuevo lote">${ICO.mas}</button>`;
   const rec = $('#barra-recorrido');
   if (rec && S.recorrido) rec.innerHTML = `<div class="barra-modo">
     <span>Recorrido del lote en pantalla</span>
@@ -4218,18 +4218,11 @@ function formLote() {
           >${esc(p.abreviatura)} · ${esc(p.nombre)}</option>`).join('')}
       </select>
     </div>
-    <div class="fila-lote">
-      <div class="campo">
-        <label for="f-num">Número de lote</label>
-        <div class="con-sigla">
-          <span id="f-sigla">${esc(porDefecto?.abreviatura || '')}</span>
-          <input id="f-num" data-mono inputmode="numeric" autocomplete="off">
-        </div>
-      </div>
-      <div class="campo campo-viaje">
-        <label for="f-viaje">Viaje</label>
-        <input id="f-viaje" data-mono inputmode="numeric" autocomplete="off"
-               maxlength="2" placeholder="—">
+    <div class="campo">
+      <label for="f-num">Número de lote</label>
+      <div class="con-sigla">
+        <span id="f-sigla">${esc(porDefecto?.abreviatura || '')}</span>
+        <input id="f-num" data-mono inputmode="numeric" autocomplete="off">
       </div>
     </div>
     <p class="pista" id="f-quedara"></p>
@@ -4249,27 +4242,13 @@ function formLote() {
   let material = 'granel';
   const sigla = () => S.proveedores.find((p) => p.id === $('#f-prov').value)?.abreviatura || '';
 
-  // El viaje va en su PROPIO campo, y no pegado al número, porque el
-  // teclado numérico del celular no tiene guion, ni punto, ni
-  // paréntesis: escribir "1004-2" ahí era imposible. Así los dos campos
-  // conservan el teclado de números grande —que es el que se usa con
-  // guantes— y el código lo arma la app.
-  //
-  // Se limpia a lo que la app sabe leer como viaje: solo cifras, sin
-  // ceros delante y como mucho dos. Un lote se trae en dos o en doce
-  // volquetas; escribir "02" dejaría un código que luego no se muestra
-  // con el número arriba, y la diferencia no se vería hasta después.
-  const limpiarViaje = (v) => String(v).replace(/\D/g, '').replace(/^0+/, '').slice(0, 2);
-  const viaje = () => limpiarViaje($('#f-viaje').value);
   // El código completo no lo escribe nadie, así que se enseña: es lo que
   // va a quedar rotulado en la bolsa y lo que se busca después.
-  const codigoDe = () => sigla() + $('#f-num').value.trim().toUpperCase()
-    + (viaje() ? `-${viaje()}` : '');
+  const codigoDe = () => sigla() + $('#f-num').value.trim().toUpperCase();
   const rotular = () => {
     const c = codigoDe();
     $('#f-quedara').textContent = $('#f-num').value.trim() ? `Quedará como ${c}` : '';
   };
-  $('#f-viaje').oninput = () => { $('#f-viaje').value = viaje(); rotular(); };
   $('#f-num').oninput = rotular;
   $('#f-prov').onchange = () => { $('#f-sigla').textContent = sigla(); rotular(); };
   const elegirMaterial = (m) => {
@@ -4294,13 +4273,8 @@ function formLote() {
     // sin proveedor el servidor rechaza el lote y todo lo que cuelgue de
     // él; es preferible pararlo aquí que dejarlo trabado en la cola
     if (!proveedor_id) return falla('No hay proveedores cargados todavía. Sincroniza antes de registrar el lote.');
-    // Repetir el código es, casi siempre, la segunda volqueta del mismo
-    // lote: se dice dónde va eso en vez de dejar a alguien peleando con
-    // el número.
     if (S.lotes.some((l) => l.codigo === codigo)) {
-      return falla(viaje() ? `El lote ${codigo} ya está registrado.`
-        : `El lote ${codigo} ya está registrado. Si es otro viaje del mismo lote, `
-          + 'escribe el número del viaje en la casilla de al lado.');
+      return falla(`El lote ${codigo} ya está registrado.`);
     }
     const nuevo = await Store.crearLote({
       codigo, proveedor_id, placa,

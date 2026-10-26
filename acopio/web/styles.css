@@ -1015,7 +1015,6 @@ button:focus:not(:focus-visible) { outline: none; }
   .grupo-herramientas .btn-mapa span { display: none; }
   .btn-plegar { padding: 12px; justify-content: center; }
   .btn-plegar span { display: none; }
-  .btn-mapa-primario { padding: 12px 15px; font-size: 14px; }
 }
 /* con etiquetas a la vista, el propio botón ya dice qué filtro está
    puesto: la pastilla solo hace falta cuando quedan los iconos solos */
@@ -1435,23 +1434,6 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .con-sigla input { border-radius: 0 var(--r) var(--r) 0; }
 
-/* El número del lote y el del viaje, en la misma fila y cada uno con su
-   casilla. Van separados a propósito: el teclado numérico del celular no
-   tiene guion ni punto ni paréntesis, así que "1004-2" no se podía
-   escribir de corrido en un solo campo. Con dos casillas los dos
-   conservan el teclado de números grande —el que se usa con guantes— y
-   el código lo arma la app.
-
-   El viaje ocupa lo justo para dos cifras: más ancho invitaría a meter
-   ahí otra cosa, y estrecho se lee como lo que es, un añadido al número
-   de al lado. */
-.fila-lote { display: flex; gap: 8px; align-items: flex-start; }
-.fila-lote .campo { flex: 1; min-width: 0; }
-.fila-lote .campo-viaje { flex: 0 0 84px; }
-.campo-viaje input { text-align: center; }
-/* La casilla vacía no puede parecer un olvido: la mayoría de los lotes
-   llegan en un solo viaje y se deja en blanco. La raya lo dice. */
-.campo-viaje input::placeholder { color: var(--linea-suave); }
 #f-quedara { margin: -6px 0 13px; font-family: var(--mono); }
 #f-quedara:empty { display: none; }
 
@@ -1591,6 +1573,10 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
   text-transform: uppercase; letter-spacing: .07em; font-weight: 800; font-size: 14px;
 }
 .btn-mapa-primario:hover { background: var(--acento-fuerte); border-color: var(--tinta); }
+/* Solo el «+», cuadrado: se entiende sin palabras (lleva su aria-label)
+   y tapa menos plano en la esquina. */
+.btn-mapa-primario { width: 52px; height: 52px; padding: 0; justify-content: center; }
+.btn-mapa-primario .ico { width: 26px; height: 26px; }
 .chip-filtro {
   background: var(--acento); border: 2px solid var(--tinta); border-radius: 0;
   box-shadow: var(--sombra-baja); letter-spacing: .05em;
