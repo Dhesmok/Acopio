@@ -280,6 +280,14 @@ ok(subeUbicacion.length > 0 && !/encolar\(/.test(subeUbicacion),
    'la ubicación no pasa por la cola: subirla tarde pintaría a alguien donde ya no está');
 ok(/v_ubicaciones/.test(subeUbicacion), 'los demás se leen de la vista, que descarta lo viejo en el servidor');
 ok(/if \(document\.hidden\) pararGps\(\)/.test(app), 'con la app en el bolsillo el GPS se apaga');
+const falla = app.slice(app.indexOf('function alFallarGps'), app.indexOf('const BUSCAR_CALIBRACION_CADA_MS'));
+ok(/Gps\.detener\(\)/.test(falla) && !/pararGps\(\)/.test(falla),
+   'sin permiso de ubicación se apaga el GPS propio, pero se sigue viendo a los demás');
+ok(/if \(buena && !dentro\) buscarCalibracion\(\);/.test(compartir),
+   'si el teléfono no conoce un plano calibrado donde esté, pregunta por las plataformas');
+ok(/BUSCAR_CALIBRACION_CADA_MS = 2 \* 60_000/.test(app), 'pero como mucho cada dos minutos');
+ok(/g\.fallaSubir = e\?\.message/.test(compartir) && /fallaLeer = e\?\.message/.test(app),
+   'si el servidor no acepta la posición o no deja leer, la pastilla lo dice, no solo la consola');
 ok(/await soltarUbicacion\(\);\s*await Store\.salir\(\)/.test(app),
    'al cerrar sesión se deja de compartir ANTES de perder el permiso para borrarla');
 ok(/'\.\/js\/gps\.js'/.test(sw), 'gps.js se guarda para abrir sin señal');

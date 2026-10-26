@@ -291,4 +291,30 @@ const enServidor = [...servidor.tablas.eventos.values()]
   .filter((e) => e.lote_id === conRecorrido.id && e.tipo === 'movimiento').length;
 ok(enServidor === 3, `en el servidor siguen los tres (hay ${enServidor})`);
 
+// ---------------------------------------------------------------------
+titulo('La calibración del GPS llega sin esperar la hora, y no pisa la que está por subir.');
+
+// Pasó en el patio: el admin calibró, los demás prendieron el GPS y nadie
+// se veía. Las plataformas bajaban una vez por hora, y un teléfono que no
+// sabe que su plano está calibrado no comparte nada.
+const calibrada = { puntos: [{ x: 0, y: 0, lat: 6.95, lon: -75.05 }, { x: 900, y: 0, lat: 6.95, lon: -75.046 }] };
+servidor.tablas.plataformas.set('T1', { id: 'T1', nombre: 'Topsoil', geo: null });
+servidor.tablas.plataformas.set('Y1', { id: 'Y1', nombre: 'Ye', geo: null });
+await Store.refrescarPlataformas();
+servidor.tablas.plataformas.set('T1', { id: 'T1', nombre: 'Topsoil', geo: calibrada });
+servidor.bajado.length = 0;
+ok(await Store.refrescarPlataformas(), 'con señal, se pregunta');
+ok((await Store.plataformas()).find((p) => p.id === 'T1')?.geo?.puntos?.length === 2,
+   'la calibración que el admin acaba de guardar llega al teléfono');
+ok(servidor.bajado.length === 1 && servidor.bajado[0].tabla === 'plataformas',
+   `con una sola consulta, y solo de plataformas (fueron ${servidor.bajado.length})`);
+
+// Ye se calibró en ESTE celular sin señal: está en la cola, y el servidor
+// todavía tiene la versión sin calibrar. Bajarla no puede borrarla.
+const local = { puntos: [{ x: 1, y: 1, lat: 6.9, lon: -75.1 }, { x: 800, y: 1, lat: 6.9, lon: -75.096 }] };
+await Store.guardarPlataforma({ id: 'Y1', nombre: 'Ye', geo: local });
+await Store.refrescarPlataformas();
+ok((await Store.plataformas()).find((p) => p.id === 'Y1')?.geo?.puntos?.[0].lat === 6.9,
+   'la calibración que espera en la cola no se pisa con la vieja del servidor');
+
 cerrar();
