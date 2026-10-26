@@ -198,7 +198,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
    mano. Vive aquí, con las barras flotantes, y no entre las herramientas
    de arriba: así se apila con ellas en vez de quedar tapado cuando
    alguna aparece. */
-#boton-nuevo { align-self: flex-end; }
+#boton-nuevo { margin-left: auto; }
+/* La pastilla del GPS a la izquierda y "Nuevo lote" a la derecha, en el
+   mismo renglón. Si no caben juntos, el botón baja y la pastilla queda
+   encima, a la izquierda: el botón nunca deja su esquina. El renglón no
+   se toca; solo lo que lleva dentro, o taparía el plano de lado a lado. */
+.fila-inferior {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px;
+  pointer-events: none !important;
+}
+.fila-inferior > * { pointer-events: auto; }
+#chip-gps-caja:empty { display: none; }
+.fila-inferior:has(> #chip-gps-caja:empty):has(> #boton-nuevo:empty) { display: none; }
 
 /* Sin sombra: la cinta de peligro ya es el filo de la cabecera. Una
    sombra sólida desplazada en un elemento a todo el ancho solo deja una
@@ -304,7 +315,11 @@ header h1 { flex: none; }
 
 /* En pantalla ancha no tiene por qué ocupar todo el borde inferior */
 @media (min-width: 720px) {
-  #flotantes { left: auto; width: min(560px, 100%); }
+  #flotantes { align-items: flex-end; }
+  #flotantes > * { width: min(560px, 100%); }
+  /* menos el renglón de abajo, que va de esquina a esquina: la pastilla
+     del GPS se pide en la esquina inferior IZQUIERDA */
+  #flotantes > .fila-inferior { width: 100%; }
 }
 
 /* ------------------------------------------------------------ pestañas */

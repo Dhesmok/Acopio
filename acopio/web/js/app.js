@@ -834,7 +834,13 @@ function pantallaPrincipal() {
       <div id="barra-forma"></div>
       <div id="barra-historia"></div>
       <div id="barra-gps"></div>
-      <div id="boton-nuevo"></div>
+      <!-- La pastilla del GPS va abajo a la izquierda, en el mismo renglón
+           que "Nuevo lote": arriba, debajo de las herramientas, se sumaba
+           a todo lo que ya había en esa esquina. -->
+      <div class="fila-inferior">
+        <div id="chip-gps-caja"></div>
+        <div id="boton-nuevo"></div>
+      </div>
       <div id="franja" hidden class="franja"><div></div></div>
     </div>
     <div id="modal"></div>`;
@@ -912,7 +918,8 @@ function pintarSync() {
 
 // ------------------------------------------------------------------ mapa
 const limpiarBarrasMapa = () => {
-  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#barra-gps', '#boton-nuevo']) {
+  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#barra-gps', '#boton-nuevo',
+                    '#chip-gps-caja']) {
     const n = $(id); if (n) n.innerHTML = '';
   }
 };
@@ -963,7 +970,6 @@ function montarMapa() {
             </div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
-            <div id="chip-gps-caja"></div>
           </div>
         </div>
       </div>
@@ -4605,7 +4611,8 @@ function chipGps() {
   const caja = $('#chip-gps-caja');
   if (!caja) return;
   const g = S.gps;
-  if (S.historia || S.calibrando) { caja.innerHTML = ''; return; }
+  // Vive fuera del mapa, con los botones flotantes: en la lista no pinta nada.
+  if (S.pestana !== 'mapa' || S.historia || S.calibrando) { caja.innerHTML = ''; return; }
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
   // Los demás: cuántos en este plano, y si no hay ninguno, en cuál hay.
