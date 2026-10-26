@@ -1106,6 +1106,18 @@ end $$;
 grant select, insert, update, delete on ubicaciones to authenticated;
 grant select on v_ubicaciones to authenticated;
 
+-- En vivo: Supabase Realtime avisa a la app cada vez que una fila de
+-- ubicaciones cambia, y así se ve moverse a los compañeros sin esperar.
+-- Para eso la tabla tiene que estar en su publicación. Lo que llega a
+-- cada uno lo sigue filtrando la RLS de arriba.
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables
+                      where pubname = 'supabase_realtime' and tablename = 'ubicaciones') then
+    alter publication supabase_realtime add table ubicaciones;
+  end if;
+end $$;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

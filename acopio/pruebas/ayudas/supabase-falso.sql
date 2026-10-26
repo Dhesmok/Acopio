@@ -29,3 +29,7 @@ create table storage.objects (id uuid default gen_random_uuid() primary key,
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
+
+-- La publicación por la que Supabase Realtime avisa de los cambios. En
+-- Supabase ya existe; el esquema solo le agrega tablas.
+create publication supabase_realtime;
