@@ -23,15 +23,10 @@ export const DIAS_RECOGIDA_SUGERIDOS = 3;
 // usa el primero de la lista.
 export const PROVEEDOR_POR_DEFECTO = 'PG';
 
-// Clave para la imagen satelital con la que el admin calibra el GPS desde
-// la oficina (Fondo del mapa → GPS → Desde la oficina).
-//
-// Vacía, la app usa el servicio público de Esri: funciona ya, pero Esri lo
-// ofrece para uso no comercial. Para la empresa: crear una cuenta gratuita
-// en location.arcgis.com, generar una clave de API con el permiso de
-// mapas base (basemaps), restringirla al dominio de la app (Netlify) y
-// pegarla aquí. Como la clave publicable de Supabase, viaja dentro del
-// JavaScript: lo que la protege es esa restricción de dominio. El nivel
-// gratuito trae millones de cuadros de mapa al mes; calibrar un patio
-// gasta unos cientos.
+// Clave de Esri para la foto satelital de respaldo en la ventana de
+// calibrar el GPS (la principal es la de Google, que no pide nada). Vacía
+// funciona igual, con el servicio público de Esri. Solo haría falta si
+// algún día se usa para algo comercial: se saca gratis en
+// location.arcgis.com, con permiso de mapas base (basemaps) y restringida
+// al dominio de la app.
 export const ESRI_CLAVE = '';

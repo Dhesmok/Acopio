@@ -26,14 +26,33 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
 const X = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
   stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
 
-// La imagen satelital. Ver ESRI_CLAVE en config.js: sin clave se usa el
-// servicio público de Esri, que sirve para probar; con clave, el de la
-// cuenta de la empresa.
-const SATELITE = ESRI_CLAVE
-  ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(ESRI_CLAVE)}`
-  : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-const SATELITE_CREDITO = 'Powered by <a href="https://www.esri.com">Esri</a> · '
-  + 'Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+// Las fotos satelitales, en el orden en que se ofrecen.
+//
+// Google va primero: en los patios de Colombia suele ser la más nítida y
+// la más reciente, y es la que todo el mundo reconoce. Es la URL de
+// cuadros que usa QGIS, sin clave ni API. Google no la publica, así que
+// puede cambiarla o cortarla cuando quiera: por eso queda Esri al lado,
+// a un toque, y la calibración no depende de ninguna de las dos.
+//
+// Las dos piden el mismo sitio por x/y/z (Web Mercator), así que un punto
+// marcado sobre una cae en el mismo lugar sobre la otra.
+const FOTOS = [
+  {
+    nombre: 'Google',
+    url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    // cuatro servidores iguales: el navegador baja de varios a la vez
+    opciones: { subdomains: '0123', maxNativeZoom: 20, attribution: 'Imágenes © Google' }
+  },
+  {
+    nombre: 'Esri',
+    // Ver ESRI_CLAVE en config.js: sin clave, el servicio público.
+    url: ESRI_CLAVE
+      ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(ESRI_CLAVE)}`
+      : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    opciones: { maxNativeZoom: 19, attribution: 'Powered by <a href="https://www.esri.com">Esri</a> · '
+      + 'Esri, Maxar, Earthstar Geographics, and the GIS User Community' }
+  }
+];
 
 // Leaflet dibuja el satélite. Solo esta ventana lo carga: la app del
 // patio no lo necesita. La huella (integrity) es la que publica Leaflet:
@@ -275,9 +294,19 @@ async function montarSatelite() {
     return;
   }
   const mapa = L.map(caja, { maxZoom: 21, zoomSnap: 0.5 });
-  // Esri tiene imagen hasta el 19 casi en todas partes; de ahí en
-  // adelante se amplía la última, que para apuntar una esquina sirve.
-  L.tileLayer(SATELITE, { maxNativeZoom: 19, maxZoom: 21, attribution: SATELITE_CREDITO }).addTo(mapa);
+  // Pasado el último zoom que tiene cada foto se amplía la última: para
+  // apuntar una esquina sirve, y es mejor que quedarse sin imagen.
+  const capas = Object.fromEntries(FOTOS.map((f) =>
+    [f.nombre, L.tileLayer(f.url, { maxZoom: 21, ...f.opciones })]));
+  // Se recuerda cuál se eligió: si Google un día no responde y se pasa a
+  // Esri, la siguiente vez no hay que volver a cambiarla.
+  let elegida = null;
+  try { elegida = localStorage.getItem('acopio-foto'); } catch { /* sin almacenamiento */ }
+  (capas[elegida] || capas[FOTOS[0].nombre]).addTo(mapa);
+  L.control.layers(capas, null, { position: 'topleft' }).addTo(mapa);
+  mapa.on('baselayerchange', (e) => {
+    try { localStorage.setItem('acopio-foto', e.name); } catch { /* sin almacenamiento */ }
+  });
   mapa.attributionControl.setPrefix(false);
   sat = { mapa, capas: L.layerGroup().addTo(mapa) };
   mapa.on('click', (e) => ponerGeo({ lat: e.latlng.lat, lon: e.latlng.lng }));

@@ -305,8 +305,13 @@ ok(/BroadcastChannel\('acopio'\)\.postMessage/.test(calibrar) && /BroadcastChann
 ok(/'\.\/calibrar\.html'/.test(sw) && /'\.\/js\/calibrar\.js'/.test(sw), 'la ventana nueva se guarda con el resto de la app');
 ok(/destination === 'image' && url\.origin !== self\.location\.origin\) return;/.test(sw),
    'los cuadros del satélite no llenan la caché del celular');
+const fotos = calibrar.slice(calibrar.indexOf('const FOTOS'), calibrar.indexOf('];', calibrar.indexOf('const FOTOS')));
+ok(fotos.indexOf("nombre: 'Google'") >= 0 && fotos.indexOf("nombre: 'Google'") < fotos.indexOf("nombre: 'Esri'"),
+   'la foto que sale primero es la de Google');
+ok(/mt\{s\}\.google\.com\/vt\/lyrs=s&x=\{x\}&y=\{y\}&z=\{z\}/.test(fotos), 'por su URL de cuadros, sin clave');
+ok(/L\.control\.layers\(capas/.test(calibrar), 'y Esri queda a un toque, por si Google deja de responder');
 ok(/export const ESRI_CLAVE = '';/.test(config) && /ibasemaps-api\.arcgis\.com/.test(calibrar),
-   'hay dónde poner la clave de Esri para el uso de la empresa');
+   'hay dónde poner una clave de Esri si algún día hace falta');
 ok(/geo\s+jsonb/.test(esquema) && /add column if not exists geo jsonb/.test(migracion),
    'la calibración tiene su columna en el esquema y en la migración');
 
