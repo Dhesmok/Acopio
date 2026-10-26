@@ -97,6 +97,10 @@ El botón **Ubicación** (la flecha, en las herramientas del mapa) prende el GPS
 - **Los compañeros son puntos negros con su nombre.** Se ve a todo el que tenga la ubicación prendida en ese momento. Si su última posición tiene más de minuto y medio, el punto sale desvaído; a los diez minutos deja de verse solo.
 - **Compartir es parte de prenderlo, y solo dentro del patio.** La posición sube mientras cae en el plano de alguna plataforma calibrada (con 30 m de margen para la vía de entrada). Fuera de ahí no sale nada del teléfono y se retira la que hubiera. Al apagar el botón o cerrar sesión se borra al instante. No se guarda ningún rastro: hay una sola fila por persona, que se pisa en cada lectura. La primera vez que se prende, la app lo explica antes de pedir el permiso.
 - **Si estás en otra plataforma**, la pastilla dice "Estás en Ye · ir" y con un toque cambia de plano.
+- **Si no hay nadie en el plano que miras pero sí en otro**, la pastilla dice "2 en Topsoil" y con un toque lleva allá.
+- **Desde la oficina se ve a los demás aunque el navegador no dé la ubicación**: la pastilla dice "2 compañeros aquí · sin tu GPS".
+- **Si el servidor no acepta la posición** (por ejemplo, porque falta correr el bloque GPS de `sql/migracion.sql`), la pastilla sale en rojo y al tocarla dice qué respondió el servidor.
+- **La calibración llega sola a los teléfonos.** Mientras un teléfono con el GPS prendido no conozca un plano calibrado donde esté, pregunta por las plataformas cada dos minutos, en vez de esperar la descarga de cada hora.
 - **Solo funciona con la app abierta.** Con el teléfono en el bolsillo el GPS se apaga para no gastar batería, y vuelve al sacarlo. Necesita HTTPS (Netlify ya lo da) y el permiso de ubicación del navegador.
 - **La ubicación no pasa por la cola.** Es lo único de la app que no se guarda para subir después: una posición que llega diez minutos tarde pintaría a alguien donde ya no está. Sin señal, simplemente no se comparte.
 

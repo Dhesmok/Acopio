@@ -88,7 +88,9 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             // pedirlo. `yo` es la última lectura; `otros`, los que el
             // servidor dice que están en el patio ahora.
             gps: { activo: localStorage.getItem('acopio-gps') === '1', yo: null, otros: [],
-                   error: null, compartiendo: false, enviado: null, enviando: false, leidoEn: 0 },
+                   error: null, compartiendo: false, enviado: null, enviando: false, leidoEn: 0,
+                   // lo que respondió el servidor si no aceptó la posición o no dejó leer
+                   fallaSubir: null, fallaLeer: null },
             // el admin marcando los dos puntos que ubican el plano en el mundo
             calibrando: null };
 
@@ -4079,9 +4081,6 @@ async function prenderGps() {
   arrancarGps();
   botonGps();
   pintarGps();
-  // Las plataformas bajan una vez por hora. Si este plano no tiene GPS
-  // puede ser que el admin lo acabe de calibrar: se pregunta ya.
-  if (!Gps.transformacion(plataformaActual()?.geo)) { Store.repasarCatalogos(); sincronizar(); }
 }
 
 async function apagarGps() {
@@ -4089,6 +4088,7 @@ async function apagarGps() {
   recordar('acopio-gps', '0');
   pararGps();
   S.gps.yo = null; S.gps.otros = []; S.gps.error = null;
+  S.gps.fallaSubir = null; S.gps.fallaLeer = null;
   botonGps();
   pintarGps();
   await soltarUbicacion();
@@ -4097,6 +4097,8 @@ async function apagarGps() {
 function arrancarGps() {
   if (document.hidden) return;
   S.gps.error = null;
+  // Si este plano no tiene GPS, puede ser que el admin lo acabe de calibrar
+  if (!Gps.transformacion(plataformaActual()?.geo)) buscarCalibracion();
   Gps.seguir(alLeerGps, alFallarGps);
   clearInterval(relojGps);
   leerOtros();
@@ -4142,16 +4144,36 @@ function alFallarGps(e) {
   // nada que hacer, así que solo se avisa si todavía no hay ni una lectura.
   if (e?.code === 3 && S.gps.yo) return;
   S.gps.error = Gps.motivoFallo(e);
-  // Sin permiso no va a llegar nada: parar es no gastar batería en vano.
-  if (e?.code === 1 || e?.code === 0) pararGps();
+  // Sin permiso no va a llegar nada: se apaga el GPS, que es lo que gasta
+  // batería. Pero SOLO el GPS: ver a los demás no depende del propio. El
+  // admin en la oficina, con el navegador sin permiso de ubicación, se
+  // quedaba sin ver a nadie, como si nadie estuviera compartiendo.
+  if (e?.code === 1 || e?.code === 0) Gps.detener();
   pintarGps();
+}
+
+// Las plataformas —y con ellas la calibración— bajan una vez por hora.
+// Mientras el GPS esté prendido y el teléfono no sepa de un plano
+// calibrado donde caiga, se pregunta solo por ellas, como mucho cada dos
+// minutos: sin la calibración, el teléfono no comparte nada.
+const BUSCAR_CALIBRACION_CADA_MS = 2 * 60_000;
+let calibracionBuscada = 0;
+async function buscarCalibracion() {
+  if (Date.now() - calibracionBuscada < BUSCAR_CALIBRACION_CADA_MS) return;
+  calibracionBuscada = Date.now();
+  try {
+    if (await Store.refrescarPlataformas()) await recargar();
+  } catch (e) { console.error(e); }
 }
 
 async function compartirSiToca(l) {
   const g = S.gps;
   if (!g.activo || g.enviando || !S.perfil || sinPermiso()) return;
-  const dentro = l.precision <= PRECISION_COMPARTIR_M
-    && Gps.dondeCae(S.plataformas, l.lat, l.lon, MARGEN_PLANO_M);
+  const buena = l.precision <= PRECISION_COMPARTIR_M;
+  const dentro = buena && Gps.dondeCae(S.plataformas, l.lat, l.lon, MARGEN_PLANO_M);
+  // Fuera de todo plano conocido: o está fuera del patio, o este teléfono
+  // todavía no sabe que su plano ya está calibrado.
+  if (buena && !dentro) buscarCalibracion();
   if (!dentro) {
     // Salió del patio, o la señal se volvió mala: se retira la que había
     // en vez de dejar a los demás mirando un punto que ya no es verdad.
@@ -4167,12 +4189,17 @@ async function compartirSiToca(l) {
     if (await Store.compartirUbicacion(S.perfil.id, l)) {
       g.compartiendo = true;
       g.enviado = { lat: l.lat, lon: l.lon, cuando: t };
+      if (g.fallaSubir) { g.fallaSubir = null; chipGps(); }
     }
   } catch (e) {
     // Lo más probable: falta correr migracion.sql. La posición propia se
-    // sigue viendo; solo no sale del teléfono. Se reintenta en 15 s.
+    // sigue viendo; solo no sale del teléfono. Se reintenta en 15 s. Y se
+    // DICE: antes esto iba a la consola, y desde el patio parecía que
+    // compartía cuando no.
     console.error(e);
     g.enviado = { lat: l.lat, lon: l.lon, cuando: t };
+    g.fallaSubir = e?.message || String(e);
+    chipGps();
   } finally { g.enviando = false; }
 }
 
@@ -4181,9 +4208,11 @@ async function leerOtros() {
   S.gps.leidoEn = Date.now();
   try {
     S.gps.otros = (await Store.ubicaciones()).filter((u) => u.usuario_id !== S.perfil?.id);
+    S.gps.fallaLeer = null;
   } catch (e) {
     console.error(e);
     S.gps.otros = [];
+    S.gps.fallaLeer = e?.message || String(e);
   }
   pintarGps();
 }
@@ -4231,41 +4260,70 @@ function chipGps() {
   if (!g.activo || S.historia || S.calibrando) { caja.innerHTML = ''; return; }
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
-  let texto, alTocar;
-  if (g.error) {
-    texto = g.error;
-    alTocar = () => { arrancarGps(); pintarGps(); };
+  // Los demás: cuántos en este plano, y si no hay ninguno, en cuál hay.
+  // Sin esto, mirar Topsoil mientras todos están en Ye era ver el plano
+  // vacío y pensar que nadie estaba compartiendo.
+  const enEste = (o) => t && Gps.dentroDelPlano(plat, t, t.aPlano(o.lat, o.lon), MARGEN_PLANO_M);
+  const aquiOtros = S.gps.otros.filter(enEste).length;
+  const porPlat = new Map();
+  for (const o of S.gps.otros) {
+    if (enEste(o)) continue;
+    const d = Gps.dondeCae(S.plataformas, o.lat, o.lon, MARGEN_PLANO_M);
+    if (d) porPlat.set(d.plat, (porPlat.get(d.plat) || 0) + 1);
+  }
+  const [otraPlat, enOtra] = [...porPlat.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+  const irA = (p) => () => {          // el mismo camino que el selector de plataformas
+    irAPlataforma(p.id);
+    S.recorrido = null; S.historia = null;
+    irAlMapa();
+    Mapa.encuadrar();
+    centrarEnMi({ avisar: false });
+  };
+  const gente = aquiOtros ? ` · ${aquiOtros} más aquí`
+    : otraPlat ? ` · ${enOtra} en ${otraPlat.nombre}` : '';
+  let texto, alTocar, malo = false;
+  const falla = g.fallaSubir || g.fallaLeer;
+  if (falla) {
+    malo = true;
+    texto = g.fallaSubir ? 'El servidor no acepta tu ubicación · ver' : 'No se pudo ver a los demás · ver';
+    alTocar = () => avisar(`El servidor respondió: «${falla}». `
+      + (/ubicaciones/.test(falla)
+        ? 'Falta crear la tabla de ubicaciones: el administrador tiene que correr el bloque GPS de sql/migracion.sql en Supabase.'
+        : 'Se vuelve a intentar solo cada 15 segundos.'));
   } else if (!t) {
-    texto = esAdmin() ? 'Este plano no tiene GPS · calibrar' : 'Este plano todavía no tiene GPS';
+    texto = (esAdmin() ? 'Este plano no tiene GPS · calibrar' : 'Este plano todavía no tiene GPS') + gente;
     alTocar = esAdmin() ? () => { panelFondo(); $('#h-gps')?.scrollIntoView({ block: 'start' }); }
       : () => avisar('El administrador tiene que calibrar el GPS de este plano desde «Fondo del mapa».');
+  } else if (g.error && !g.yo) {
+    // Sin GPS propio —la oficina, un navegador sin permiso— igual se ve a
+    // los demás: la pastilla lo dice, en vez de enseñar solo el error.
+    malo = true;
+    texto = `${aquiOtros ? `${aquiOtros} compañero${aquiOtros === 1 ? '' : 's'} aquí`
+      : otraPlat ? `${enOtra} en ${otraPlat.nombre}` : 'Nadie más compartiendo'} · sin tu GPS`;
+    alTocar = () => { avisar(g.error); arrancarGps(); };
+  } else if (g.error) {
+    malo = true;
+    texto = g.error;
+    alTocar = () => { arrancarGps(); pintarGps(); };
   } else if (!g.yo) {
-    texto = 'Buscando señal GPS…';
+    texto = `Buscando señal GPS…${gente}`;
   } else {
     const pt = t.aPlano(g.yo.lat, g.yo.lon);
     const aqui = Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M);
     const otra = !aqui && Gps.dondeCae(S.plataformas, g.yo.lat, g.yo.lon, MARGEN_PLANO_M);
-    const vistos = S.gps.otros.filter((o) =>
-      Gps.dentroDelPlano(plat, t, t.aPlano(o.lat, o.lon), MARGEN_PLANO_M)).length;
-    const gente = vistos ? ` · ${vistos} más aquí` : '';
     if (aqui) {
       texto = `±${Math.round(g.yo.precision)} m${gente}`;
       alTocar = () => centrarEnMi({ avisar: true });
     } else if (otra) {
-      texto = `Estás en ${otra.plat.nombre} · ir${gente}`;
-      // el mismo camino que el selector de plataformas
-      alTocar = () => {
-        irAPlataforma(otra.plat.id);
-        S.recorrido = null; S.historia = null;
-        irAlMapa();
-        Mapa.encuadrar();
-        centrarEnMi({ avisar: false });
-      };
+      texto = `Estás en ${otra.plat.nombre} · ir`;
+      alTocar = irA(otra.plat);
     } else {
       texto = `Estás fuera del patio${gente}`;
     }
   }
-  caja.innerHTML = `<button class="chip-gps${g.error ? ' chip-gps-error' : ''}" id="chip-gps">
+  // Nadie aquí pero sí en otra plataforma: la pastilla lleva hasta ellos.
+  if (!alTocar && !aquiOtros && otraPlat) alTocar = irA(otraPlat);
+  caja.innerHTML = `<button class="chip-gps${malo ? ' chip-gps-error' : ''}" id="chip-gps">
     ${ICO.gps}<span>${esc(texto)}</span></button>`;
   const b = $('#chip-gps');
   if (alTocar) b.onclick = gesto(alTocar); else b.disabled = true;

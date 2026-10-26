@@ -1045,11 +1045,6 @@ async function podarRecorridos() {
   return fuera;
 }
 
-// Que la próxima vuelta pase lista aunque no toque. Lo usa el GPS: el
-// admin acaba de calibrar un plano y quien prende la ubicación no puede
-// esperar hasta una hora a que le llegue. Es una pasada, no un hábito.
-export function repasarCatalogos() { ultimoCompleto = 0; }
-
 async function bajar() {
   if (ultimoCompleto === null) {
     ultimoCompleto = Number(await meta('ultimo_completo')) || 0;
@@ -1233,6 +1228,28 @@ export async function dejarDeCompartir(usuarioId) {
   if (!navigator.onLine) return false;
   const { error } = await sb.from('ubicaciones').delete().eq('usuario_id', usuarioId);
   if (error) throw new Error(error.message);
+  return true;
+}
+
+// Solo las plataformas, sin esperar a la pasada de catálogos de cada hora.
+//
+// Lo usa el GPS: un teléfono solo comparte su posición si cae en un plano
+// calibrado, y la calibración viaja con las plataformas. Si el admin
+// acaba de calibrar, esperar la hora era tener a todo el patio con el GPS
+// prendido sin que nadie se viera, que es justo lo que pasó. Es una
+// consulta de cinco filas; la app la pide solo mientras no conozca un
+// plano calibrado donde esté el teléfono.
+//
+// Lo que este celular tenga en la cola manda hasta que suba: si el admin
+// calibró aquí sin señal, bajar la versión vieja del servidor borraría
+// su calibración de la pantalla.
+export async function refrescarPlataformas() {
+  if (!navigator.onLine) return false;
+  const { data, error } = await sb.from('plataformas').select('*');
+  if (error) throw new Error(error.message);
+  const enCola = new Set((await idb.todos('cola'))
+    .filter((o) => o.tabla === 'plataformas').map((o) => o.fila?.id));
+  await idb.varios('plataformas', (data || []).filter((p) => !enCola.has(p.id)));
   return true;
 }
 
