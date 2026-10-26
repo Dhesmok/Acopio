@@ -58,7 +58,17 @@ const TIPOS_PILA = {
   espera: 'En espera', otro: 'Otro'
 };
 
+// El filtro del mapa admite VARIOS valores por campo: dos proveedores,
+// o "devolución" y "remuestreo" a la vez. Dentro de un campo basta con
+// que coincida uno; entre campos tienen que cumplirse todos.
+const filtroMapaVacio = () => ({ proveedor: [], estado: [], material: [], placa: [] });
+
+// Lo que se elige en los desplegables de la pestaña Lotes. Vacío es "todos".
+const filtroListaVacio = () => ({ proveedor: '', plataforma: '', material: '', pila: '',
+                                  desde: '', hasta: '' });
+
 const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicion: false,
+            lista: filtroListaVacio(), orden: 'actividad', masFiltros: false,
             lotes: [], pilas: [], proveedores: [], figuras: [], gente: [], config: {},
             pendientes: 0, idsPendientes: new Set(), rechazados: 0, sync: null,
             actualizacion: false,
@@ -67,7 +77,7 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             // el lote que la volqueta está descargando: no se dibuja aún
             naciendo: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
-            mapaFiltro: { campo: 'ninguno', valor: null },
+            mapaFiltro: filtroMapaVacio(),
             recorrido: null,
             // mirar el patio de otro día: solo se mira, no se toca nada
             historia: null,
@@ -2120,20 +2130,20 @@ function actualizarChipFiltro() {
   // el botón de la barra muestra el mismo estado, con su etiqueta
   const rf = $('#r-filtrar');
   if (rf) {
-    const activo = S.mapaFiltro.campo !== 'ninguno';
+    const activo = hayFiltroMapa();
     rf.querySelector('span').textContent = activo ? textoFiltro() : 'Filtrar';
     if (activo) rf.setAttribute('aria-pressed', 'true');
     else rf.removeAttribute('aria-pressed');
   }
   const caja = $('#chip-filtro-caja');
   if (!caja) return;
-  caja.innerHTML = S.mapaFiltro.campo === 'ninguno' ? '' : `
+  caja.innerHTML = !hayFiltroMapa() ? '' : `
     <button class="chip-filtro" id="quitar-filtro-rapido">
       ${ICO.filtro}<span>${esc(textoFiltro())}</span>${ICO.cerrar}
     </button>`;
   const b = $('#quitar-filtro-rapido');
   if (b) b.onclick = () => {
-    S.mapaFiltro = { campo: 'ninguno', valor: null };
+    S.mapaFiltro = filtroMapaVacio();
     actualizarChipFiltro();
     refrescarMapa();
   };
@@ -2161,7 +2171,7 @@ function ubicarEnMapa(l) {
 
   // limpiar filtro y búsqueda: se pidió ver ESTE lote, y dejarlo
   // atenuado por un filtro puesto antes sería justo lo contrario
-  S.mapaFiltro = { campo: 'ninguno', valor: null };
+  S.mapaFiltro = filtroMapaVacio();
   S.busquedaMapa = ''; S.buscarMapa = false;
   S.resaltado = figura.id;
   irAlMapa();
@@ -2188,14 +2198,20 @@ function irAlMapa() {
   montarMapa();
 }
 
+// El nombre de un valor del filtro tal como se lee en la pastilla
+const nombreEnFiltro = (campo, v) =>
+  campo === 'proveedor' ? S.proveedores.find((p) => p.id === v)?.abreviatura || '?'
+  : campo === 'estado' ? ESTADOS[v] || v
+  : campo === 'material' ? MATERIALES[v] || v
+  : v;
+
+// Con uno o dos valores se nombran; con más, el primero y cuántos más,
+// porque la pastilla flota sobre el plano y no puede crecer sin tope.
 function textoFiltro() {
-  const f = S.mapaFiltro;
-  if (f.campo === 'ninguno') return 'Filtrar';
-  if (f.campo === 'proveedor')
-    return S.proveedores.find((p) => p.id === f.valor)?.abreviatura || 'Filtro';
-  if (f.campo === 'estado') return ESTADOS[f.valor];
-  if (f.campo === 'material') return MATERIALES[f.valor];
-  return f.valor;
+  const nombres = Object.entries(S.mapaFiltro)
+    .flatMap(([campo, vs]) => vs.map((v) => nombreEnFiltro(campo, v)));
+  if (!nombres.length) return 'Filtrar';
+  return nombres.length <= 2 ? nombres.join(' · ') : `${nombres[0]} +${nombres.length - 1}`;
 }
 
 // Lo que coincide se ve normal; lo demás se atenúa, no se esconde.
@@ -2214,16 +2230,18 @@ const cumpleBusqueda = (l) => {
   // servía para que un código tecleado a medias trajera lotes que no
   // se estaban buscando.
   if (q && !l.codigo.toUpperCase().includes(q)) return false;
-  return f.campo === 'ninguno' ? true
-    : f.campo === 'proveedor' ? l.proveedor_id === f.valor
-    : f.campo === 'estado' ? l.estado === f.valor
-    : f.campo === 'placa' ? placasDe(l).includes(f.valor)
-    : f.campo === 'material' ? (l.material || 'granel') === f.valor
-    : true;
+  // Un campo sin nada elegido no filtra. Con algo, basta con uno de sus
+  // valores: "ABG o PGA", no "ABG y PGA", que ningún lote cumpliría.
+  return (!f.proveedor.length || f.proveedor.includes(l.proveedor_id))
+    && (!f.estado.length || f.estado.includes(l.estado))
+    && (!f.material.length || f.material.includes(l.material || 'granel'))
+    && (!f.placa.length || placasDe(l).some((pl) => f.placa.includes(pl)));
 };
 
+const hayFiltroMapa = () => Object.values(S.mapaFiltro).some((vs) => vs.length);
+
 const lotesQueCoinciden = () => {
-  if (!S.busquedaMapa.trim() && S.mapaFiltro.campo === 'ninguno') return null;
+  if (!S.busquedaMapa.trim() && !hayFiltroMapa()) return null;
   // Solo lo que está dibujado: resaltar un lote de otra plataforma no
   // serviría de nada, porque en este plano no se ve. Dónde está se dice
   // aparte, debajo del buscador.
@@ -2277,54 +2295,62 @@ function figurasEnElPlano(lotes) {
   return [...vistas.values()];
 }
 
+// Cada toque prende o apaga un valor, y el plano de detrás se actualiza
+// en el acto: antes cada toque cerraba la hoja, así que solo se podía
+// elegir UNA cosa, y mirar dos proveedores a la vez no era posible.
 function panelFiltro() {
   const placas = [...new Set(misLotes().flatMap(placasDe))].sort();
+  const boton = (campo, valor, texto) => `<button data-campo="${campo}" data-valor="${esc(valor)}"
+    aria-pressed="${S.mapaFiltro[campo].includes(valor)}">${esc(texto)}</button>`;
   abrirHoja(`
     <h2>Filtrar el mapa</h2>
-    <div class="sub">Lo que coincide se resalta; el resto queda atenuado.</div>
+    <div class="sub">Lo que coincide se resalta; el resto queda atenuado. Se pueden marcar varios:
+      dentro de un grupo basta con uno, y entre grupos tienen que cumplirse todos.</div>
 
     <h3>Por proveedor</h3>
     <div class="filtros filtros-hoja">
-      ${S.proveedores.map((p) => `<button data-campo="proveedor" data-valor="${p.id}"
-        aria-pressed="${S.mapaFiltro.campo === 'proveedor' && S.mapaFiltro.valor === p.id}"
-        >${esc(p.abreviatura)}</button>`).join('')}
+      ${S.proveedores.map((p) => boton('proveedor', p.id, p.abreviatura)).join('')}
     </div>
 
     <h3>Por estado</h3>
     <div class="filtros filtros-hoja">
-      ${ESTADOS_ELEGIBLES.map((k) => `<button data-campo="estado" data-valor="${k}"
-        aria-pressed="${S.mapaFiltro.campo === 'estado' && S.mapaFiltro.valor === k}"
-        >${ESTADOS[k]}</button>`).join('')}
+      ${ESTADOS_ELEGIBLES.map((k) => boton('estado', k, ESTADOS[k])).join('')}
     </div>
 
     <h3>Por material</h3>
     <div class="filtros filtros-hoja">
-      ${Object.entries(MATERIALES).map(([k, v]) => `<button data-campo="material" data-valor="${k}"
-        aria-pressed="${S.mapaFiltro.campo === 'material' && S.mapaFiltro.valor === k}"
-        >${v}</button>`).join('')}
+      ${Object.entries(MATERIALES).map(([k, v]) => boton('material', k, v)).join('')}
     </div>
 
     <h3>Por volqueta</h3>
     <div class="filtros filtros-hoja">
-      ${placas.length ? placas.map((pl) => `<button data-campo="placa" data-valor="${esc(pl)}"
-        aria-pressed="${S.mapaFiltro.campo === 'placa' && S.mapaFiltro.valor === pl}"
-        >${esc(pl)}</button>`).join('') : '<span class="pista">Todavía no hay placas registradas.</span>'}
+      ${placas.length ? placas.map((pl) => boton('placa', pl, pl)).join('')
+        : '<span class="pista">Todavía no hay placas registradas.</span>'}
     </div>
 
-    <div class="acciones" style="margin-top:18px">
-      <button id="cerrar">Cerrar</button>
-      <button id="quitar-filtro" class="btn-lleno">Ver todo</button>
+    <div class="acciones pie-filtro">
+      <button id="quitar-filtro">Ver todo</button>
+      <button id="cerrar" class="btn-lleno"><span id="filtro-cuenta">Listo</span></button>
     </div>`);
 
+  // cuántos lotes quedan resaltados, para no tener que cerrar a mirar
+  const contar = () => {
+    const n = lotesQueCoinciden();
+    $('#filtro-cuenta').textContent = n ? `Listo · ${n.length} lote${n.length === 1 ? '' : 's'}` : 'Listo';
+  };
+  contar();
   $('#cerrar').onclick = cerrarHoja;
   $('#quitar-filtro').onclick = () => {
-    S.mapaFiltro = { campo: 'ninguno', valor: null };
+    S.mapaFiltro = filtroMapaVacio();
     cerrarHoja(); volverAlMapa();
   };
   document.querySelectorAll('.filtros-hoja button').forEach((b) => {
     b.onclick = () => {
-      S.mapaFiltro = { campo: b.dataset.campo, valor: b.dataset.valor };
-      cerrarHoja(); volverAlMapa();
+      const lista = S.mapaFiltro[b.dataset.campo];
+      const i = lista.indexOf(b.dataset.valor);
+      if (i >= 0) lista.splice(i, 1); else lista.push(b.dataset.valor);
+      b.setAttribute('aria-pressed', String(i < 0));
+      contar(); volverAlMapa();
     };
   });
 }
@@ -3049,10 +3075,57 @@ function siguienteCodigoPila() {
 }
 
 // ------------------------------------------------------------------ lista
+// Cómo se ordena la lista. La de siempre es la del último movimiento:
+// lo que acaba de pasar arriba. Las demás responden a preguntas del
+// patio: "¿qué llegó ayer?", "¿qué lleva más tiempo esperando?".
+const ORDENES = {
+  actividad:     { nombre: 'Último movimiento',
+                   cmp: (a, b) => (b.ultimo_evento_en || '').localeCompare(a.ultimo_evento_en || '') },
+  recibido_desc: { nombre: 'Recibido: más reciente primero',
+                   cmp: (a, b) => (b.fecha_recepcion || '').localeCompare(a.fecha_recepcion || '')
+                     || (b.creado_en || '').localeCompare(a.creado_en || '') },
+  recibido_asc:  { nombre: 'Recibido: más antiguo primero',
+                   cmp: (a, b) => (a.fecha_recepcion || '').localeCompare(b.fecha_recepcion || '')
+                     || (a.creado_en || '').localeCompare(b.creado_en || '') },
+  quieto:        { nombre: 'Más días en su estado',
+                   cmp: (a, b) => (a.estado_desde || '').localeCompare(b.estado_desde || '') },
+  codigo:        { nombre: 'Código (A → Z)',
+                   cmp: (a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }) }
+};
+
+// Cuántos filtros de "Más filtros" están puestos: el botón lo dice, para
+// que un filtro escondido no deje la lista corta sin explicación.
+const extrasPuestos = () =>
+  ['plataforma', 'material', 'pila', 'desde', 'hasta'].filter((k) => S.lista[k]).length;
+
+// Los filtros de la lista, salvo el de estado. Va aparte porque el
+// desplegable de estado cuenta cuántos hay de cada uno DENTRO de lo que
+// ya filtran los demás: "Devolución · 3" tiene que ser 3 de ese proveedor,
+// no 3 del patio entero.
+function cumpleLista(l, pilas) {
+  const f = S.lista;
+  const q = S.busqueda.trim().toUpperCase();
+  if (f.proveedor && l.proveedor_id !== f.proveedor) return false;
+  if (f.plataforma && l.plataforma_id !== f.plataforma) return false;
+  if (f.material && (l.material || 'granel') !== f.material) return false;
+  if (f.pila === 'suelto' ? !!l.pila_id
+    : f.pila === 'alguna' ? !l.pila_id
+    : f.pila ? l.pila_id !== f.pila : false) return false;
+  // fecha_recepcion es "AAAA-MM-DD", así que se compara como texto
+  if (f.desde && (l.fecha_recepcion || '') < f.desde) return false;
+  if (f.hasta && (l.fecha_recepcion || '') > f.hasta) return false;
+  return !q || l.codigo.includes(q) || (pilas[l.pila_id] || '').includes(q)
+    || placasDe(l).some((pl) => pl.toUpperCase().includes(q));
+}
+
+// Antes los estados eran una fila de pastillas que se salía de la
+// pantalla y había que arrastrar para ver las últimas; y no había forma
+// de mirar un solo proveedor. Ahora son desplegables: caben todos, se
+// combinan, y lo menos usado queda bajo "Más filtros".
 function pintarLista() {
   const prov = Object.fromEntries(S.proveedores.map((p) => [p.id, p.abreviatura]));
   const pilas = Object.fromEntries(S.pilas.map((p) => [p.id, p.codigo]));
-  const q = S.busqueda.trim().toUpperCase();
+  const f = S.lista;
   // La lista es de TODAS las plataformas a propósito: es donde se viene a
   // buscar un lote que no se sabe dónde está. Cada tarjeta dice en cuál.
   //
@@ -3060,22 +3133,79 @@ function pintarLista() {
   // desaparecen, y el admin los sigue viendo porque de eso se trata la
   // trazabilidad.
   const alcance = S.lotes.filter(seVeEnLaLista);
-  const conteo = (e) => alcance.filter((l) => l.estado === e).length;
-  const nVenc = alcance.filter(vencido).length;
+  const base = alcance.filter((l) => cumpleLista(l, pilas));
+  const conteo = (e) => base.filter((l) => l.estado === e).length;
+  const nVenc = base.filter(vencido).length;
 
-  const visibles = alcance.filter((l) => {
-    if (S.filtro === 'vencidas') { if (!vencido(l)) return false; }
-    else if (S.filtro !== 'todos' && l.estado !== S.filtro) return false;
-    return !q || l.codigo.includes(q) || (pilas[l.pila_id] || '').includes(q);
-  }).sort((a, b) => (b.ultimo_evento_en || '').localeCompare(a.ultimo_evento_en || ''));
+  const orden = ORDENES[S.orden] || ORDENES.actividad;
+  const visibles = base.filter((l) => {
+    if (S.filtro === 'vencidas') return vencido(l);
+    return S.filtro === 'todos' || l.estado === S.filtro;
+  }).sort(orden.cmp);
+
+  const opcion = (valor, texto, elegido) =>
+    `<option value="${esc(valor)}" ${valor === elegido ? 'selected' : ''}>${esc(texto)}</option>`;
+  // Un estado sin lotes no se ofrece, salvo que sea el elegido: si
+  // desapareciera del desplegable, no habría cómo ver qué está puesto.
+  const estados = Object.entries(ESTADOS).filter(([k]) => conteo(k) || S.filtro === k);
+  const provs = [...S.proveedores].sort((a, b) => a.abreviatura.localeCompare(b.abreviatura));
+  // Las pilas se llaman 1, 2, 3 en CADA plataforma: el nombre solo no
+  // dice cuál es, así que se le pega el sitio.
+  const pilasAbiertas = S.pilas.filter((p) => p.estado === 'abierta')
+    .sort((a, b) => nombrePlataforma(a.plataforma_id).localeCompare(nombrePlataforma(b.plataforma_id))
+      || a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
+  const nExtras = extrasPuestos();
+  const algoPuesto = S.filtro !== 'todos' || f.proveedor || nExtras || S.busqueda.trim();
 
   $('#main').innerHTML = `
-    <input class="buscador" id="q" placeholder="Buscar lote o pila…" value="${esc(S.busqueda)}">
-    <div class="filtros">
-      <button data-f="todos" aria-pressed="${S.filtro === 'todos'}">Todos · ${alcance.length}</button>
-      ${nVenc ? `<button data-f="vencidas" aria-pressed="${S.filtro === 'vencidas'}">Sin recoger · ${nVenc}</button>` : ''}
-      ${Object.entries(ESTADOS).filter(([k]) => conteo(k)).map(([k, v]) =>
-        `<button data-f="${k}" aria-pressed="${S.filtro === k}">${v} · ${conteo(k)}</button>`).join('')}
+    <input class="buscador" id="q" placeholder="Buscar lote, pila o placa…" value="${esc(S.busqueda)}">
+    <div class="filtros-lista">
+      <label class="desplegable"><span>Estado</span>
+        <select id="f-estado">
+          ${opcion('todos', `Todos · ${base.length}`, S.filtro)}
+          ${nVenc || S.filtro === 'vencidas' ? opcion('vencidas', `Sin recoger · ${nVenc}`, S.filtro) : ''}
+          ${estados.map(([k, v]) => opcion(k, `${v} · ${conteo(k)}`, S.filtro)).join('')}
+        </select></label>
+      <label class="desplegable"><span>Proveedor</span>
+        <select id="f-proveedor">
+          ${opcion('', 'Todos', f.proveedor)}
+          ${provs.map((p) => opcion(p.id, `${p.abreviatura} · ${p.nombre}`, f.proveedor)).join('')}
+        </select></label>
+      <label class="desplegable"><span>Ordenar</span>
+        <select id="f-orden">
+          ${Object.entries(ORDENES).map(([k, o]) => opcion(k, o.nombre, S.orden)).join('')}
+        </select></label>
+      <button class="mas-filtros" id="f-mas" aria-expanded="${S.masFiltros}"
+        ${nExtras ? 'data-puestos="si"' : ''}>${ICO.filtro}<span>Más filtros${nExtras ? ` · ${nExtras}` : ''}</span></button>
+    </div>
+    <div class="filtros-lista" id="f-extra" ${S.masFiltros ? '' : 'hidden'}>
+      ${S.plataformas.length > 1 ? `<label class="desplegable"><span>Plataforma</span>
+        <select id="f-plataforma">
+          ${opcion('', 'Todas', f.plataforma)}
+          ${S.plataformas.map((p) => opcion(p.id, p.nombre, f.plataforma)).join('')}
+        </select></label>` : ''}
+      <label class="desplegable"><span>Material</span>
+        <select id="f-material">
+          ${opcion('', 'Todos', f.material)}
+          ${Object.entries(MATERIALES).map(([k, v]) => opcion(k, v, f.material)).join('')}
+        </select></label>
+      <label class="desplegable"><span>Pila</span>
+        <select id="f-pila">
+          ${opcion('', 'Todas', f.pila)}
+          ${opcion('suelto', 'Sueltos (sin pila)', f.pila)}
+          ${opcion('alguna', 'En alguna pila', f.pila)}
+          ${pilasAbiertas.map((p) => opcion(p.id, `Pila ${p.codigo}${
+            S.plataformas.length > 1 ? ` · ${nombrePlataforma(p.plataforma_id)}` : ''}`, f.pila)).join('')}
+        </select></label>
+      <label class="desplegable"><span>Recibido desde</span>
+        <input type="date" id="f-desde" value="${esc(f.desde)}" ${f.hasta ? `max="${esc(f.hasta)}"` : ''}></label>
+      <label class="desplegable"><span>Recibido hasta</span>
+        <input type="date" id="f-hasta" value="${esc(f.hasta)}" ${f.desde ? `min="${esc(f.desde)}"` : ''}></label>
+    </div>
+    <div class="resumen-lista">
+      <span>${visibles.length === alcance.length ? `${alcance.length} lote${alcance.length === 1 ? '' : 's'}`
+        : `${visibles.length} de ${alcance.length} lotes`}</span>
+      ${algoPuesto ? '<button class="enlace" id="f-limpiar">Quitar filtros</button>' : ''}
     </div>
     <div class="lista">
       ${visibles.length ? visibles.map((l) => tarjeta(l, prov, pilas)).join('')
@@ -3088,9 +3218,18 @@ function pintarLista() {
     S.busqueda = q_.value; pintarLista();
     const n = $('#q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length);
   };
-  document.querySelectorAll('.filtros button').forEach((b) => {
-    b.onclick = () => { S.filtro = b.dataset.f; pintarLista(); };
-  });
+  $('#f-estado').onchange = (e) => { S.filtro = e.target.value; pintarLista(); };
+  $('#f-orden').onchange = (e) => { S.orden = e.target.value; pintarLista(); };
+  for (const k of ['proveedor', 'plataforma', 'material', 'pila', 'desde', 'hasta']) {
+    const c = $(`#f-${k}`);
+    if (c) c.onchange = () => { S.lista[k] = c.value; pintarLista(); };
+  }
+  $('#f-mas').onclick = () => { S.masFiltros = !S.masFiltros; pintarLista(); };
+  const lim = $('#f-limpiar');
+  if (lim) lim.onclick = () => {
+    S.filtro = 'todos'; S.busqueda = ''; S.lista = filtroListaVacio();
+    pintarLista();
+  };
   document.querySelectorAll('.lote').forEach((c) => { c.onclick = () => fichaLote(c.dataset.id); });
 }
 
@@ -3773,7 +3912,9 @@ function textoEvento(e) {
 
 async function fichaPila(id) {
   const p = S.pilas.find((x) => x.id === id); if (!p) return;
-  const dentro = S.lotes.filter((l) => l.pila_id === id);
+  // por código, para dar con uno a ojo en una pila de veinte
+  const dentro = S.lotes.filter((l) => l.pila_id === id)
+    .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   const movs = await Store.historialPila(id);
   const prov = Object.fromEntries(S.proveedores.map((x) => [x.id, x.abreviatura]));
   const lectura = soloLectura();
@@ -3825,9 +3966,20 @@ async function fichaPila(id) {
       en Plataforma 5.</p>` : ''}
 
     <h3>Lotes en esta pila</h3>
+    ${dentro.length > 1 ? `<input class="buscador" id="pila-q" placeholder="Buscar lote, proveedor o placa…">` : ''}
+    ${!lectura && dentro.length > 1 ? `
+    <!-- La casilla reemplaza al botón "Sacar" de cada fila: marcar uno y
+         sacarlo es lo mismo, y los dos juntos dejaban la tarjeta tan
+         angosta que el estado se montaba sobre el código. -->
+    <div class="barra-seleccion">
+      <label class="marca-todos"><input type="checkbox" id="pila-todos"><span>Seleccionar todos</span></label>
+      <button class="pastilla pastilla-fuerte" id="sacar-varios" disabled>Sacar seleccionados</button>
+    </div>` : ''}
     <div class="lista">
       ${dentro.length ? dentro.map((l) => `
-        <div class="fila-pila">
+        <div class="fila-pila" data-busca="${esc([l.codigo, prov[l.proveedor_id], ...placasDe(l)].join(' ').toUpperCase())}">
+          ${!lectura && dentro.length > 1 ? `<label class="marca"><input type="checkbox" data-elegir="${l.id}"
+            aria-label="Elegir ${esc(l.codigo)}"></label>` : ''}
           <button class="lote" data-id="${l.id}" data-estado="${l.estado}" data-vencida="${vencido(l) ? 'si' : 'no'}">
             <span class="barra"></span>
             <span class="cuerpo"><span class="codigo">${codigoHTML(l.codigo)}</span>
@@ -3835,9 +3987,10 @@ async function fichaPila(id) {
               <span>${esc(placasTexto(l))}</span></span></span>
             <span class="lado"><span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span></span>
           </button>
-          ${lectura ? '' : `<button class="pastilla" data-sacar="${l.id}">Sacar</button>`}
+          ${lectura || dentro.length > 1 ? '' : `<button class="pastilla" data-sacar="${l.id}">Sacar</button>`}
         </div>`).join('')
         : '<div class="vacio"><strong>Pila vacía</strong>Arrastra lotes sobre ella en el mapa.</div>'}
+      <div class="vacio" id="pila-nada" hidden><strong>Ningún lote coincide</strong>Cambia la búsqueda.</div>
     </div>
     <h3>Movimientos de la pila</h3>
     <ul class="linea-tiempo">
@@ -3867,6 +4020,65 @@ async function fichaPila(id) {
       cerrarHoja(); await recargar(); sincronizar();
     }, { ocupado: '…' });
   });
+
+  // Buscar dentro de la pila. Se esconden las filas en vez de repintar la
+  // hoja, que perdería el foco del campo y lo que ya estaba marcado.
+  const filas = [...document.querySelectorAll('.hoja .fila-pila')];
+  const marcas = () => filas.filter((f) => !f.hidden)
+    .map((f) => f.querySelector('[data-elegir]')).filter(Boolean);
+  const elegidos = () => marcas().filter((c) => c.checked).map((c) => c.dataset.elegir);
+  const alElegir = () => {
+    const b = $('#sacar-varios'); if (!b) return;
+    const n = elegidos().length, visibles = marcas().length;
+    b.disabled = n === 0;
+    b.textContent = n ? `Sacar ${n} lote${n === 1 ? '' : 's'}` : 'Sacar seleccionados';
+    const t = $('#pila-todos');
+    t.checked = visibles > 0 && n === visibles;
+    t.indeterminate = n > 0 && n < visibles;
+  };
+  const pq = $('#pila-q');
+  if (pq) pq.oninput = () => {
+    const q = pq.value.trim().toUpperCase();
+    for (const f of filas) {
+      f.hidden = !!q && !f.dataset.busca.includes(q);
+      // Lo que se esconde se desmarca: sacar un lote que no se está
+      // viendo, solo porque se marcó antes de buscar, sería una sorpresa.
+      const c = f.querySelector('[data-elegir]');
+      if (f.hidden && c) c.checked = false;
+    }
+    $('#pila-nada').hidden = filas.some((f) => !f.hidden);
+    alElegir();
+  };
+  document.querySelectorAll('.hoja [data-elegir]').forEach((c) => { c.onchange = alElegir; });
+  const todos = $('#pila-todos');
+  if (todos) todos.onchange = () => {
+    for (const c of marcas()) c.checked = todos.checked;
+    alElegir();
+  };
+
+  // Sacar varios de una vez. Antes había que abrir, confirmar y volver a
+  // la pila por cada lote. Una sola pregunta, y la pila se revisa al
+  // final una sola vez: si se queda con uno o con ninguno, se disuelve.
+  const sv = $('#sacar-varios');
+  if (sv) sv.onclick = accion(async () => {
+    const ids = elegidos(); if (!ids.length) return;
+    const codigos = dentro.filter((l) => ids.includes(l.id)).map((l) => l.codigo);
+    const quedan = dentro.length - ids.length;
+    const ok = await confirmar({
+      titulo: `¿Sacar ${ids.length} lote${ids.length === 1 ? '' : 's'} de la pila ${p.codigo}?`,
+      detalle: `${codigos.join(', ')}. Vuelven al patio, junto a la pila.`
+        + (quedan <= 1 ? ` La pila queda con ${quedan === 1 ? 'un solo lote' : 'ninguno'} y se disuelve:`
+          + ' se archiva y su historial se conserva.' : ''),
+      aceptar: ids.length === 1 ? 'Sacarlo' : 'Sacarlos'
+    });
+    if (!ok) return fichaPila(id);
+    for (const lid of ids) {
+      const l = await Store.lote(lid);
+      if (l?.pila_id === id) await sacarDePila(l, p, { revisar: false });
+    }
+    await revisarPila(p);
+    cerrarHoja(); await recargar(); sincronizar();
+  }, { ocupado: 'Sacando…' });
   const pa = $('#pila-ajustar');
   if (pa) pa.onclick = () => { cerrarHoja(); abrirEdicion('pila', p); };
 
