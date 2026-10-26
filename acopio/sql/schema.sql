@@ -178,8 +178,8 @@ create table lotes (
   x                numeric not null default 500,
   y                numeric not null default 350,
   -- el granel es redondo; el bigbag lo estira la app al crearlo
-  rx               numeric not null default 40,
-  ry               numeric not null default 40,
+  rx               numeric not null default 36,
+  ry               numeric not null default 36,
   rot              numeric not null default 0,
   -- derivados del log de eventos (protegidos por trigger)
   --

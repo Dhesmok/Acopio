@@ -92,15 +92,15 @@ titulo('Un lote a granel nace redondo, no ovalado.');
 const redondo = await Store.crearLote({ codigo: 'ABG80', proveedor_id: 'p1', placa: 'CCC333',
   material: 'granel', forma: 'elipse', x: 300, y: 300, usuario_id: 'yo' });
 ok(redondo.rx === redondo.ry, `el granel sale circular (${redondo.rx} \u00d7 ${redondo.ry})`);
-// La misma superficie que el \u00f3valo de 46 \u00d7 34 que hab\u00eda antes: el patio no
-// cambia de densidad por cambiar la forma.
-const antes = Math.PI * 46 * 34, ahora = Math.PI * redondo.rx * redondo.ry;
+// La misma superficie que el \u00f3valo de 46 \u00d7 34 que hab\u00eda antes, achicado
+// un 10 % como todos: el patio no cambia de densidad por cambiar la forma.
+const antes = Math.PI * 46 * 0.9 * 34 * 0.9, ahora = Math.PI * redondo.rx * redondo.ry;
 ok(Math.abs(ahora - antes) / antes < 0.05,
    `y ocupa lo mismo que el \u00f3valo de antes (${ahora.toFixed(0)} contra ${antes.toFixed(0)})`);
 
 const bigbag = await Store.crearLote({ codigo: 'ABG81', proveedor_id: 'p1', placa: 'DDD444',
   material: 'bigbag', forma: 'rectangulo', x: 400, y: 300, usuario_id: 'yo' });
-ok(bigbag.rx === 46 && bigbag.ry === 34,
-   `el bigbag se queda como estaba (${bigbag.rx} \u00d7 ${bigbag.ry})`);
+ok(bigbag.rx === 41 && bigbag.ry === 31,
+   `el bigbag sale un 10 % m\u00e1s chico que antes (${bigbag.rx} \u00d7 ${bigbag.ry})`);
 
 cerrar();

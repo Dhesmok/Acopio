@@ -520,7 +520,10 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   // en el patio quedó alargado, se estira a mano con las manijas. El
   // bigbag se queda como estaba. Los 40 de radio son la misma superficie
   // que tenía el óvalo de 46 × 34, así que el patio no cambia de aspecto.
-  const tam = fma === 'rectangulo' ? { rx: 46, ry: 34 } : { rx: 40, ry: 40 };
+  // Ambos van un 10 % más chicos que eso (40 → 36, 46 × 34 → 41 × 31):
+  // con la foto del patio de fondo se veían demasiado grandes. Los que ya
+  // existían se achicaron igual con sql/achicar.sql.
+  const tam = fma === 'rectangulo' ? { rx: 41, ry: 31 } : { rx: 36, ry: 36 };
 
   const fila = {
     id: uuid(), codigo: cod, proveedor_id,

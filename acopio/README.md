@@ -9,6 +9,7 @@ sql/diagnostico.sql   qué falta y quién no está habilitado; no cambia nada
 sql/duplicados.sql    limpiar lotes repetidos y eventos huérfanos
 sql/fechas.sql        corregir lotes fechados un día adelante (UTC)
 sql/redondear.sql     vuelve círculos los lotes a granel que ya existían
+sql/achicar.sql       deja los lotes que ya existían un 10 % más chicos (una sola vez)
 sql/reset.sql         borra todo, solo para empezar de cero a propósito
 web/                  la app: se sube tal cual a un hosting estático
 pruebas/              `node pruebas/correr.mjs`, sin instalar nada
