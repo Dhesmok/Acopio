@@ -291,7 +291,7 @@ const patio = {
   plataformas: [{ id: 'T', nombre: 'Topsoil' }, { id: 'Y', nombre: 'Ye' },
                 { id: 'C', nombre: 'Plataforma 5' }],
   plataforma: 'T',
-  mapaFiltro: { campo: 'ninguno', valor: null },
+  mapaFiltro: { proveedor: [], estado: [], material: [], placa: [] },
   busquedaMapa: 'PG1042',
   lotes: [
     { id: '1', codigo: 'PG1001', estado: 'por_muestrear', plataforma_id: 'T' },
@@ -327,9 +327,41 @@ ok((lotesQueCoinciden() || []).length === 2, 'y allí sí se resaltan los dos');
 // todas las plataformas y el renglón estaría siempre puesto, diciendo lo
 // que ya se sabe.
 patio.busquedaMapa = '';
-patio.mapaFiltro = { campo: 'estado', valor: 'devolucion' };
+patio.mapaFiltro = { proveedor: [], estado: ['devolucion'], material: [], placa: [] };
 ok(coincidenEnOtras().length === 0,
    'un filtro sin texto no llena la pantalla de plataformas');
+
+// ---------------------------------------------------------------------
+titulo('El filtro del mapa deja marcar varias cosas a la vez.');
+
+// Solo se podía elegir UNA: cada toque cerraba la hoja y reemplazaba lo
+// anterior. Dentro de un grupo basta con uno ("ABG o PGA"); entre grupos
+// se cumplen todos ("de ABG, y en devolución").
+const filtrado = {
+  plataformas: [{ id: 'T', nombre: 'Topsoil' }],
+  plataforma: 'T',
+  busquedaMapa: '',
+  mapaFiltro: { proveedor: [], estado: [], material: [], placa: [] },
+  lotes: [
+    { id: 'a', codigo: 'ABG1', proveedor_id: 'abg', estado: 'devolucion', plataforma_id: 'T' },
+    { id: 'b', codigo: 'ABG2', proveedor_id: 'abg', estado: 'muestreado', plataforma_id: 'T', material: 'bigbag' },
+    { id: 'c', codigo: 'PGA1', proveedor_id: 'pga', estado: 'devolucion', plataforma_id: 'T', placa: 'XYZ123' },
+    { id: 'd', codigo: 'TOR1', proveedor_id: 'tor', estado: 'remuestreo', plataforma_id: 'T' }
+  ]
+};
+const multi = buscador(filtrado);
+const ids = () => (multi.lotesQueCoinciden() || []).map((l) => l.id).join();
+ok(multi.lotesQueCoinciden() === null, 'sin nada marcado no se atenúa nada');
+filtrado.mapaFiltro.proveedor = ['abg', 'pga'];
+ok(ids() === 'a,b,c', `dos proveedores marcados resaltan los de los dos (dio ${ids()})`);
+filtrado.mapaFiltro.estado = ['devolucion'];
+ok(ids() === 'a,c', `y con un estado encima, solo los de esos proveedores en ese estado (dio ${ids()})`);
+filtrado.mapaFiltro.estado = ['devolucion', 'remuestreo'];
+ok(ids() === 'a,c', `TOR en remuestreo no entra: su proveedor no está marcado (dio ${ids()})`);
+filtrado.mapaFiltro = { proveedor: [], estado: [], material: ['granel'], placa: [] };
+ok(ids() === 'a,c,d', `un lote sin material se cuenta como granel (dio ${ids()})`);
+filtrado.mapaFiltro = { proveedor: [], estado: [], material: [], placa: ['XYZ123'] };
+ok(ids() === 'c', `y la placa también filtra (dio ${ids()})`);
 
 // ---------------------------------------------------------------------
 titulo('La fecha de recogida se puede poner en el pasado.');
