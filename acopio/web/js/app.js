@@ -4,6 +4,7 @@
 import * as Store from './store.js';
 import { sb } from './store.js';
 import * as Mapa from './mapa.js';
+import * as Gps from './gps.js';
 import { planoEn, desde, indexar } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
 
@@ -81,7 +82,15 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             // el patio es de CINCO plataformas. Se recuerda en cuál
             // estaba cada persona: el de Topsoil entra a Topsoil.
             plataformas: [], puntos: [],
-            plataforma: localStorage.getItem('acopio-plataforma') || null };
+            plataforma: localStorage.getItem('acopio-plataforma') || null,
+            // El GPS. Prendido o apagado se recuerda en el celular: quien
+            // lo usa lo quiere cada vez que abre la app, sin volver a
+            // pedirlo. `yo` es la última lectura; `otros`, los que el
+            // servidor dice que están en el patio ahora.
+            gps: { activo: localStorage.getItem('acopio-gps') === '1', yo: null, otros: [],
+                   error: null, compartiendo: false, enviado: null, enviando: false, leidoEn: 0 },
+            // el admin marcando los dos puntos que ubican el plano en el mundo
+            calibrando: null };
 
 // --------------------------------------------------------- plataformas
 // El patio son cinco sitios —Topsoil, Plataforma 2, Plataforma 3, Ye,
@@ -170,7 +179,9 @@ const ICO = {
   info:      ico('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>'),
   // Triángulo de aviso, para los lotes que conviene mirar.
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
-                 + '<path d="M12 9v4M12 17h.01"/>')
+                 + '<path d="M12 9v4M12 17h.01"/>'),
+  // La flecha de navegación: es como cualquier teléfono dice "ubicación".
+  gps:       ico('<path d="M3 11l19-9-9 19-2-8-8-2z"/>')
 };
 
 // ------------------------------------------------------- la monedita
@@ -549,6 +560,13 @@ async function abrirSesion(usuario) {
   addEventListener('online', sincronizar);
   addEventListener('offline', pintarSync);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizar(); });
+  // El GPS se apaga con la app en el bolsillo y vuelve al sacarla: con la
+  // pantalla apagada nadie mira el plano, y el GPS es de lo que más
+  // batería gasta en un teléfono.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pararGps(); else if (S.gps.activo) arrancarGps();
+  });
+  if (S.gps.activo) arrancarGps();
 }
 
 // Aplica la paleta y calcula, para cada color, si el texto encima debe ir
@@ -782,6 +800,7 @@ function pantallaPrincipal() {
       <div id="barra-recorrido"></div>
       <div id="barra-forma"></div>
       <div id="barra-historia"></div>
+      <div id="barra-gps"></div>
       <div id="boton-nuevo"></div>
       <div id="franja" hidden class="franja"><div></div></div>
     </div>
@@ -860,7 +879,7 @@ function pintarSync() {
 
 // ------------------------------------------------------------------ mapa
 const limpiarBarrasMapa = () => {
-  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#boton-nuevo']) {
+  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#barra-gps', '#boton-nuevo']) {
     const n = $(id); if (n) n.innerHTML = '';
   }
 };
@@ -890,6 +909,8 @@ function montarMapa() {
                 ${S.buscarMapa ? 'aria-pressed="true"' : ''}>${ICO.lupa}<span>Buscar</span></button>
               <button class="btn-mapa" id="r-filtrar" aria-label="Filtrar">
                 ${ICO.filtro}<span>Filtrar</span></button>
+              <button class="btn-mapa" id="r-gps" aria-label="Mi ubicación en el plano"
+                ${S.gps.activo ? 'aria-pressed="true"' : ''}>${ICO.gps}<span>Ubicación</span></button>
               ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
                 ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
               ${esAdmin() ? `<button class="btn-mapa" id="r-historia" aria-label="Ver el patio de otro día"
@@ -899,6 +920,7 @@ function montarMapa() {
             </div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
+            <div id="chip-gps-caja"></div>
           </div>
         </div>
       </div>
@@ -951,6 +973,7 @@ function montarMapa() {
   };
   pintarBuscadorMapa();
   $('#r-filtrar').onclick = panelFiltro;
+  $('#r-gps').onclick = gesto(() => (S.gps.activo ? apagarGps() : prenderGps()));
   if ($('#r-historia')) $('#r-historia').onclick = accion(alternarHistoria, { ocupado: 'Leyendo…' });
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
@@ -967,6 +990,14 @@ function montarMapa() {
   } else if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
+
+  // Una calibración es de UNA plataforma: si se cambió de plano a mitad,
+  // los puntos marcados serían de otro dibujo.
+  if (S.calibrando && (S.calibrando.plat !== S.plataforma || S.historia)) cancelarCalibracion();
+  if (S.calibrando) barraCalibrar();
+  // Volver al mapa desde la lista: lo de los demás puede tener un rato.
+  if (S.gps.activo && Date.now() - (S.gps.leidoEn || 0) > CADA_LECTURA_AJENA_MS) leerOtros();
+  pintarGps();
 }
 
 // La leyenda del plano. Quien llega nuevo ve óvalos de colores y no tiene
@@ -2377,6 +2408,8 @@ function refrescarMapa() {
     destacados: calcularDestacados(), recorrido: S.recorrido, resaltado: S.resaltado,
     naciendo: S.naciendo
   });
+  // la plataforma pudo cambiar, y con ella dónde cae cada punto
+  pintarGps();
 }
 
 // --------------------------------------------------- la volqueta descarga
@@ -3192,6 +3225,7 @@ function menuCuenta() {
       await sincronizar();
       if (S.pendientes > 0 || S.rechazados > 0) return confirmarSalida();
     }
+    await soltarUbicacion();
     await Store.salir();
     location.reload();
   }, { ocupado: 'Subiendo lo pendiente…' });
@@ -3304,6 +3338,7 @@ function confirmarSalida() {
     </div>`);
   $('#quedarse').onclick = cerrarHoja;
   $('#salir-igual').onclick = accion(async () => {
+    await soltarUbicacion();
     await Store.salir();
     location.reload();
   }, { ocupado: 'Cerrando…' });
@@ -3989,6 +4024,400 @@ function formLote() {
   }, { ocupado: 'Poniendo…', alFallar: (e) => falla(`No se pudo guardar el lote: ${e?.message || e}`) });
 }
 
+// ------------------------------------------------------------------- GPS
+// El punto azul es uno mismo; los negros con nombre, los compañeros. Todo
+// se dibuja en una capa aparte del plano (ver mapa.js).
+//
+// Compartir es parte de prenderlo, y SOLO dentro del patio: la posición
+// se sube mientras cae en el plano de alguna plataforma calibrada. Fuera
+// de ahí —en la oficina, en la casa, camino al trabajo— no sale nada del
+// teléfono, y se borra la que hubiera. Ver dónde están los demás no
+// necesita estar en el patio: el admin puede mirarlos desde la oficina.
+const CADA_ENVIO_MS = 15_000;             // una subida cada 15 s como mucho…
+const MOVIDO_M = 5;                       // …o antes, si se movió más que esto
+const CADA_LECTURA_AJENA_MS = 15_000;     // cada cuánto se pregunta por los demás
+const VIEJO_S = 90;                       // a partir de aquí el punto se pinta desvaído
+// Una lectura peor que esto no se comparte: es la del teléfono adivinando
+// con las antenas, y pintaría a la persona en la otra punta del patio.
+const PRECISION_COMPARTIR_M = 60;
+// Cuánto se puede salir alguien del dibujo y seguir viéndose: la vía de
+// entrada, el parqueadero de las volquetas, justo al borde.
+const MARGEN_PLANO_M = 30;
+
+let relojGps = 0;
+
+async function prenderGps() {
+  // La primera vez se explica qué implica: prenderlo es dejarse ver.
+  // Pedir el permiso del teléfono sin contarlo antes sería decir solo la
+  // mitad.
+  let avisado = null;
+  try { avisado = localStorage.getItem('acopio-gps-avisado'); } catch { /* sin almacenamiento */ }
+  if (avisado !== '1') {
+    const ok = await confirmar({
+      titulo: '¿Prender la ubicación?',
+      detalle: 'Te verás como un punto azul en el plano. Mientras estés dentro del patio, '
+        + 'tus compañeros también te verán, con tu nombre. Fuera del patio no se comparte nada. '
+        + 'Se apaga con el mismo botón.',
+      aceptar: 'Prender'
+    });
+    if (!ok) return;
+    recordar('acopio-gps-avisado', '1');
+  }
+  S.gps.activo = true;
+  recordar('acopio-gps', '1');
+  arrancarGps();
+  botonGps();
+  pintarGps();
+  // Las plataformas bajan una vez por hora. Si este plano no tiene GPS
+  // puede ser que el admin lo acabe de calibrar: se pregunta ya.
+  if (!Gps.transformacion(plataformaActual()?.geo)) { Store.repasarCatalogos(); sincronizar(); }
+}
+
+async function apagarGps() {
+  S.gps.activo = false;
+  recordar('acopio-gps', '0');
+  pararGps();
+  S.gps.yo = null; S.gps.otros = []; S.gps.error = null;
+  botonGps();
+  pintarGps();
+  await soltarUbicacion();
+}
+
+function arrancarGps() {
+  if (document.hidden) return;
+  S.gps.error = null;
+  Gps.seguir(alLeerGps, alFallarGps);
+  clearInterval(relojGps);
+  leerOtros();
+  relojGps = setInterval(() => {
+    leerOtros();
+    // Quieto, el teléfono puede pasar minutos sin dar lectura nueva: la
+    // última sigue siendo la buena, y sin esto la persona se iría
+    // desvaneciendo de la pantalla de los demás sin haberse movido. Pero
+    // solo un rato: si el GPS lleva dos minutos callado —bajo techo, sin
+    // satélites—, esa lectura ya no se puede vender como "ahora".
+    if (S.gps.yo && Date.now() - S.gps.yo.cuando < 120_000) compartirSiToca(S.gps.yo);
+  }, CADA_LECTURA_AJENA_MS);
+}
+
+function pararGps() {
+  Gps.detener();
+  clearInterval(relojGps);
+  relojGps = 0;
+}
+
+// Que los demás dejen de verlo YA. Si no hay señal no pasa nada: la vista
+// del servidor lo da por ido a los diez minutos.
+async function soltarUbicacion() {
+  if (!S.gps.compartiendo || !S.perfil) return;
+  try {
+    if (await Store.dejarDeCompartir(S.perfil.id)) { S.gps.compartiendo = false; S.gps.enviado = null; }
+  } catch (e) { console.error(e); }
+}
+
+function alLeerGps(l) {
+  const primera = !S.gps.yo;
+  S.gps.yo = l;
+  S.gps.error = null;
+  if (S.calibrando) medirCalibracion(l);
+  pintarGps();
+  // Al prenderlo, el plano va hasta uno: es lo primero que se quiere ver.
+  if (primera && !S.calibrando) centrarEnMi({ avisar: false });
+  compartirSiToca(l);
+}
+
+function alFallarGps(e) {
+  // El código 3 es "tardó": el teléfono sigue intentando solo y no hay
+  // nada que hacer, así que solo se avisa si todavía no hay ni una lectura.
+  if (e?.code === 3 && S.gps.yo) return;
+  S.gps.error = Gps.motivoFallo(e);
+  // Sin permiso no va a llegar nada: parar es no gastar batería en vano.
+  if (e?.code === 1 || e?.code === 0) pararGps();
+  pintarGps();
+}
+
+async function compartirSiToca(l) {
+  const g = S.gps;
+  if (!g.activo || g.enviando || !S.perfil || sinPermiso()) return;
+  const dentro = l.precision <= PRECISION_COMPARTIR_M
+    && Gps.dondeCae(S.plataformas, l.lat, l.lon, MARGEN_PLANO_M);
+  if (!dentro) {
+    // Salió del patio, o la señal se volvió mala: se retira la que había
+    // en vez de dejar a los demás mirando un punto que ya no es verdad.
+    if (g.compartiendo) { g.enviando = true; await soltarUbicacion(); g.enviando = false; }
+    return;
+  }
+  const t = Date.now();
+  const toca = !g.enviado || t - g.enviado.cuando > CADA_ENVIO_MS
+    || (t - g.enviado.cuando > 4000 && Gps.distanciaM(g.enviado, l) > MOVIDO_M);
+  if (!toca) return;
+  g.enviando = true;
+  try {
+    if (await Store.compartirUbicacion(S.perfil.id, l)) {
+      g.compartiendo = true;
+      g.enviado = { lat: l.lat, lon: l.lon, cuando: t };
+    }
+  } catch (e) {
+    // Lo más probable: falta correr migracion.sql. La posición propia se
+    // sigue viendo; solo no sale del teléfono. Se reintenta en 15 s.
+    console.error(e);
+    g.enviado = { lat: l.lat, lon: l.lon, cuando: t };
+  } finally { g.enviando = false; }
+}
+
+async function leerOtros() {
+  if (!S.gps.activo || document.hidden || S.pestana !== 'mapa') return;
+  S.gps.leidoEn = Date.now();
+  try {
+    S.gps.otros = (await Store.ubicaciones()).filter((u) => u.usuario_id !== S.perfil?.id);
+  } catch (e) {
+    console.error(e);
+    S.gps.otros = [];
+  }
+  pintarGps();
+}
+
+// El primer nombre basta para reconocerse en un patio de diez personas,
+// y ocupa la mitad sobre el plano.
+const nombreCorto = (n) => String(n || '?').trim().split(/\s+/)[0];
+
+// Pasa el estado del GPS a coordenadas de ESTE plano y se lo da al mapa.
+function pintarGps() {
+  chipGps();
+  if (S.pestana !== 'mapa' || !document.querySelector('#lienzo')) return;
+  const plat = plataformaActual();
+  const t = Gps.transformacion(plat?.geo);
+  const marcas = marcasCalibracion();
+  if (!S.gps.activo || !t || S.historia) return Mapa.pintarGps(marcas.length ? { marcas } : null);
+  const enPlano = (lat, lon) => {
+    const pt = t.aPlano(lat, lon);
+    return Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M) ? pt : null;
+  };
+  const yo = S.gps.yo && enPlano(S.gps.yo.lat, S.gps.yo.lon);
+  const otros = S.gps.otros.map((o) => {
+    const pt = enPlano(o.lat, o.lon);
+    return pt && { ...pt, nombre: nombreCorto(o.nombre), viejo: o.segundos > VIEJO_S };
+  }).filter(Boolean);
+  Mapa.pintarGps({
+    yo: yo && { ...yo, radio: S.gps.yo.precision * t.escala },
+    otros, marcas
+  });
+}
+
+function botonGps() {
+  const b = $('#r-gps');
+  if (!b) return;
+  if (S.gps.activo) b.setAttribute('aria-pressed', 'true'); else b.removeAttribute('aria-pressed');
+}
+
+// Lo que pasa con el GPS, dicho en una pastilla sobre el plano. Tocarla
+// hace lo que la pastilla promete: ir hasta uno, cambiar de plataforma,
+// reintentar o calibrar.
+function chipGps() {
+  const caja = $('#chip-gps-caja');
+  if (!caja) return;
+  const g = S.gps;
+  if (!g.activo || S.historia || S.calibrando) { caja.innerHTML = ''; return; }
+  const plat = plataformaActual();
+  const t = Gps.transformacion(plat?.geo);
+  let texto, alTocar;
+  if (g.error) {
+    texto = g.error;
+    alTocar = () => { arrancarGps(); pintarGps(); };
+  } else if (!t) {
+    texto = esAdmin() ? 'Este plano no tiene GPS · calibrar' : 'Este plano todavía no tiene GPS';
+    alTocar = esAdmin() ? empezarCalibracion
+      : () => avisar('El administrador tiene que calibrar el GPS de este plano desde «Fondo del mapa».');
+  } else if (!g.yo) {
+    texto = 'Buscando señal GPS…';
+  } else {
+    const pt = t.aPlano(g.yo.lat, g.yo.lon);
+    const aqui = Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M);
+    const otra = !aqui && Gps.dondeCae(S.plataformas, g.yo.lat, g.yo.lon, MARGEN_PLANO_M);
+    const vistos = S.gps.otros.filter((o) =>
+      Gps.dentroDelPlano(plat, t, t.aPlano(o.lat, o.lon), MARGEN_PLANO_M)).length;
+    const gente = vistos ? ` · ${vistos} más aquí` : '';
+    if (aqui) {
+      texto = `±${Math.round(g.yo.precision)} m${gente}`;
+      alTocar = () => centrarEnMi({ avisar: true });
+    } else if (otra) {
+      texto = `Estás en ${otra.plat.nombre} · ir${gente}`;
+      // el mismo camino que el selector de plataformas
+      alTocar = () => {
+        irAPlataforma(otra.plat.id);
+        S.recorrido = null; S.historia = null;
+        irAlMapa();
+        Mapa.encuadrar();
+        centrarEnMi({ avisar: false });
+      };
+    } else {
+      texto = `Estás fuera del patio${gente}`;
+    }
+  }
+  caja.innerHTML = `<button class="chip-gps${g.error ? ' chip-gps-error' : ''}" id="chip-gps">
+    ${ICO.gps}<span>${esc(texto)}</span></button>`;
+  const b = $('#chip-gps');
+  if (alTocar) b.onclick = gesto(alTocar); else b.disabled = true;
+}
+
+// Lleva el plano hasta el punto azul, con un poco de patio alrededor.
+function centrarEnMi({ avisar: decir }) {
+  const plat = plataformaActual();
+  const t = Gps.transformacion(plat?.geo);
+  if (!t || !S.gps.yo) return;
+  const pt = t.aPlano(S.gps.yo.lat, S.gps.yo.lon);
+  if (!Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M)) {
+    if (decir) avisar('Estás fuera de este plano.');
+    return;
+  }
+  // `enfocar` encuadra figuras; un punto es una figura de radio cero.
+  // El margen son unos 25 m de patio a cada lado.
+  Mapa.enfocar([{ x: pt.x, y: pt.y, rx: 0, ry: 0 }], { margen: Math.max(25 * t.escala, 60) });
+}
+
+// ------------------------------------------------------ calibrar el GPS
+// Dos puntos, cada uno con su sitio en el plano y su coordenada. El
+// admin se para en algo que reconozca —una esquina, la caseta, la
+// báscula—, lo toca en el plano y la app promedia unos segundos de GPS.
+// Promediar importa: una sola lectura puede venir corrida cinco metros,
+// y ese error se quedaría en el plano para siempre.
+//
+// En vez del GPS se puede pegar una coordenada de Google Maps. Sirve para
+// calibrar desde la oficina con la foto satelital, sin caminar el patio.
+function empezarCalibracion() {
+  const plat = plataformaActual();
+  if (!plat) return avisar('Todavía no hay plataformas cargadas. Sincroniza y vuelve a intentarlo.');
+  if (S.historia) return avisar('Vuelve a hoy para calibrar el GPS.');
+  cerrarHoja();
+  S.edicion = false;              // en edición un toque agarra figuras, no marca
+  S.calibrando = { plat: plat.id, paso: 'a', a: null, b: null, marca: null, lecturas: [] };
+  // sin GPS se puede igual, pegando coordenadas; con él es más cómodo
+  if (!S.gps.activo) { S.gps.activo = true; recordar('acopio-gps', '1'); arrancarGps(); }
+  irAlMapa();
+  Mapa.alMarcar((pt) => {
+    const c = S.calibrando;
+    if (!c) return;
+    c.marca = { x: Math.round(pt.x), y: Math.round(pt.y) };
+    // Se mide desde que se marca el sitio: lo de antes era de otro lado.
+    // La última lectura sí vale si es de hace un instante —quien toca su
+    // sitio ya está parado en él—, y un teléfono quieto puede tardar en
+    // dar otra: sin ella la barra se quedaba en "Midiendo…".
+    const reciente = S.gps.yo && Date.now() - S.gps.yo.cuando < 5000;
+    c.lecturas = reciente ? [S.gps.yo] : [];
+    barraCalibrar();
+    pintarGps();
+  });
+}
+
+function cancelarCalibracion() {
+  S.calibrando = null;
+  Mapa.alMarcar(null);
+  const caja = $('#barra-gps');
+  if (caja) caja.innerHTML = '';
+  pintarGps();
+}
+
+function marcasCalibracion() {
+  const c = S.calibrando;
+  if (!c) return [];
+  const m = [];
+  if (c.a) m.push({ x: c.a.x, y: c.a.y, etiqueta: '1' });
+  if (c.marca) m.push({ ...c.marca, etiqueta: c.paso === 'a' ? '1' : '2' });
+  return m;
+}
+
+function medirCalibracion(l) {
+  const c = S.calibrando;
+  if (!c?.marca) return;
+  c.lecturas.push(l);
+  // Las últimas treinta bastan: más no afina, y quien se queda un rato
+  // largo quieto no debería ir acumulando sin fin.
+  if (c.lecturas.length > 30) c.lecturas.shift();
+  const n = $('#cal-medida');
+  if (n) n.textContent = textoMedida();
+}
+
+function textoMedida() {
+  const c = S.calibrando;
+  const p = Gps.promediar(c?.lecturas);
+  if (S.gps.error) return S.gps.error;
+  if (!p) return c?.lecturas.length
+    ? `Señal todavía floja (±${Math.round(c.lecturas.at(-1).precision)} m). Espera a cielo abierto…`
+    : 'Midiendo con el GPS…';
+  return `GPS: ±${Math.max(1, Math.round(p.precision))} m con ${p.n} lectura${p.n === 1 ? '' : 's'}`;
+}
+
+// La barra se arma UNA vez por paso, y luego solo cambia el renglón de la
+// medida. Rearmarla con cada lectura borraba lo que se estaba escribiendo
+// en el campo de la coordenada.
+function barraCalibrar() {
+  const caja = $('#barra-gps');
+  const c = S.calibrando;
+  if (!caja || !c) return;
+  const n = c.paso === 'a' ? 1 : 2;
+  const instruccion = !c.marca
+    ? (n === 1
+      ? 'Párate en un sitio que reconozcas en el plano —una esquina, la caseta— y tócalo en el plano.'
+      : `Camina al otro extremo del patio, a más de ${Gps.DISTANCIA_MINIMA_M} m del primero, y toca ese sitio en el plano.`)
+    : 'Quédate quieto unos segundos mientras se mide. Si el sitio quedó mal marcado, vuelve a tocarlo.';
+  caja.innerHTML = `<div class="barra-modo barra-calibrar">
+    <div class="fila-calibrar">
+      <strong>GPS · punto ${n} de 2</strong>
+      <button class="pastilla" id="cal-cancelar">Cancelar</button>
+    </div>
+    <span class="pista">${esc(instruccion)}</span>
+    ${c.marca ? `
+    <span class="pista" id="cal-medida">${esc(textoMedida())}</span>
+    <input id="cal-coord" inputmode="decimal" autocomplete="off"
+      placeholder="o pega lat, lon de Google Maps" aria-label="Coordenada escrita a mano">
+    <button class="pastilla pastilla-fuerte" id="cal-usar">Usar este punto</button>` : ''}
+  </div>`;
+  $('#cal-cancelar').onclick = cancelarCalibracion;
+  const usar = $('#cal-usar');
+  if (usar) usar.onclick = accion(fijarPuntoCalibracion, { ocupado: 'Guardando…' });
+}
+
+async function fijarPuntoCalibracion() {
+  const c = S.calibrando;
+  if (!c?.marca) return;
+  const escrito = $('#cal-coord')?.value.trim();
+  let geo;
+  if (escrito) {
+    geo = Gps.leerCoordenadas(escrito);
+    if (!geo) return avisar('La coordenada se escribe como «6.24420, -75.58120»: latitud, coma, longitud.');
+  } else {
+    geo = Gps.promediar(c.lecturas);
+    if (!geo) return avisar(`Todavía no hay una lectura de GPS con menos de ${Gps.PRECISION_CALIBRAR_M} m de error. `
+      + 'Espera unos segundos a cielo abierto, o pega la coordenada a mano.');
+  }
+  const punto = { x: c.marca.x, y: c.marca.y, lat: +geo.lat.toFixed(7), lon: +geo.lon.toFixed(7) };
+
+  if (c.paso === 'a') {
+    c.a = punto; c.paso = 'b'; c.marca = null; c.lecturas = [];
+    barraCalibrar();
+    pintarGps();
+    return;
+  }
+
+  const calibracion = { a: c.a, b: punto };
+  const problema = Gps.problemaCalibracion(calibracion);
+  if (problema) {
+    c.marca = null; c.lecturas = [];
+    barraCalibrar(); pintarGps();
+    return avisar(`No sirve: ${problema}. Marca el segundo punto otra vez.`);
+  }
+  const plat = S.plataformas.find((p) => p.id === c.plat);
+  if (!plat) { cancelarCalibracion(); return avisar('La plataforma ya no existe.'); }
+  const metros = Math.round(Gps.distanciaM(c.a, punto));
+  await Store.guardarPlataforma({ ...plat, geo: calibracion });
+  cancelarCalibracion();
+  await recargar();
+  refrescarMapa();
+  sincronizar();
+  avisar(`GPS de ${plat.nombre} calibrado con dos puntos a ${metros} m. `
+    + 'Camina un poco y comprueba que el punto azul cae donde estás; si no, calibra de nuevo con puntos más separados.');
+}
+
 // ------------------------------------------------------- fondo (admin)
 const paletaActual = () => ({ ...Mapa.COLORES_BASE, ...(S.config?.colores || {}) });
 
@@ -4030,6 +4459,15 @@ function panelFondo() {
     </div>
     <button class="btn btn-ancho" id="quitar-img" style="width:100%">Quitar imagen</button>` : ''}
 
+    <h3>GPS</h3>
+    <p class="pista">${Gps.transformacion(plat.geo)
+      ? `Calibrado con dos puntos a ${Math.round(Gps.distanciaM(plat.geo.a, plat.geo.b))} m. Si el punto azul no cae donde estás, vuelve a calibrar con puntos más separados.`
+      : 'Sin calibrar: el plano funciona igual, pero nadie se ve en él. Hacen falta dos puntos del patio que reconozcas en el plano, a más de 20 m uno del otro.'}</p>
+    <div class="acciones">
+      <button id="gps-calibrar">${plat.geo ? 'Calibrar de nuevo' : 'Calibrar el GPS'}</button>
+      ${plat.geo ? '<button id="gps-quitar">Quitar calibración</button>' : ''}
+    </div>
+
     <h3>Colores</h3>
     <div class="rejilla-color">
       ${[['por_muestrear', 'Por muestrear'], ['muestreado', 'Muestreado'],
@@ -4058,6 +4496,12 @@ function panelFondo() {
     <p id="fondo-error" class="aviso" hidden></p>`);
 
   $('#cerrar').onclick = cerrarHoja;
+  $('#gps-calibrar').onclick = empezarCalibracion;
+  const sinGps = $('#gps-quitar');
+  if (sinGps) sinGps.onclick = accion(async () => {
+    await Store.guardarPlataforma({ ...plat, geo: null });
+    cerrarHoja(); await recargar(); refrescarMapa(); sincronizar();
+  }, { ocupado: 'Quitando…' });
 
   const agregar = (forma) => accion(async () => {
     const c2 = Mapa.centroVista();

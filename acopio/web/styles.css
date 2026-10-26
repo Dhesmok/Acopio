@@ -1206,6 +1206,53 @@ button:focus:not(:focus-visible) { outline: none; }
 .recorrido circle { fill: #2b5ca8; stroke: #fff; stroke-width: 2.5; }
 .recorrido text { fill: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
 
+/* --- GPS sobre el plano -------------------------------------------
+   La capa entera deja pasar el dedo: un punto encima de un lote no puede
+   impedir abrir su ficha. El tamaño de los puntos lo pone mapa.js en
+   píxeles de pantalla; aquí solo colores. El azul es el de uno mismo,
+   como en cualquier mapa del teléfono; los compañeros van en negro con
+   su nombre, para que no se confundan con uno. */
+.capa-gps, .capa-gps * { pointer-events: none; }
+.gps-precision { fill: #1a73e8; fill-opacity: .14; stroke: #1a73e8; stroke-opacity: .45; stroke-width: 1; }
+.gps-punto { fill: #1a73e8; stroke: #fff; }
+.gps-yo .gps-punto { animation: latido-gps 2s ease-in-out infinite; }
+@keyframes latido-gps { 50% { fill-opacity: .7; } }
+.gps-otro circle { fill: var(--tinta); stroke: #fff; }
+.gps-otro text {
+  fill: var(--tinta); stroke: #fff; paint-order: stroke;
+  font-family: var(--mono); font-weight: 800;
+}
+.gps-viejo { opacity: .45; }
+.gps-marca circle { fill: #fff; stroke: var(--rojo); }
+.gps-marca text { fill: var(--rojo); font-family: var(--mono); font-weight: 800; }
+@media (prefers-reduced-motion: reduce) { .gps-yo .gps-punto { animation: none; } }
+
+.chip-gps {
+  display: inline-flex; align-items: center; gap: 7px; max-width: min(76vw, 340px);
+  border: 2px solid var(--tinta); border-radius: 999px; padding: 8px 12px;
+  background: var(--superficie); color: var(--tinta);
+  font-size: 13px; font-weight: 700; cursor: pointer; text-align: left;
+  box-shadow: var(--sombra-media);
+  animation: entrar var(--t-medio) var(--curva);
+}
+.chip-gps .ico { width: 15px; height: 15px; flex: none; color: #1a73e8; }
+.chip-gps span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-gps:disabled { cursor: default; opacity: 1; }
+.chip-gps:not(:disabled):active { transform: scale(.95); }
+.chip-gps-error { border-color: var(--rojo); color: var(--rojo); }
+.chip-gps-error .ico { color: var(--rojo); }
+.chip-gps-error span { white-space: normal; }
+
+#barra-gps:empty { display: none; }
+.barra-calibrar { flex-direction: column; align-items: stretch; gap: 8px; }
+.fila-calibrar { display: flex; align-items: center; gap: 10px; }
+.fila-calibrar strong { flex: 1; }
+.barra-calibrar .pista { margin: 0; font-size: 12px; line-height: 1.4; color: #fff; opacity: .85; }
+.barra-calibrar input {
+  font: inherit; font-size: 15px; padding: 9px 10px; border: 2px solid #fff;
+  border-radius: 0; background: #fff; color: var(--tinta); min-width: 0;
+}
+
 /* --- código de lote con la sigla del proveedor fija --- */
 .con-sigla { display: flex; align-items: stretch; }
 .con-sigla span {

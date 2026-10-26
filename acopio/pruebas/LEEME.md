@@ -22,6 +22,7 @@ y `sql/` se quedan en el repositorio.
 | `pilas-y-fechas.mjs` | Que dos celulares eligiendo el mismo número de pila no pierdan ninguna, y que un lote recibido de noche no quede fechado al día siguiente. |
 | `mapa.mjs` | Que un código de lote con caracteres raros no deje el plano entero sin dibujar. |
 | `sincronizacion.mjs` | Que solo se baje lo que cambió, que el historial viejo se recupere en vez de faltar en silencio, que la pasada completa note lo borrado, y que desactivar un perfil no vacíe la pantalla. |
+| `gps.mjs` | Que la calibración ponga a cada uno en su sitio del plano —y no reflejado como en un espejo—, que una calibración mala se rechace, que un nombre raro no rompa la capa del GPS, que moverse no rearme el plano, y que en la base cada uno escriba solo su propia ubicación. |
 
 Cada tanda corre en su propio proceso: comparten globales (la base local,
 el reloj) y mezclarlas daría resultados falsos.

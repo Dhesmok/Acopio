@@ -1058,6 +1058,54 @@ drop trigger if exists trg_solo_admin_alimenta_lote on lotes;
 create trigger trg_solo_admin_alimenta_lote
   before insert on lotes for each row execute function fn_solo_admin_alimenta();
 
+-- ===================================================================
+--  GPS  ·  dónde cae cada plano en el mundo, y quién está en el patio.
+--  Ver schema.sql para el porqué. Se puede correr las veces que se quiera.
+-- ===================================================================
+alter table plataformas add column if not exists geo jsonb;
+
+create table if not exists ubicaciones (
+  usuario_id     uuid primary key references perfiles (id) on delete cascade,
+  lat            double precision not null check (lat between -90 and 90),
+  lon            double precision not null check (lon between -180 and 180),
+  precision_m    real check (precision_m >= 0),
+  actualizado_en timestamptz not null default now()
+);
+
+drop trigger if exists trg_marcar_actualizado on ubicaciones;
+create trigger trg_marcar_actualizado before insert or update on ubicaciones
+  for each row execute function fn_marcar_actualizado();
+
+create or replace view v_ubicaciones with (security_invoker = true) as
+select u.usuario_id, pe.nombre, u.lat, u.lon, u.precision_m, u.actualizado_en,
+       extract(epoch from now() - u.actualizado_en)::int as segundos
+  from ubicaciones u
+  join perfiles pe on pe.id = u.usuario_id
+ where u.actualizado_en > now() - interval '10 minutes';
+
+alter table ubicaciones enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'ubicaciones' and policyname = 'p_leer_ubicaciones') then
+    create policy p_leer_ubicaciones on ubicaciones for select to authenticated
+      using (fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'ubicaciones' and policyname = 'p_mi_ubicacion_ins') then
+    create policy p_mi_ubicacion_ins on ubicaciones for insert to authenticated
+      with check (usuario_id = auth.uid() and fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'ubicaciones' and policyname = 'p_mi_ubicacion_upd') then
+    create policy p_mi_ubicacion_upd on ubicaciones for update to authenticated
+      using (usuario_id = auth.uid())
+      with check (usuario_id = auth.uid() and fn_mi_rol() is not null);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'ubicaciones' and policyname = 'p_mi_ubicacion_del') then
+    create policy p_mi_ubicacion_del on ubicaciones for delete to authenticated
+      using (usuario_id = auth.uid());
+  end if;
+end $$;
+grant select, insert, update, delete on ubicaciones to authenticated;
+grant select on v_ubicaciones to authenticated;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

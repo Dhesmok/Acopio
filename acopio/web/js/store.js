@@ -1045,6 +1045,11 @@ async function podarRecorridos() {
   return fuera;
 }
 
+// Que la próxima vuelta pase lista aunque no toque. Lo usa el GPS: el
+// admin acaba de calibrar un plano y quien prende la ubicación no puede
+// esperar hasta una hora a que le llegue. Es una pasada, no un hábito.
+export function repasarCatalogos() { ultimoCompleto = 0; }
+
 async function bajar() {
   if (ultimoCompleto === null) {
     ultimoCompleto = Number(await meta('ultimo_completo')) || 0;
@@ -1203,6 +1208,43 @@ export async function subirImagenFondo(archivo) {
   if (error) throw new Error(error.message);
   const { data } = sb.storage.from('mapa').getPublicUrl(ruta);
   return data.publicUrl;
+}
+
+// ---------------------------------------------------------- ubicaciones
+// Lo ÚNICO de la app que no pasa por la cola, y a propósito: una posición
+// es "dónde estoy ahora", y subirla diez minutos tarde, cuando vuelve la
+// señal, pintaría a la persona donde ya no está. Sin señal no se sube y
+// ya; la siguiente lectura llega en segundos.
+export async function compartirUbicacion(usuarioId, { lat, lon, precision }) {
+  if (!navigator.onLine) return false;
+  const { error } = await sb.from('ubicaciones').upsert({
+    usuario_id: usuarioId,
+    // seis decimales son diez centímetros: más es ruido del GPS
+    lat: +lat.toFixed(6), lon: +lon.toFixed(6),
+    precision_m: Math.round(precision ?? 0)
+  });
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+// Al apagar el GPS se borra la fila: quien lo apaga deja de verse YA, no
+// a los diez minutos, que es cuando la vista lo daría por viejo.
+export async function dejarDeCompartir(usuarioId) {
+  if (!navigator.onLine) return false;
+  const { error } = await sb.from('ubicaciones').delete().eq('usuario_id', usuarioId);
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+// Los de los últimos diez minutos, con la antigüedad contada por el
+// servidor. Sin señal no hay nadie que mostrar: devolver la lista vieja
+// pintaría gente donde estaba hace rato como si fuera ahora.
+export async function ubicaciones() {
+  if (!navigator.onLine) return [];
+  const { data, error } = await sb.from('v_ubicaciones')
+    .select('usuario_id, nombre, lat, lon, precision_m, segundos');
+  if (error) throw new Error(error.message);
+  return data || [];
 }
 
 export async function salir() {

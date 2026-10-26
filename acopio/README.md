@@ -89,6 +89,26 @@ La pantalla principal es el plano del patio.
 - **Un lote despachado sale del mapa** y queda en la lista, filtrable por su estado.
 - Dos dedos para acercar y alejar; un dedo para desplazarse, empiece donde empiece —también encima de un lote, mientras no se esté en modo edición—. El zoom se ancla donde están los dedos, así que el plano no se escapa de donde uno está mirando.
 
+### GPS: dónde estoy yo y dónde están los demás
+
+El botón **Ubicación** (la flecha, en las herramientas del mapa) prende el GPS del celular.
+
+- **Uno mismo es el punto azul**, con un halo que es el margen de error que da el teléfono (±5 m es lo normal a cielo abierto). Al prenderlo, el plano va hasta el punto; la pastilla que aparece debajo de las herramientas dice la precisión y cuántos compañeros hay en ese plano, y tocarla vuelve a llevar el plano hasta uno.
+- **Los compañeros son puntos negros con su nombre.** Se ve a todo el que tenga la ubicación prendida en ese momento. Si su última posición tiene más de minuto y medio, el punto sale desvaído; a los diez minutos deja de verse solo.
+- **Compartir es parte de prenderlo, y solo dentro del patio.** La posición sube mientras cae en el plano de alguna plataforma calibrada (con 30 m de margen para la vía de entrada). Fuera de ahí no sale nada del teléfono y se retira la que hubiera. Al apagar el botón o cerrar sesión se borra al instante. No se guarda ningún rastro: hay una sola fila por persona, que se pisa en cada lectura. La primera vez que se prende, la app lo explica antes de pedir el permiso.
+- **Si estás en otra plataforma**, la pastilla dice "Estás en Ye · ir" y con un toque cambia de plano.
+- **Solo funciona con la app abierta.** Con el teléfono en el bolsillo el GPS se apaga para no gastar batería, y vuelve al sacarlo. Necesita HTTPS (Netlify ya lo da) y el permiso de ubicación del navegador.
+- **La ubicación no pasa por la cola.** Es lo único de la app que no se guarda para subir después: una posición que llega diez minutos tarde pintaría a alguien donde ya no está. Sin señal, simplemente no se comparte.
+
+**Calibrar (admin, una vez por plataforma).** El plano no es un mapa: son unidades inventadas sobre un dibujo, así que hay que decirle a la app dónde cae ese dibujo en el mundo. En **Fondo del mapa → GPS → Calibrar el GPS**:
+
+1. Párate en un sitio que reconozcas en el plano —una esquina, la caseta, la báscula— y tócalo en el plano. Quédate quieto unos segundos: la app promedia varias lecturas del GPS. **Usar este punto.**
+2. Camina al otro extremo del patio (al menos 20 m; cuanto más lejos, mejor) y repite.
+
+En vez de caminar se puede pegar en cada punto la coordenada de Google Maps ("6.24420, -75.58120"), por ejemplo mirando la foto satelital desde la oficina. Con dos puntos la app saca la escala, el giro y el desplazamiento del plano. Para que cuadre en todo el patio, el dibujo tiene que respetar las proporciones del patio real (ver "Tamaño del patio"). Después de calibrar, camina un poco y comprueba que el punto azul cae donde estás.
+
+Requiere correr `sql/migracion.sql` una vez: agrega la columna de calibración a `plataformas`, la tabla `ubicaciones` y sus permisos (cada uno escribe y borra solo la suya; la hora la pone el servidor).
+
 ### El fondo, solo para el admin
 
 Con el rol `admin`, el menú de opciones del mapa incluye **Fondo del mapa**: tamaño del patio, color, una foto aérea o plano subido desde el celular (con transparencia regulable) y figuras geométricas para dibujar la caseta, la vía o los límites. Los contratistas lo ven pero no lo pueden mover.
