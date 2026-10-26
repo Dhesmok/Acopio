@@ -536,8 +536,18 @@ ok(/:where\(\.acciones\) button[^{]*:not\(\[data-estado\]\)[^{]*:hover/.test(css
 
 // «Nuevo lote» abajo a la derecha, con las demás barras flotantes: era
 // lo único que quedaba arriba a la izquierda, lejos del pulgar.
-ok(/#boton-nuevo\s*{[^}]*align-self:\s*flex-end/.test(css),
-   '«Nuevo lote» se alinea a la derecha dentro de la columna flotante');
+// Ahora comparte renglón con la pastilla del GPS, que va a la izquierda:
+// el margen automático es lo que lo mantiene pegado a la derecha.
+ok(/#boton-nuevo\s*{[^}]*margin-left:\s*auto/.test(css),
+   '«Nuevo lote» se alinea a la derecha dentro de su renglón flotante');
+// La pastilla del GPS se pidió abajo a la izquierda, en ese renglón, y
+// antes que el botón: si van al revés, el GPS quedaría a la derecha.
+const fila = fuenteApp.match(/<div class="fila-inferior">([\s\S]*?)<\/div>\s*<\/div>/)?.[1] || '';
+ok(fila.indexOf('id="chip-gps-caja"') >= 0
+   && fila.indexOf('id="chip-gps-caja"') < fila.indexOf('id="boton-nuevo"'),
+   'la pastilla del GPS va abajo a la izquierda, en el renglón de «Nuevo lote»');
+ok(!/class="ctrl-izq"[\s\S]{0,2500}id="chip-gps-caja"/.test(fuenteApp.slice(fuenteApp.indexOf('function montarMapa()'))),
+   'y ya no está arriba, debajo de las herramientas');
 ok(/#boton-nuevo:empty[^{]*{[^}]*display:\s*none/.test(css),
    'y sin botón dentro no deja un hueco que tape el plano');
 
