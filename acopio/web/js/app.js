@@ -181,7 +181,9 @@ const ICO = {
   alerta:    ico('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
                  + '<path d="M12 9v4M12 17h.01"/>'),
   // La flecha de navegación: es como cualquier teléfono dice "ubicación".
-  gps:       ico('<path d="M3 11l19-9-9 19-2-8-8-2z"/>')
+  gps:       ico('<path d="M3 11l19-9-9 19-2-8-8-2z"/>'),
+  // Mapa plegado: la imagen satelital.
+  mapa:      ico('<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>')
 };
 
 // ------------------------------------------------------- la monedita
@@ -567,6 +569,13 @@ async function abrirSesion(usuario) {
     if (document.hidden) pararGps(); else if (S.gps.activo) arrancarGps();
   });
   if (S.gps.activo) arrancarGps();
+  // La ventana de calibrar (calibrar.html) escribe en la misma base del
+  // navegador. Avisa al guardar, y aquí se recarga en el acto en vez de
+  // esperar a la vuelta de sincronización: el admin que acaba de calibrar
+  // vuelve a esta pestaña esperando ver el GPS ya puesto.
+  if ('BroadcastChannel' in window) {
+    new BroadcastChannel('acopio').onmessage = (e) => { if (e.data?.tipo === 'calibrado') recargar(); };
+  }
 }
 
 // Aplica la paleta y calcula, para cada color, si el texto encima debe ir
@@ -888,10 +897,15 @@ function montarMapa() {
   // Rearmar la barra no puede costar el encuadre en el que se estaba
   const vistaPrevia = document.querySelector('#lienzo') ? Mapa.obtenerVista() : null;
 
+  // Una calibración es de UNA plataforma: si se cambió de plano a mitad,
+  // los puntos marcados serían de otro dibujo.
+  if (S.calibrando && (S.calibrando.plat !== S.plataforma || S.historia)) soltarCalibracion();
+
   limpiarBarrasMapa();
-  // Mirando otro día no se registran lotes: el botón ni aparece.
+  // Mirando otro día no se registran lotes: el botón ni aparece. Calibrando
+  // tampoco: no es momento de registrar nada, y taparía la barra.
   const nb = $('#boton-nuevo');
-  if (nb && !soloLectura() && !S.historia) nb.innerHTML =
+  if (nb && !soloLectura() && !S.historia && !S.calibrando) nb.innerHTML =
     `<button class="btn-mapa btn-mapa-primario" id="nuevo">${ICO.mas}<span>Nuevo lote</span></button>`;
   const rec = $('#barra-recorrido');
   if (rec && S.recorrido) rec.innerHTML = `<div class="barra-modo">
@@ -991,10 +1005,7 @@ function montarMapa() {
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
 
-  // Una calibración es de UNA plataforma: si se cambió de plano a mitad,
-  // los puntos marcados serían de otro dibujo.
-  if (S.calibrando && (S.calibrando.plat !== S.plataforma || S.historia)) cancelarCalibracion();
-  if (S.calibrando) barraCalibrar();
+  if (S.calibrando) dibujarCalibracion();
   // Volver al mapa desde la lista: lo de los demás puede tener un rato.
   if (S.gps.activo && Date.now() - (S.gps.leidoEn || 0) > CADA_LECTURA_AJENA_MS) leerOtros();
   pintarGps();
@@ -4226,7 +4237,7 @@ function chipGps() {
     alTocar = () => { arrancarGps(); pintarGps(); };
   } else if (!t) {
     texto = esAdmin() ? 'Este plano no tiene GPS · calibrar' : 'Este plano todavía no tiene GPS';
-    alTocar = esAdmin() ? empezarCalibracion
+    alTocar = esAdmin() ? () => { panelFondo(); $('#h-gps')?.scrollIntoView({ block: 'start' }); }
       : () => avisar('El administrador tiene que calibrar el GPS de este plano desde «Fondo del mapa».');
   } else if (!g.yo) {
     texto = 'Buscando señal GPS…';
@@ -4276,59 +4287,101 @@ function centrarEnMi({ avisar: decir }) {
 }
 
 // ------------------------------------------------------ calibrar el GPS
-// Dos puntos, cada uno con su sitio en el plano y su coordenada. El
-// admin se para en algo que reconozca —una esquina, la caseta, la
-// báscula—, lo toca en el plano y la app promedia unos segundos de GPS.
-// Promediar importa: una sola lectura puede venir corrida cinco metros,
-// y ese error se quedaría en el plano para siempre.
+// Ubicar el plano en el mundo: una lista de puntos, cada uno con su sitio
+// en el plano y su coordenada. Es solo del admin, y hay dos maneras:
 //
-// En vez del GPS se puede pegar una coordenada de Google Maps. Sirve para
-// calibrar desde la oficina con la foto satelital, sin caminar el patio.
+//   · desde la oficina, en una ventana aparte (calibrar.html) con el
+//     plano al lado de la imagen satelital: ver js/calibrar.js;
+//   · caminando el patio, aquí mismo sobre el mapa: el admin se para en
+//     algo que reconozca —una esquina, la caseta, la báscula—, lo toca
+//     en el plano y la app promedia unos segundos de GPS. Promediar
+//     importa: una sola lectura puede venir corrida cinco metros, y ese
+//     error se quedaría en el plano para siempre.
+//
+// Las dos guardan lo mismo, y se pueden mezclar: lo que se marcó desde la
+// oficina aparece al calibrar caminando, para afinarlo, y al revés.
+
+// La ventana de la oficina. Se abre en el mismo toque del botón: si se
+// abriera después de esperar algo, el navegador la tomaría por publicidad
+// y la bloquearía.
+function abrirCalibracionOficina() {
+  const plat = plataformaActual();
+  if (!esAdmin() || !plat) return;
+  const v = window.open(`calibrar.html?plat=${encodeURIComponent(plat.id)}`, 'acopio-calibrar');
+  if (!v) avisar('El navegador bloqueó la ventana de calibrar. Permite las ventanas emergentes para este sitio y vuelve a intentarlo.');
+  else cerrarHoja();
+}
+
 function empezarCalibracion() {
+  if (!esAdmin()) return;
   const plat = plataformaActual();
   if (!plat) return avisar('Todavía no hay plataformas cargadas. Sincroniza y vuelve a intentarlo.');
   if (S.historia) return avisar('Vuelve a hoy para calibrar el GPS.');
   cerrarHoja();
   S.edicion = false;              // en edición un toque agarra figuras, no marca
-  S.calibrando = { plat: plat.id, paso: 'a', a: null, b: null, marca: null, lecturas: [] };
-  // sin GPS se puede igual, pegando coordenadas; con él es más cómodo
+  // Se arranca de los puntos que ya tenga: así se puede afinar una
+  // calibración —agregar un punto, quitar el malo— sin repetirla entera.
+  S.calibrando = {
+    plat: plat.id,
+    puntos: Gps.puntosDe(plat.geo).map(({ x, y, lat, lon }) => ({ x, y, lat, lon })),
+    plano: null, lecturas: []
+  };
   if (!S.gps.activo) { S.gps.activo = true; recordar('acopio-gps', '1'); arrancarGps(); }
+  Mapa.alMarcar((pt) => ponerPlano({ x: Math.round(pt.x), y: Math.round(pt.y) }));
   irAlMapa();
-  Mapa.alMarcar((pt) => {
-    const c = S.calibrando;
-    if (!c) return;
-    c.marca = { x: Math.round(pt.x), y: Math.round(pt.y) };
-    // Se mide desde que se marca el sitio: lo de antes era de otro lado.
-    // La última lectura sí vale si es de hace un instante —quien toca su
-    // sitio ya está parado en él—, y un teléfono quieto puede tardar en
-    // dar otra: sin ella la barra se quedaba en "Midiendo…".
-    const reciente = S.gps.yo && Date.now() - S.gps.yo.cuando < 5000;
-    c.lecturas = reciente ? [S.gps.yo] : [];
-    barraCalibrar();
-    pintarGps();
-  });
 }
 
 function cancelarCalibracion() {
+  soltarCalibracion();
+  montarMapa();
+}
+
+// Solo el estado, sin tocar la pantalla. montarMapa lo usa si la
+// plataforma cambió a mitad: no puede llamarse a sí mismo.
+function soltarCalibracion() {
   S.calibrando = null;
   Mapa.alMarcar(null);
-  const caja = $('#barra-gps');
-  if (caja) caja.innerHTML = '';
+}
+
+function ponerPlano(pt) {
+  const c = S.calibrando;
+  if (!c) return;
+  c.plano = pt;
+  // Se mide desde que se marca el sitio: lo de antes era de otro lado.
+  // La última lectura sí vale si es de hace un instante —quien toca su
+  // sitio ya está parado en él—, y un teléfono quieto puede tardar en
+  // dar otra: sin ella la barra se quedaba en "Midiendo…".
+  const reciente = S.gps.yo && Date.now() - S.gps.yo.cuando < 5000;
+  c.lecturas = reciente ? [S.gps.yo] : [];
+  dibujarCalibracion();
+}
+
+// La coordenada del sitio marcado: del GPS promediado o pegada a mano.
+function ponerGeo(geo) {
+  const c = S.calibrando;
+  if (!c?.plano) return;
+  c.puntos.push({ ...c.plano, lat: +geo.lat.toFixed(7), lon: +geo.lon.toFixed(7) });
+  c.plano = null; c.lecturas = [];
+  dibujarCalibracion();
+}
+
+function dibujarCalibracion() {
+  barraCalibrar();
   pintarGps();
 }
 
 function marcasCalibracion() {
   const c = S.calibrando;
   if (!c) return [];
-  const m = [];
-  if (c.a) m.push({ x: c.a.x, y: c.a.y, etiqueta: '1' });
-  if (c.marca) m.push({ ...c.marca, etiqueta: c.paso === 'a' ? '1' : '2' });
+  const { malos } = Gps.revisarPuntos(c.puntos);
+  const m = c.puntos.map((p, i) => ({ x: p.x, y: p.y, etiqueta: String(i + 1), mala: malos.has(i) }));
+  if (c.plano) m.push({ ...c.plano, etiqueta: String(c.puntos.length + 1), pendiente: true });
   return m;
 }
 
 function medirCalibracion(l) {
   const c = S.calibrando;
-  if (!c?.marca) return;
+  if (!c?.plano) return;
   c.lecturas.push(l);
   // Las últimas treinta bastan: más no afina, y quien se queda un rato
   // largo quieto no debería ir acumulando sin fin.
@@ -4347,79 +4400,98 @@ function textoMedida() {
   return `GPS: ±${Math.max(1, Math.round(p.precision))} m con ${p.n} lectura${p.n === 1 ? '' : 's'}`;
 }
 
-// La barra se arma UNA vez por paso, y luego solo cambia el renglón de la
-// medida. Rearmarla con cada lectura borraba lo que se estaba escribiendo
-// en el campo de la coordenada.
+// La barra se arma de nuevo con cada punto, nunca con cada lectura del
+// GPS: rearmarla borraba lo que se estaba escribiendo en la coordenada.
 function barraCalibrar() {
   const caja = $('#barra-gps');
   const c = S.calibrando;
   if (!caja || !c) return;
-  const n = c.paso === 'a' ? 1 : 2;
-  const instruccion = !c.marca
-    ? (n === 1
-      ? 'Párate en un sitio que reconozcas en el plano —una esquina, la caseta— y tócalo en el plano.'
-      : `Camina al otro extremo del patio, a más de ${Gps.DISTANCIA_MINIMA_M} m del primero, y toca ese sitio en el plano.`)
-    : 'Quédate quieto unos segundos mientras se mide. Si el sitio quedó mal marcado, vuelve a tocarlo.';
+  const n = c.puntos.length;
+  const r = Gps.revisarPuntos(c.puntos);
+  const instruccion = c.plano
+    ? 'Quédate quieto en ese sitio mientras se mide. Si quedó mal marcado, vuelve a tocarlo.'
+    : n === 0 ? 'Párate en un sitio que reconozcas en el plano —una esquina, la caseta— y tócalo en el plano.'
+    : n < Gps.PUNTOS_PARA_ESTIRAR
+      ? `Camina a otro sitio, a más de ${Gps.DISTANCIA_MINIMA_M} m. Con ${Gps.PUNTOS_PARA_ESTIRAR} o más, repartidos por las esquinas, se corrige también un plano estirado.`
+      : 'Puedes guardar, o agregar más puntos para repartir el error.';
   caja.innerHTML = `<div class="barra-modo barra-calibrar">
     <div class="fila-calibrar">
-      <strong>GPS · punto ${n} de 2</strong>
-      <button class="pastilla" id="cal-cancelar">Cancelar</button>
+      <strong>GPS · ${n} punto${n === 1 ? '' : 's'}</strong>
+      ${n >= 2 ? `<button class="pastilla pastilla-fuerte" id="cal-guardar"${r.listo ? '' : ' disabled'}>Guardar</button>` : ''}
+      <button class="pastilla" id="cal-cancelar" aria-label="Cancelar la calibración">${ICO.cerrar}</button>
     </div>
     <span class="pista">${esc(instruccion)}</span>
-    ${c.marca ? `
-    <span class="pista" id="cal-medida">${esc(textoMedida())}</span>
-    <input id="cal-coord" inputmode="decimal" autocomplete="off"
-      placeholder="o pega lat, lon de Google Maps" aria-label="Coordenada escrita a mano">
-    <button class="pastilla pastilla-fuerte" id="cal-usar">Usar este punto</button>` : ''}
+    ${c.plano ? `<span class="pista" id="cal-medida">${esc(textoMedida())}</span>
+    <div class="fila-calibrar">
+      <input id="cal-coord" autocomplete="off" aria-label="Coordenada o enlace de Google Maps"
+        placeholder="o pega una coordenada de Google Maps">
+      <button class="pastilla" id="cal-coord-usar">Usar</button>
+      <button class="pastilla pastilla-fuerte" id="cal-gps">Usar mi GPS</button>
+    </div>` : ''}
+    ${n ? `<div class="cal-puntos">${c.puntos.map((p, i) => `
+      <span class="cal-punto${r.malos.has(i) ? ' cal-punto-malo' : ''}">
+        <b>${i + 1}</b>${r.conError ? ` ${Gps.metros(r.t.errores[i])}` : ''}
+        <button data-quitar="${i}" aria-label="Quitar el punto ${i + 1}">${ICO.cerrar}</button></span>`).join('')}
+      ${r.resumen ? `<span class="pista${r.problema ? ' cal-problema' : ''}">${esc(r.resumen)}</span>` : ''}
+    </div>` : ''}
   </div>`;
+
   $('#cal-cancelar').onclick = cancelarCalibracion;
-  const usar = $('#cal-usar');
-  if (usar) usar.onclick = accion(fijarPuntoCalibracion, { ocupado: 'Guardando…' });
+  for (const b of caja.querySelectorAll('[data-quitar]')) b.onclick = () => {
+    c.puntos.splice(Number(b.dataset.quitar), 1);
+    dibujarCalibracion();
+  };
+  const usar = $('#cal-coord-usar');
+  if (usar) {
+    const pegada = () => {
+      const geo = Gps.leerCoordenadas($('#cal-coord').value);
+      if (!geo) return avisar('No se entiende la coordenada. Se escribe como «6.24420, -75.58120» '
+        + '(latitud, coma, longitud), o se pega el enlace de Google Maps entero.');
+      ponerGeo(geo);
+    };
+    usar.onclick = pegada;
+    $('#cal-coord').onkeydown = (e) => { if (e.key === 'Enter') pegada(); };
+    $('#cal-gps').onclick = () => {
+      const geo = Gps.promediar(c.lecturas);
+      if (!geo) return avisar(`Todavía no hay una lectura de GPS con menos de ${Gps.PRECISION_CALIBRAR_M} m de error. `
+        + 'Espera unos segundos a cielo abierto, o pega la coordenada a mano.');
+      ponerGeo(geo);
+    };
+  }
+  const guardar = $('#cal-guardar');
+  if (guardar) guardar.onclick = accion(guardarCalibracion, { ocupado: 'Guardando…' });
 }
 
-async function fijarPuntoCalibracion() {
+async function guardarCalibracion() {
   const c = S.calibrando;
-  if (!c?.marca) return;
-  const escrito = $('#cal-coord')?.value.trim();
-  let geo;
-  if (escrito) {
-    geo = Gps.leerCoordenadas(escrito);
-    if (!geo) return avisar('La coordenada se escribe como «6.24420, -75.58120»: latitud, coma, longitud.');
-  } else {
-    geo = Gps.promediar(c.lecturas);
-    if (!geo) return avisar(`Todavía no hay una lectura de GPS con menos de ${Gps.PRECISION_CALIBRAR_M} m de error. `
-      + 'Espera unos segundos a cielo abierto, o pega la coordenada a mano.');
-  }
-  const punto = { x: c.marca.x, y: c.marca.y, lat: +geo.lat.toFixed(7), lon: +geo.lon.toFixed(7) };
-
-  if (c.paso === 'a') {
-    c.a = punto; c.paso = 'b'; c.marca = null; c.lecturas = [];
-    barraCalibrar();
-    pintarGps();
-    return;
-  }
-
-  const calibracion = { a: c.a, b: punto };
-  const problema = Gps.problemaCalibracion(calibracion);
-  if (problema) {
-    c.marca = null; c.lecturas = [];
-    barraCalibrar(); pintarGps();
-    return avisar(`No sirve: ${problema}. Marca el segundo punto otra vez.`);
-  }
+  const geo = { puntos: c.puntos.map(({ x, y, lat, lon }) => ({ x, y, lat, lon })) };
+  const revision = Gps.revisarPuntos(geo.puntos);
+  if (!revision.listo) return avisar(revision.resumen || 'Hacen falta al menos dos puntos.');
   const plat = S.plataformas.find((p) => p.id === c.plat);
   if (!plat) { cancelarCalibracion(); return avisar('La plataforma ya no existe.'); }
-  const metros = Math.round(Gps.distanciaM(c.a, punto));
-  await Store.guardarPlataforma({ ...plat, geo: calibracion });
+  const peor = Math.max(...Gps.transformacion(geo).errores);
+  await Store.guardarPlataforma({ ...plat, geo });
   cancelarCalibracion();
   await recargar();
   refrescarMapa();
   sincronizar();
-  avisar(`GPS de ${plat.nombre} calibrado con dos puntos a ${metros} m. `
-    + 'Camina un poco y comprueba que el punto azul cae donde estás; si no, calibra de nuevo con puntos más separados.');
+  avisar(`GPS de ${plat.nombre} calibrado con ${geo.puntos.length} puntos`
+    + (geo.puntos.length >= 3 ? `; el que más se aparta, ${Gps.metros(peor)}` : '')
+    + '. Camina un poco y comprueba que el punto azul cae donde estás.');
 }
 
 // ------------------------------------------------------- fondo (admin)
 const paletaActual = () => ({ ...Mapa.COLORES_BASE, ...(S.config?.colores || {}) });
+
+// Cómo quedó calibrado un plano, dicho para el admin.
+function estadoCalibracion(geo) {
+  const t = Gps.transformacion(geo);
+  if (!t) return 'Sin calibrar: el plano funciona igual, pero nadie se ve en él.';
+  const n = Gps.puntosDe(geo).length;
+  return `Calibrado con ${n} puntos` + (n >= 3
+    ? `; el que más se aparta, ${Gps.metros(Math.max(...t.errores))}.` : '.')
+    + ' Si el punto azul no cae donde estás, calibra de nuevo: se conservan los puntos y se pueden agregar o quitar.';
+}
 
 function panelFondo() {
   // El tamaño, el color y la imagen son de ESTA plataforma. Los colores
@@ -4459,14 +4531,16 @@ function panelFondo() {
     </div>
     <button class="btn btn-ancho" id="quitar-img" style="width:100%">Quitar imagen</button>` : ''}
 
-    <h3>GPS</h3>
-    <p class="pista">${Gps.transformacion(plat.geo)
-      ? `Calibrado con dos puntos a ${Math.round(Gps.distanciaM(plat.geo.a, plat.geo.b))} m. Si el punto azul no cae donde estás, vuelve a calibrar con puntos más separados.`
-      : 'Sin calibrar: el plano funciona igual, pero nadie se ve en él. Hacen falta dos puntos del patio que reconozcas en el plano, a más de 20 m uno del otro.'}</p>
+    <h3 id="h-gps">GPS</h3>
+    <p class="pista">${estadoCalibracion(plat.geo)}</p>
+    <p class="pista">Se calibra marcando sitios del patio en el plano y su ubicación real: desde la
+      oficina, en una ventana aparte con la imagen satelital, o caminando el patio con el GPS. Con
+      dos basta; con cuatro o más en las esquinas sale mejor.</p>
     <div class="acciones">
-      <button id="gps-calibrar">${plat.geo ? 'Calibrar de nuevo' : 'Calibrar el GPS'}</button>
-      ${plat.geo ? '<button id="gps-quitar">Quitar calibración</button>' : ''}
+      <button id="gps-satelite">${ICO.mapa}<span>Desde la oficina</span></button>
+      <button id="gps-caminando">${ICO.gps}<span>Caminando el patio</span></button>
     </div>
+    ${plat.geo ? '<button class="btn btn-ancho" id="gps-quitar" style="width:100%">Quitar calibración</button>' : ''}
 
     <h3>Colores</h3>
     <div class="rejilla-color">
@@ -4496,7 +4570,8 @@ function panelFondo() {
     <p id="fondo-error" class="aviso" hidden></p>`);
 
   $('#cerrar').onclick = cerrarHoja;
-  $('#gps-calibrar').onclick = empezarCalibracion;
+  $('#gps-satelite').onclick = abrirCalibracionOficina;
+  $('#gps-caminando').onclick = empezarCalibracion;
   const sinGps = $('#gps-quitar');
   if (sinGps) sinGps.onclick = accion(async () => {
     await Store.guardarPlataforma({ ...plat, geo: null });

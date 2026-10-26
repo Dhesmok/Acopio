@@ -22,3 +22,11 @@ export const DIAS_RECOGIDA_SUGERIDOS = 3;
 // ahorrar un toque en la mayoría de los registros; si no existe, la app
 // usa el primero de la lista.
 export const PROVEEDOR_POR_DEFECTO = 'PG';
+
+// Clave de Esri para la foto satelital de respaldo en la ventana de
+// calibrar el GPS (la principal es la de Google, que no pide nada). Vacía
+// funciona igual, con el servicio público de Esri. Solo haría falta si
+// algún día se usa para algo comercial: se saca gratis en
+// location.arcgis.com, con permiso de mapas base (basemaps) y restringida
+// al dominio de la app.
+export const ESRI_CLAVE = '';

@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v80';
+const VERSION = 'acopio-v81';
 const SHELL = [
   './',
   './index.html',
@@ -12,6 +12,9 @@ const SHELL = [
   './js/store.js',
   './js/historia.js',
   './js/gps.js',
+  // la ventana de calibrar el GPS desde la oficina (solo del admin)
+  './calibrar.html',
+  './js/calibrar.js',
   // se carga solo al pedir el informe, pero tiene que estar guardado de
   // antemano: si no, sacar el listado dejaría de funcionar sin señal
   './js/excel.js',
@@ -68,6 +71,12 @@ self.addEventListener('fetch', (e) => {
   // Las llamadas a Supabase nunca se cachean: los datos viven en IndexedDB.
   if (url.hostname.endsWith('supabase.co')) return;
   if (e.request.method !== 'GET') return;
+  // Las imágenes de otros sitios —los cuadros del satélite al calibrar el
+  // GPS— van directo a la red. Son miles, pesan, cambian de zoom en zoom y
+  // solo sirven con señal: guardarlas llenaría el celular de fotos que no
+  // se vuelven a mirar, y el tope de cinco segundos de abajo cortaría las
+  // que tardan en una conexión floja.
+  if (e.request.destination === 'image' && url.origin !== self.location.origin) return;
 
   // Librerías de CDN: se guardan la primera vez que hay señal.
   if (url.hostname === 'esm.sh') {
