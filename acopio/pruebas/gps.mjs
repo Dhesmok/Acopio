@@ -14,6 +14,8 @@ import { baseNueva } from './ayudas/base.mjs';
 const Gps = await import('../web/js/gps.js');
 const app = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
 const store = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
+const calibrar = await readFile(new URL('../web/js/calibrar.js', import.meta.url), 'utf8');
+const config = await readFile(new URL('../web/js/config.js', import.meta.url), 'utf8');
 const sw = await readFile(new URL('../web/sw.js', import.meta.url), 'utf8');
 const esquema = await readFile(new URL('../sql/schema.sql', import.meta.url), 'utf8');
 const migracion = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
@@ -90,6 +92,69 @@ ok(Gps.transformacion({ a: punto(0, 0), b: punto(10, 10) }) === null,
    'y con una calibración mala no hay transformación que usar');
 
 // ---------------------------------------------------------------------
+titulo('Con más puntos se corrige un plano estirado y se delata al mal marcado.');
+
+// El mismo patio, pero dibujado un 15 % más ancho de lo que es: el admin
+// le puso 1000 de ancho a un patio que pedía 870. Pasa en la vida real.
+const ESTIRA = 1.15;
+function aCoordEstirado(x, y) { return aCoordenada(x / ESTIRA, y); }
+const estirado = (x, y, desvioM = 0) => {
+  const c = aCoordEstirado(x, y);
+  return { x, y, lat: c.lat, lon: c.lon + (desvioM / (R * Math.cos(ORIGEN.lat * Math.PI / 180))) * 180 / Math.PI };
+};
+const peorEn = (t, pts) => Math.max(...pts.map(([x, y]) => {
+  const c = aCoordEstirado(x, y); const q = t.aPlano(c.lat, c.lon); return Math.hypot(q.x - x, q.y - y);
+}));
+const muestra = [[0, 0], [1000, 0], [0, 700], [1000, 700], [500, 350], [820, 90]];
+
+const tres = Gps.transformacion({ puntos: [estirado(100, 100), estirado(900, 120), estirado(500, 600)] });
+ok(tres?.tipo === 'semejanza', 'con tres puntos el plano no se deforma');
+ok(Math.min(...tres.errores) > 2, `y el estiramiento se ve como error en cada punto, no se esconde (${tres.errores.map((e) => e.toFixed(1)).join(', ')} m)`);
+
+const esquinas = [estirado(100, 100), estirado(900, 100), estirado(900, 600), estirado(100, 600)];
+const cuatro = Gps.transformacion({ puntos: esquinas });
+ok(cuatro?.tipo === 'afin', 'con cuatro en las esquinas se deja estirar');
+ok(peorEn(cuatro, muestra) < 0.5, `y todo el patio cae en su sitio, esquinas incluidas (peor: ${peorEn(cuatro, muestra).toFixed(2)} unidades)`);
+ok(Math.max(...cuatro.errores) < 0.1, 'con los cuatro bien marcados, ninguno se aparta');
+
+const ida = cuatro.aGeo(733, 211), vuelta = cuatro.aPlano(ida.lat, ida.lon);
+ok(Math.hypot(vuelta.x - 733, vuelta.y - 211) < 1e-6, 'del plano al mundo y de vuelta se llega al mismo sitio');
+
+// Un punto marcado 18 m al lado de donde era. Con cinco puntos repartidos,
+// quitarlo deja a los otros cuatro de acuerdo, y eso lo delata.
+const conMalo = [...esquinas, estirado(620, 270, 18)];
+const r = Gps.revisarPuntos(conMalo);
+ok(r.malos.size === 1 && r.malos.has(4), 'el punto mal marcado sale señalado, y solo él');
+ok(/el punto 5 parece mal marcado/.test(r.resumen), 'y el resumen dice cuál');
+ok(r.t.errores[4] > 15, `su error es el que de verdad tiene, no uno repartido entre todos (${r.t.errores[4].toFixed(1)} m)`);
+const bien = Gps.revisarPuntos([...esquinas, estirado(620, 270)]);
+ok(bien.malos.size === 0 && Math.max(...bien.t.errores) < 0.1, 'bien marcado, no se señala a nadie');
+
+// Si dos explicaciones cuadran igual, no se acusa a nadie: lo que sigue
+// a una acusación es borrar el punto, y borrar uno bueno es peor.
+const ambiguo = Gps.revisarPuntos([estirado(440, 280), estirado(540, 280), estirado(540, 390),
+                                   estirado(490, 335), estirado(440, 390, 18)]);
+ok(ambiguo.malos.size === 0 && /no concuerdan/.test(ambiguo.resumen),
+   'con un punto del medio en la diagonal la culpa no se puede asignar, y se dice que no concuerdan');
+
+const disparatado = Gps.revisarPuntos([...esquinas, estirado(620, 270, 400)]);
+ok(!disparatado.listo && /demasiado para guardar/.test(disparatado.resumen),
+   'con los puntos apartándose decenas de metros no se deja guardar');
+ok(r.listo && bien.listo, 'con uno solo un poco corrido, sí: se ve en rojo y se decide');
+
+// Puntos cruzados: el plano saldría reflejado. Con cuatro, la afín podría
+// hacerlo; se rechaza en vez de dibujar a la gente en el espejo.
+const cruzados = esquinas.map((p, i) => ({ ...p, ...(i < 2 ? { lat: esquinas[1 - i].lat, lon: esquinas[1 - i].lon } : {}) }));
+const cruzados2 = cruzados.map((p, i) => (i >= 2 ? { ...p, lat: esquinas[5 - i].lat, lon: esquinas[5 - i].lon } : p));
+ok(/espejo/.test(Gps.problemaCalibracion({ puntos: cruzados2 }) || ''),
+   'si los puntos quedan cruzados, se avisa que el plano saldría al revés');
+ok(Gps.transformacion({ puntos: cruzados2 }) === null, 'y no hay transformación que usar');
+
+// Lo que ya estaba guardado con la primera versión, `a` y `b`, sigue valiendo.
+ok(Gps.transformacion({ a: punto(100, 100), b: punto(900, 600) })?.tipo === 'semejanza',
+   'una calibración vieja de dos puntos sigue funcionando');
+
+// ---------------------------------------------------------------------
 titulo('Calibrar promedia, y no se fía de una lectura mala.');
 
 const p = Gps.promediar([
@@ -108,6 +173,10 @@ ok(JSON.stringify(Gps.leerCoordenadas('6.2442, -75.5812')) === '{"lat":6.2442,"l
    'se lee la coordenada tal como la copia Google Maps');
 ok(!!Gps.leerCoordenadas('6.2442;-75.5812') && !!Gps.leerCoordenadas(' 6.2442 -75.5812 '),
    'también con punto y coma o con espacios');
+ok(JSON.stringify(Gps.leerCoordenadas('https://www.google.com/maps/@6.2442,-75.5812,17z'))
+   === '{"lat":6.2442,"lon":-75.5812}', 'y el enlace de Google Maps entero, copiado de la barra del navegador');
+ok(JSON.stringify(Gps.leerCoordenadas('https://maps.google.com/?q=6.2442,-75.5812'))
+   === '{"lat":6.2442,"lon":-75.5812}', 'también el de búsqueda');
 ok(Gps.leerCoordenadas('6,2442') === null && Gps.leerCoordenadas('95, 10') === null
    && Gps.leerCoordenadas('') === null, 'y se rechaza lo que no es una coordenada');
 
@@ -214,6 +283,30 @@ ok(/if \(document\.hidden\) pararGps\(\)/.test(app), 'con la app en el bolsillo 
 ok(/await soltarUbicacion\(\);\s*await Store\.salir\(\)/.test(app),
    'al cerrar sesión se deja de compartir ANTES de perder el permiso para borrarla');
 ok(/'\.\/js\/gps\.js'/.test(sw), 'gps.js se guarda para abrir sin señal');
+
+// ---------------------------------------------------------------------
+titulo('Calibrar desde la oficina: ventana aparte y solo del admin.');
+
+ok(/if \(rol !== 'admin'\) return pararCon\(/.test(calibrar),
+   'la ventana de calibrar no deja seguir a quien no es admin');
+ok(calibrar.indexOf("rol !== 'admin'") < calibrar.indexOf('montarSatelite();'),
+   'y lo mira antes de cargar el satélite');
+const oficina = app.slice(app.indexOf('function abrirCalibracionOficina'), app.indexOf('function empezarCalibracion'));
+ok(/if \(!esAdmin\(\) \|\| !plat\) return;/.test(oficina) && /window\.open\(`calibrar\.html/.test(oficina),
+   'la app la abre en una ventana aparte, y solo para el admin');
+ok(/function empezarCalibracion\(\) \{\s*if \(!esAdmin\(\)\) return;/.test(app),
+   'calibrar caminando el patio también es solo del admin');
+ok(/integrity = 'sha256-20nQCchB9co0qIjJZRGuk2\/Z9VM\+kNiyxNV1lvTlZBo='/.test(calibrar),
+   'Leaflet se carga con su huella: si el CDN sirviera otra cosa, no se ejecuta');
+ok(/new ResizeObserver\(\(\) => mapa\.invalidateSize/.test(calibrar),
+   'el satélite se entera cuando cambia de tamaño: si no, cada toque marcaba unos metros corrido');
+ok(/BroadcastChannel\('acopio'\)\.postMessage/.test(calibrar) && /BroadcastChannel\('acopio'\)\.onmessage/.test(app),
+   'al guardar, la ventana del mapa se entera en el acto');
+ok(/'\.\/calibrar\.html'/.test(sw) && /'\.\/js\/calibrar\.js'/.test(sw), 'la ventana nueva se guarda con el resto de la app');
+ok(/destination === 'image' && url\.origin !== self\.location\.origin\) return;/.test(sw),
+   'los cuadros del satélite no llenan la caché del celular');
+ok(/export const ESRI_CLAVE = '';/.test(config) && /ibasemaps-api\.arcgis\.com/.test(calibrar),
+   'hay dónde poner la clave de Esri para el uso de la empresa');
 ok(/geo\s+jsonb/.test(esquema) && /add column if not exists geo jsonb/.test(migracion),
    'la calibración tiene su columna en el esquema y en la migración');
 

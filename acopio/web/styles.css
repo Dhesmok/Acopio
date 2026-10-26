@@ -1244,6 +1244,91 @@ button:focus:not(:focus-visible) { outline: none; }
 .chip-gps-error span { white-space: normal; }
 
 #barra-gps:empty { display: none; }
+.gps-marca-mala circle { fill: var(--rojo); }
+.gps-marca-mala text { fill: #fff; }
+.gps-marca-pendiente circle { stroke-dasharray: 4 3; }
+
+/* --- la ventana de calibrar (calibrar.html) ------------------------
+   El plano y la foto a la vez: uno encima del otro en el celular, lado a
+   lado en el computador, que es donde se calibra desde la oficina. */
+#calibrar { height: 100dvh; display: flex; flex-direction: column; background: var(--tinta); color: #fff; }
+.cal-cabecera {
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 12px 8px;
+}
+.cal-cabecera h1 { margin: 0; font: 800 17px var(--mono); letter-spacing: .02em; }
+.cal-cabecera .crece { flex: 1; }
+.cal-cabecera .pastilla { padding: 8px 14px; }
+.cal-cabecera .pastilla .ico { width: 16px; height: 16px; display: block; }
+.cal-cabecera .pastilla:disabled { opacity: .45; cursor: not-allowed; }
+/* sobre la cabecera negra, el negro de siempre no se vería */
+.cal-cabecera .pastilla-fuerte { background: var(--acento); border-color: var(--acento); color: #fff; }
+/* el alto mínimo evita que el plano y la foto den saltos cada vez que la
+   instrucción pasa de una línea a dos */
+#cal-controles { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 2.8em; }
+.cal-instruccion { margin: 0; font-size: 13px; line-height: 1.4; opacity: .9; }
+.cal-resumen { font-size: 12px; line-height: 1.35; opacity: .85; flex: 1 1 160px; }
+.cal-instruccion.cal-problema, #cal-controles .cal-problema { color: #ffb4a8; opacity: 1; }
+.cal-cuerpo { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cal-lado { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.cal-lado:first-child { flex-grow: .75; }   /* en el celular la foto pide más: ahí se apunta fino */
+.cal-lado + .cal-lado { border-top: 2px solid #ffffff40; }
+.cal-lado h2 {
+  position: absolute; bottom: 8px; left: 8px; z-index: 1001; margin: 0; pointer-events: none;
+  background: var(--tinta); color: #fff; padding: 4px 8px;
+  font: 800 11px var(--mono); letter-spacing: .14em; text-transform: uppercase;
+}
+.cal-plano { flex: 1; min-height: 0; position: relative; background: var(--superficie); }
+@media (min-width: 900px) {
+  .cal-cuerpo { flex-direction: row; }
+  .cal-lado:first-child { flex-grow: 1; }
+  .cal-lado + .cal-lado { border-top: 0; border-left: 2px solid #ffffff40; }
+}
+.cal-aviso { padding: 28px 20px; max-width: 520px; }
+.cal-aviso h1 { font: 800 20px var(--mono); margin: 0 0 12px; }
+.cal-aviso p { line-height: 1.5; margin: 0 0 18px; }
+
+.sat-caja { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+#satelite { flex: 1 1 auto; background: #1c1c19; }
+#sat-pegar {
+  position: absolute; top: 10px; right: 10px; left: 58px; z-index: 1000;
+  display: flex; max-width: 420px; margin-left: auto; box-shadow: var(--sombra-media);
+}
+#sat-pegar input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 8px 10px;
+  border: 2px solid var(--tinta); border-right: 0; border-radius: 0; background: #fff; color: var(--tinta); }
+#sat-pegar button { border: 2px solid var(--tinta); background: var(--tinta); color: #fff;
+  font-weight: 800; padding: 0 14px; cursor: pointer; }
+#satelite .leaflet-control-attribution { font-size: 9.5px; line-height: 1.3; max-width: 70%; }
+.sat-sin-red { color: #fff; padding: 16px; margin: 0; font-size: 14px; }
+
+/* lo que se dibuja sobre la foto: Leaflet le pone la clase al trazo */
+.sat-borde { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 8 6; fill: none; }
+.sat-figura { stroke: #ffe066; stroke-width: 1.5; fill: #ffe066; fill-opacity: .08; }
+.sat-desvio { stroke: var(--rojo); stroke-width: 2.5; }
+.sat-marca span {
+  display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: 50%; background: #fff; border: 3px solid var(--rojo); box-sizing: border-box;
+  color: var(--rojo); font: 800 13px var(--mono);
+}
+.sat-marca-mala span { background: var(--rojo); color: #fff; border-color: #fff; }
+.sat-marca-pendiente span { border-style: dashed; }
+
+/* los puntos de una calibración, en la barra del mapa y en la ventana */
+.cal-puntos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cal-puntos > .pista { flex: 1 1 140px; }
+.cal-punto {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 9px;
+  background: #fff; color: var(--tinta); font-size: 12.5px; font-family: var(--mono);
+}
+.cal-punto b { font-weight: 800; }
+.cal-punto button { border: 0; background: none; padding: 2px; cursor: pointer; color: inherit; display: flex; }
+.cal-punto .ico { width: 14px; height: 14px; }
+.cal-punto-malo { background: var(--rojo); color: #fff; }
+.barra-calibrar .cal-problema { color: #ffb4a8; opacity: 1; }
+.barra-calibrar .pastilla { padding: 7px 11px; font-size: 13px; }
+.barra-calibrar .pastilla .ico { width: 16px; height: 16px; display: block; }
+.barra-calibrar .pastilla:disabled { opacity: .45; cursor: not-allowed; }
+.barra-calibrar .fila-calibrar input { flex: 1; }
 .barra-calibrar { flex-direction: column; align-items: stretch; gap: 8px; }
 .fila-calibrar { display: flex; align-items: center; gap: 10px; }
 .fila-calibrar strong { flex: 1; }

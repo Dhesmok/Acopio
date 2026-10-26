@@ -318,7 +318,8 @@ function capaGps() {
   gpsAncho = vista.w;
   const u = unidadesPorPixel();
   const n = (v) => +v.toFixed(1);
-  const marcas = (gps.marcas || []).map((m) => `<g class="gps-marca">
+  const marcas = (gps.marcas || []).map((m) => `<g class="gps-marca${m.mala ? ' gps-marca-mala' : ''}${
+      m.pendiente ? ' gps-marca-pendiente' : ''}">
       <circle cx="${n(m.x)}" cy="${n(m.y)}" r="${n(11 * u)}" stroke-width="${n(3 * u)}"/>
       <text x="${n(m.x)}" y="${n(m.y + 4.5 * u)}" text-anchor="middle"
         font-size="${n(13 * u)}">${esc(m.etiqueta)}</text></g>`).join('');
