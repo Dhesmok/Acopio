@@ -78,6 +78,10 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             naciendo: null,
             // filtro del mapa: resalta lo que coincide y atenúa el resto
             mapaFiltro: filtroMapaVacio(),
+            // La barra de herramientas del mapa se puede guardar fuera de
+            // la pantalla. Se recuerda en el celular: quien la esconde para
+            // ver el patio la quiere escondida también mañana.
+            herramientas: localStorage.getItem('acopio-herramientas') !== '0',
             recorrido: null,
             // mirar el patio de otro día: solo se mira, no se toca nada
             historia: null,
@@ -166,6 +170,9 @@ const ICO = {
   menos:     ico('<path d="M5 12h14"/>'),
   encuadrar: ico('<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>'),
   filtro:    ico('<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>'),
+  // guardar la barra de herramientas a la izquierda, y sacarla de nuevo
+  plegar:    ico('<path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/>'),
+  ajustes:   ico('<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'),
   editar:    ico('<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
   fondo:     ico('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'),
   cerrar:    ico('<path d="M18 6L6 18M6 6l12 12"/>'),
@@ -935,7 +942,12 @@ function montarMapa() {
         <div id="lienzo-caja"></div>
         <div class="mapa-controles">
           <div class="ctrl-izq">
-            <div class="grupo-herramientas">
+            <button class="btn-mapa btn-plegar" id="r-plegar" aria-expanded="${S.herramientas}"
+              aria-controls="herramientas"
+              aria-label="${S.herramientas ? 'Ocultar las herramientas' : 'Mostrar las herramientas'}"
+              ${herramientaPuesta() ? 'data-activo="si"' : ''}
+              >${S.herramientas ? ICO.plegar : ICO.ajustes}<span>${S.herramientas ? 'Ocultar' : 'Herramientas'}</span></button>
+            <div class="grupo-herramientas" id="herramientas" ${S.herramientas ? '' : 'hidden'}>
               <button class="btn-mapa" id="r-buscar" aria-label="Buscar un lote"
                 ${S.buscarMapa ? 'aria-pressed="true"' : ''}>${ICO.lupa}<span>Buscar</span></button>
               <button class="btn-mapa" id="r-filtrar" aria-label="Filtrar">
@@ -995,6 +1007,7 @@ function montarMapa() {
   Mapa.fijarVista(vistaPrevia);
 
   if ($('#nuevo')) $('#nuevo').onclick = formLote;
+  $('#r-plegar').onclick = alternarHerramientas;
   $('#r-buscar').onclick = () => {
     S.buscarMapa = !S.buscarMapa;
     if (!S.buscarMapa) S.busquedaMapa = '';
@@ -1026,6 +1039,51 @@ function montarMapa() {
   // Volver al mapa desde la lista: lo de los demás puede tener un rato.
   leerOtros();
   pintarGps();
+}
+
+// Si alguna herramienta está haciendo algo —buscar, filtrar, el GPS,
+// editar, mirar otro día— con la barra escondida no se vería. El botón
+// que la saca lleva entonces una marca, para que no quede nada puesto
+// sin que se sepa.
+const herramientaPuesta = () =>
+  S.buscarMapa || hayFiltroMapa() || S.gps.activo || S.edicion || !!S.historia;
+
+// La marca solo se ve con la barra escondida (styles.css); aquí se dice
+// si hay algo puesto, y se llama también al quitar el filtro desde su
+// pastilla, que es lo único que cambia sin pasar por la barra.
+function marcarPlegar() {
+  const b = $('#r-plegar'); if (!b) return;
+  if (herramientaPuesta()) b.dataset.activo = 'si'; else delete b.dataset.activo;
+}
+
+// Esconder la barra de herramientas no rearma el mapa: solo la desliza
+// fuera de la pantalla. Rearmarlo costaría un parpadeo del plano por
+// algo que es puramente de vista.
+function alternarHerramientas() {
+  S.herramientas = !S.herramientas;
+  recordar('acopio-herramientas', S.herramientas ? '1' : '0');
+  const g = $('#herramientas'), b = $('#r-plegar');
+  if (!g || !b) return;
+  b.setAttribute('aria-expanded', String(S.herramientas));
+  b.setAttribute('aria-label', S.herramientas ? 'Ocultar las herramientas' : 'Mostrar las herramientas');
+  b.innerHTML = `${S.herramientas ? ICO.plegar : ICO.ajustes}<span>${S.herramientas ? 'Ocultar' : 'Herramientas'}</span>`;
+  marcarPlegar();
+  // Se desliza hacia la izquierda y, al terminar, se quita del todo: así
+  // la pastilla del filtro y la del GPS suben y no queda un hueco donde
+  // estaban los botones. Sin animación, si el celular pide menos movimiento.
+  const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  g.classList.remove('saliendo', 'entrando');
+  if (S.herramientas) {
+    g.hidden = false;
+    if (!quieto) g.classList.add('entrando');
+  } else if (quieto) g.hidden = true;
+  else {
+    g.classList.add('saliendo');
+    g.addEventListener('animationend', () => {
+      if (!S.herramientas) g.hidden = true;
+      g.classList.remove('saliendo');
+    }, { once: true });
+  }
 }
 
 // La leyenda del plano. Quien llega nuevo ve óvalos de colores y no tiene
@@ -2145,6 +2203,7 @@ function actualizarChipFiltro() {
   if (b) b.onclick = () => {
     S.mapaFiltro = filtroMapaVacio();
     actualizarChipFiltro();
+    marcarPlegar();
     refrescarMapa();
   };
 }
@@ -4512,6 +4571,7 @@ const nombreCorto = (n) => String(n || '?').trim().split(/\s+/)[0];
 // Pasa el estado del GPS a coordenadas de ESTE plano y se lo da al mapa.
 function pintarGps() {
   chipGps();
+  marcarPlegar();
   if (S.pestana !== 'mapa' || !document.querySelector('#lienzo')) return;
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);

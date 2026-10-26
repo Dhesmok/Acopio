@@ -975,16 +975,37 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .grupo-herramientas .btn-mapa:first-child { margin-top: 0; }
 
+/* --- esconder la barra de herramientas ------------------------------
+   Seis botones encima del patio son mucho para quien solo quiere mirar.
+   Este los guarda fuera de la pantalla, por la izquierda, y se queda
+   solo, en el mismo sitio, para sacarlos otra vez. */
+.btn-plegar { position: relative; box-shadow: var(--sombra-media); }
+.btn-plegar[aria-expanded="true"] { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.btn-plegar[aria-expanded="true"] .ico { color: #fff; }
+/* Con la barra escondida, una herramienta puesta (un filtro, el GPS,
+   editar) no se vería: el botón lleva entonces un punto amarillo. */
+.btn-plegar[aria-expanded="false"][data-activo]::after {
+  content: ''; position: absolute; top: -6px; right: -6px; width: 14px; height: 14px;
+  background: var(--amarillo); border: 2px solid var(--tinta);
+}
+.grupo-herramientas.saliendo { animation: herramientas-fuera 220ms var(--curva) forwards; }
+.grupo-herramientas.entrando { animation: herramientas-dentro 220ms var(--curva); }
+@keyframes herramientas-fuera { to { transform: translateX(calc(-100% - 24px)); opacity: 0; } }
+@keyframes herramientas-dentro { from { transform: translateX(calc(-100% - 24px)); opacity: 0; } }
+
 /* En pantalla angosta el plano vale más que las palabras: quedan los
    iconos, que ya llevan su aria-label. */
 @media (max-width: 700px) {
   .grupo-herramientas .btn-mapa { padding: 12px; justify-content: center; }
   .grupo-herramientas .btn-mapa span { display: none; }
+  .btn-plegar { padding: 12px; justify-content: center; }
+  .btn-plegar span { display: none; }
   .btn-mapa-primario { padding: 12px 15px; font-size: 14px; }
 }
 /* con etiquetas a la vista, el propio botón ya dice qué filtro está
    puesto: la pastilla solo hace falta cuando quedan los iconos solos */
-@media (min-width: 701px) { #chip-filtro-caja { display: none; } }
+/* Con la barra escondida esa etiqueta no se ve, y la pastilla vuelve. */
+@media (min-width: 701px) { .ctrl-izq:has(#herramientas:not([hidden])) #chip-filtro-caja { display: none; } }
 
 .pastilla {
   white-space: nowrap; border: 2px solid var(--tinta);
