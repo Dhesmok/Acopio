@@ -457,6 +457,35 @@ export async function observaciones() {
   return { notas, completo };
 }
 
+// Qué lotes se movieron del sitio donde se descargaron, para el informe.
+//
+// Cada traslado de verdad por el patio deja un `movimiento` (un acomodo de
+// medio metro no). Igual que las observaciones, se piden al servidor por
+// trozos: en el celular solo está el historial de lo que alguien abrió, y
+// del lote alimentado se poda. `completo` dice si se pudieron traer todos;
+// sin eso la columna saldría con "No" donde en realidad no se sabe.
+export async function movidos() {
+  const guardados = (await idb.todos('eventos')).filter((e) => e.tipo === 'movimiento');
+  let completo = false, evs = guardados;
+  if (navigator.onLine) {
+    const trozo = 1000, TOPE = 100;
+    const traidos = [];
+    let entero = false;
+    for (let i = 0; i < TOPE; i++) {
+      const { data, error } = await sb.from('eventos')
+        .select('id,lote_id')
+        .eq('tipo', 'movimiento')
+        .order('id')
+        .range(traidos.length, traidos.length + trozo - 1);
+      if (error || !data) break;
+      traidos.push(...data);
+      if (data.length < trozo) { entero = true; break; }
+    }
+    if (entero) { evs = traidos; completo = true; }
+  }
+  return { ids: new Set(evs.map((e) => e.lote_id)), completo };
+}
+
 // ------------------------------------------------------------ escrituras
 // modo: 'insertar' (idempotente) | 'guardar' (upsert) | 'actualizar' | 'borrar'
 //
