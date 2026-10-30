@@ -3471,6 +3471,9 @@ const COLUMNAS_INFORME = [
   { clave: 'material',   titulo: 'Material',          ancho: 11 },
   { clave: 'enPila',     titulo: '¿En pila?',         ancho: 11 },
   { clave: 'pila',       titulo: 'Pila',              ancho: 14 },
+  // SistemaCM lee esta columna al auditar el Stock contra el patio: dice si
+  // el lote ya no está donde lo descargó la volqueta.
+  { clave: 'movido',     titulo: 'Movido en el patio', ancho: 17 },
   { clave: 'recogida',   titulo: 'Fecha de recogida', ancho: 17 },
   { clave: 'nota',       titulo: 'Observaciones',     ancho: 60 }
 ];
@@ -3481,7 +3484,7 @@ const COLUMNAS_INFORME = [
 const diasEntreFechas = (desde) =>
   desde ? Math.round((Date.parse(hoyISO()) - Date.parse(desde)) / 86_400_000) : '';
 
-function filasDelInforme(notas) {
+function filasDelInforme(notas, movidos) {
   const prov = Object.fromEntries(S.proveedores.map((p) => [p.id, p.nombre]));
   const pilas = Object.fromEntries(S.pilas.map((p) => [p.id, p.codigo]));
   return S.lotes
@@ -3501,6 +3504,7 @@ function filasDelInforme(notas) {
       material: MATERIALES[l.material || 'granel'],
       enPila: l.pila_id ? 'Sí' : 'No',
       pila: l.pila_id ? (pilas[l.pila_id] || '') : '',
+      movido: movidos.ids.has(l.id) ? 'Sí' : movidos.completo ? 'No' : '',
       // la recogida solo compromete mientras el lote sea devolución
       recogida: enDevolucion(l) ? (l.fecha_recogida || '') : '',
       nota: notas.get(l.id) || ''
@@ -3508,8 +3512,8 @@ function filasDelInforme(notas) {
 }
 
 async function panelInforme() {
-  const { notas, completo } = await Store.observaciones();
-  const filas = filasDelInforme(notas);
+  const [{ notas, completo }, movidos] = await Promise.all([Store.observaciones(), Store.movidos()]);
+  const filas = filasDelInforme(notas, movidos);
   const porEstado = Object.entries(ESTADOS)
     .map(([k, v]) => [v, S.lotes.filter((l) => l.estado === k).length])
     .filter(([, n]) => n);
@@ -3523,9 +3527,9 @@ async function panelInforme() {
     </div>
     <p class="pista">Una fila por lote y una columna por dato:
        ${COLUMNAS_INFORME.map((c) => c.titulo.toLowerCase()).join(', ')}.</p>
-    ${completo ? '' : `<p class="aviso">Sin señal para traer las observaciones del servidor.
-       Las del archivo son solo las que ya estaban en este celular; el resto de columnas
-       sí van completas.</p>`}
+    ${completo && movidos.completo ? '' : `<p class="aviso">Sin señal para traer las observaciones
+       y los movimientos del servidor. Esas dos columnas llevan solo lo que ya estaba en este
+       celular; el resto sí va completo.</p>`}
     <button class="btn btn-lleno btn-ancho" id="bajar" style="width:100%;margin-top:6px">
       Descargar para Excel</button>
     <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Volver</button>`,
