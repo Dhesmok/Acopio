@@ -1072,18 +1072,6 @@ button:focus:not(:focus-visible) { outline: none; }
   font-family: var(--mono); font-weight: 800;
   pointer-events: none; user-select: none;
 }
-/* Al DESPLAZAR los códigos se quedan puestos: ahí el texto solo se
-   vuelve a pintar, y una escena estable vale más que el ahorro.
-   Al ACERCAR es otra cosa: el texto lleva su tamaño en unidades del
-   plano, así que cambia de tamaño en cada cuadro y hay que recomponer
-   cada glifo de cada código. Medido con 149 lotes, desplazar cuesta el
-   doble con los códigos y acercar cuesta siete veces más. Solo el
-   pellizco los apaga, y solo mientras dura. Ver mapa.js, acercando(). */
-#lienzo.acercando .txt-lote { display: none; }
-/* Lo mismo con el nombre de las pilas y la textura de grano: la textura es un patrón, y un patrón se vuelve a
-   rasterizar en cada cuadro de zoom. Solo durante el pellizco. */
-#lienzo.acercando .rotulo-lote, #lienzo.acercando .rotulo-mapa,
-#lienzo.acercando .textura { display: none; }
 
 /* Mantener para mover: el aro se llena en lo que dura la espera. */
 .aro-mantener { pointer-events: none; }
@@ -1293,6 +1281,13 @@ button:focus:not(:focus-visible) { outline: none; }
    como en cualquier mapa del teléfono; los compañeros van en negro con
    su nombre, para que no se confundan con uno. */
 .capa-gps, .capa-gps * { pointer-events: none; }
+/* La capa del GPS es un SVG aparte, encima del plano y con su propia capa
+   en la tarjeta gráfica: así el latido del punto azul y su movimiento no
+   obligan a repintar el plano entero (ver mapa.js, ponerGps). */
+.lienzo-gps {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; will-change: transform;
+}
 .gps-precision { fill: #1a73e8; fill-opacity: .14; stroke: #1a73e8; stroke-opacity: .45; stroke-width: 1; }
 .gps-punto { fill: #1a73e8; stroke: #fff; }
 .gps-yo .gps-punto { animation: latido-gps 2s ease-in-out infinite; }

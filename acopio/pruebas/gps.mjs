@@ -227,7 +227,10 @@ const lienzo = {
 };
 const Mapa = await import('../web/js/mapa.js');
 let tocado = null;
-Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, { alTocar: (tipo, id) => { tocado = { tipo, id }; } });
+// la capa del GPS es un SVG aparte, encima del plano (ver ponerGps)
+const svgGps = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+                 querySelector: (sel) => (sel === '#capa-gps' ? capa : null) };
+Mapa.montar({ set innerHTML(_) {}, querySelector: (sel) => (sel === '.lienzo-gps' ? svgGps : lienzo) }, { alTocar: (tipo, id) => { tocado = { tipo, id }; } });
 const datos = {
   config: { ancho: 1000, alto: 700, color_fondo: '#e4e7e2' }, figuras: [], pilas: [],
   lotes: [{ id: 'l1', codigo: 'PG1', estado: 'por_muestrear', pila_id: null,
@@ -235,7 +238,8 @@ const datos = {
 };
 Mapa.pintar(datos);
 Mapa.fijarVista({ x: 0, y: 0, w: 1000, h: 700 });
-ok(/<g id="capa-gps"/.test(lienzo.innerHTML), 'el plano trae su capa de GPS, al final, encima de todo');
+ok(!/capa-gps/.test(lienzo.innerHTML), 'la capa del GPS NO va dentro del plano: va aparte, encima');
+ok(svgGps.attrs.viewBox === lienzo.attrs.viewBox, 'y con el mismo encuadre que el plano');
 
 const veneno = 'Ana<img src=x onerror=alert(1)>';
 Mapa.pintarGps({ yo: { x: 500, y: 300, radio: 12 }, otros: [{ x: 600, y: 300, nombre: veneno }] });
