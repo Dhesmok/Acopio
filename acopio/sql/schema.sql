@@ -181,6 +181,11 @@ create table lotes (
   rx               numeric not null default 36,
   ry               numeric not null default 36,
   rot              numeric not null default 0,
+  -- Lotes en bigbags: cuántos son y cuántas columnas (de a 3 bigbags) van
+  -- por fila en el plano. Vacíos en el granel. El tamaño en el plano
+  -- (rx, ry) lo calcula la app a partir de estos dos.
+  bigbags          integer check (bigbags between 1 and 999),
+  bigbags_fila     integer check (bigbags_fila between 1 and 999),
   -- derivados del log de eventos (protegidos por trigger)
   --
   -- La plataforma es DERIVADA, como el estado y la pila: un lote se pasa

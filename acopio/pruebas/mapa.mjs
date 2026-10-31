@@ -13,7 +13,7 @@ globalThis.requestAnimationFrame = (fn) => { fn(performance.now() + 1e4); return
 globalThis.cancelAnimationFrame = () => {};
 globalThis.matchMedia = () => ({ matches: false });
 
-const nodoFalso = () => ({ setAttribute() {}, classList: { add() {}, remove() {} } });
+const nodoFalso = () => ({ setAttribute() {}, remove() {}, classList: { add() {}, remove() {} } });
 
 const lienzo = {
   attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
@@ -174,6 +174,66 @@ Mapa.deshacerGeom('lote', suelto.id, antes);
 ok(suelto.x === 300 && suelto.y === 300, 'cancelar lo devuelve exactamente a donde estaba');
 
 // ---------------------------------------------------------------------
+titulo('Fuera de modo edición, MANTENER presionado un lote lo levanta y se mueve.');
+
+// El reloj de la espera se controla a mano: setTimeout se reemplaza por
+// uno que guarda la función y la corre cuando la prueba lo dice.
+let relojes = [];
+const setTimeoutReal = globalThis.setTimeout, clearTimeoutReal = globalThis.clearTimeout;
+globalThis.setTimeout = (fn, ms) => { relojes.push({ fn, ms }); return relojes.length; };
+globalThis.clearTimeout = (id) => { if (relojes[id - 1]) relojes[id - 1].fn = null; };
+const pasarElTiempo = () => { const r = relojes; relojes = []; r.forEach((x) => x.fn?.()); };
+
+let puedeMover = true;
+lienzo.insertAdjacentHTML = () => {};
+Mapa.montar({ set innerHTML(_) {}, querySelector: () => lienzo }, {
+  alGuardarGeom: (...a) => { guardado = a; },
+  alTocar: (tipo, id) => { tocado = { tipo, id }; },
+  alSeleccionar() {}, alTocarVacio() {}, puedeEditarFondo: () => true,
+  puedeMover: () => puedeMover
+});
+unoAUno();
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [suelto] });
+Mapa.editar(false);
+guardado = null; tocado = null;
+
+ok(Mapa.MANTENER_MS >= 2000, `hay que mantenerlo un buen rato, no un toque largo (${Mapa.MANTENER_MS} ms)`);
+
+// mantener sin esperar lo suficiente y moverse = paneo de siempre
+disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
+ok(relojes.some((r) => r.ms === Mapa.MANTENER_MS), 'al apoyar el dedo sobre un lote empieza la espera');
+disparar('pointermove', evento(suelto.x + 120, suelto.y, { figura: dedoSobre }));
+pasarElTiempo();
+disparar('pointermove', evento(suelto.x + 220, suelto.y + 160, { figura: dedoSobre }));
+disparar('pointerup',   evento(suelto.x + 220, suelto.y + 160, { figura: dedoSobre }));
+ok(suelto.x === 300 && suelto.y === 300, 'si el dedo se movió antes de tiempo, el lote no se levanta');
+ok(guardado === null, 'y no se pidió guardar nada');
+
+// ahora sí: quieto hasta que se cumple el tiempo, y después arrastrar
+unoAUno();
+disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
+disparar('pointermove', evento(suelto.x + 2, suelto.y + 1, { figura: dedoSobre }));
+pasarElTiempo();
+disparar('pointermove', evento(suelto.x + 150, suelto.y + 100, { figura: dedoSobre }));
+disparar('pointerup',   evento(452, 401, { figura: dedoSobre }));
+ok(suelto.x !== 300 || suelto.y !== 300, `mantenido el tiempo, el lote se movió (${suelto.x}, ${suelto.y})`);
+ok(guardado?.[2]?.x === 300 && guardado?.[2]?.y === 300,
+   'y se pide guardarlo informando de dónde venía (la app pregunta "¿Dejar aquí?")');
+ok(tocado === null, 'sin abrir la ficha por el camino');
+Mapa.deshacerGeom('lote', suelto.id, guardado?.[3]);
+
+// quien solo mira no levanta nada
+puedeMover = false; guardado = null;
+unoAUno();
+disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
+ok(!relojes.some((r) => r.ms === Mapa.MANTENER_MS && r.fn), 'para quien no puede mover, ni siquiera empieza la espera');
+disparar('pointerup', evento(suelto.x, suelto.y, { figura: dedoSobre }));
+puedeMover = true;
+globalThis.setTimeout = setTimeoutReal; globalThis.clearTimeout = clearTimeoutReal;
+ok(/puedeMover: \(\) => !soloLectura\(\) && !S\.historia/.test(fuenteApp),
+   'en la app, la empresa y el patio de otro día no mueven lotes');
+
+// ---------------------------------------------------------------------
 titulo('El rótulo se ajusta a su figura, no al revés.');
 
 const conCodigo = (codigo, rx = 46, ry = 34) =>
@@ -212,15 +272,17 @@ const caseta = tamRotulo({ figuras: [{ id: 'f1', forma: 'rectangulo', etiqueta: 
   x: 300, y: 300, rx: 180, ry: 110, rot: 0, color: '#ccc' }] }, 'CASETA');
 ok(caseta > 25, `la etiqueta de una caseta grande la llena, no se queda en 13px (${caseta})`);
 
-// el rótulo de un polígono va en el centro de sus vértices, no en el
+// el nombre de un polígono va en el centro de sus vértices, no en el
 // origen: al arrastrarlos, el origen deja de estar dentro de la figura
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [
   { id: 'pz', codigo: 'SAN JUDAS', tipo: 'otro', estado: 'abierta', forma: 'poligono',
     x: 300, y: 300, rx: 150, ry: 110, rot: 0,
     puntos: [{ x: -120, y: 60 }, { x: -80, y: -90 }, { x: 60, y: -120 },
              { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
-const anclaX = +lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/)[1];
+const anclaX = +(lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/) || [])[1];
 ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
+ok(lienzo.innerHTML.includes('>PILA SAN JUDAS<'), 'y lleva solo el nombre de la pila');
+ok(!/\d+ lotes?</.test(lienzo.innerHTML), 'sin la cantidad de lotes: eso se ve al entrar a la pila');
 
 // ---------------------------------------------------------------------
 titulo('Buscar un lote lleva el plano hasta él y lo señala.');
@@ -290,11 +352,13 @@ const dibujo = lienzo.innerHTML;
 // El borrado de la línea sale del ORDEN: si todos los contornos van antes
 // que todos los rellenos, el relleno de un lote tapa el trazo del vecino
 // y en el cruce no queda raya negra.
-const ultimoTrazo = dibujo.lastIndexOf('stroke="#14171a"');
-const primerRelleno = dibujo.indexOf('fill="#e8b48a"/>');
+// El filo negro va en la capa de abajo (la que lleva class="forma"); el
+// montón, en la de arriba, recortado a su contorno (clip-path).
+const ultimoTrazo = dibujo.lastIndexOf('class="forma"');
+const primerRelleno = dibujo.indexOf('clip-path="url(#');
 ok(primerRelleno > 0 && ultimoTrazo < primerRelleno,
    'los rellenos van todos después de los contornos, no lote por lote');
-ok(dibujo.includes('stroke-width="4"'),
+ok(/class="forma"[^>]*stroke-width="5"/.test(dibujo),
    'el contorno se dibuja al doble: su propio relleno le come la mitad de adentro');
 ok((dibujo.match(/data-id="la"/g) || []).length === 3,
    'cada lote sale en las tres capas, y las tres responden al dedo');
@@ -303,7 +367,7 @@ ok((dibujo.match(/>PG1</g) || []).length === 1,
 
 // El rótulo tapado era el otro lado del mismo problema: con el código
 // dentro de su lote, el relleno del vecino se comía media palabra.
-const ultimoRelleno = dibujo.lastIndexOf('fill="#e8b48a"/>');
+const ultimoRelleno = dibujo.lastIndexOf('clip-path="url(#');
 const primerRotulo = dibujo.indexOf('class="txt-lote"');
 ok(primerRotulo > 0 && ultimoRelleno < primerRotulo,
    'y va después de TODOS los rellenos: ningún vecino puede taparlo');
@@ -349,13 +413,14 @@ ok(!conPilas.includes('mask="url('), 'y ninguna capa la usa');
 
 // Lo importante NO se pierde: los lotes se siguen fundiendo entre ellos,
 // que se hace con el orden de las capas y no necesita máscara.
-const trazos = conPilas.lastIndexOf('stroke="#14171a"');
-const rellenos = conPilas.indexOf('fill="#e8b48a"/>');
-ok(trazos < rellenos, 'los rellenos siguen yendo después de los contornos');
+const desdeLotes = conPilas.indexOf('data-tipo="lote"');
+const trazos = conPilas.lastIndexOf('class="forma"');
+const rellenos = conPilas.indexOf('clip-path="url(#', desdeLotes);
+ok(desdeLotes > 0 && trazos < rellenos, 'los rellenos siguen yendo después de los contornos');
 
-// Y la pila vuelve a llevar su cerco encima, no en una capa aparte
-ok(/class="pila-forma"[^>]*stroke="#[0-9a-f]{6}"/.test(conPilas),
-   'cada pila dibuja su propio cerco');
+// Y cada pila lleva su propio borde, dentro de su grupo, no en una capa aparte
+ok((conPilas.match(/data-tipo="pila"[^>]*>[\s\S]*?class="forma"/g) || []).length === 2,
+   'cada pila dibuja su propio borde');
 
 // ---------------------------------------------------------------------
 titulo('La manija de ajuste no mengua con la figura.');
@@ -479,7 +544,8 @@ const vencido = negro('2020-01-01', 'devolucion');
 ok(vencido.includes('fill="#14171a"'), 'el lote sin recoger se rellena de negro');
 ok(!vencido.includes('stroke-dasharray="8 5"'), 'y se va el borde rojo a rayas');
 ok(!vencido.includes('stroke-width="10"'), 'y el borde vuelve al grosor de siempre');
-ok(vencido.includes('fill="#ffffff"'), 'el código encima va en blanco, que sobre negro se lee');
+const pintadoBlanco = (html) => /<text[^>]*class="txt-lote"[^>]*fill="#fdfbf7"[^>]*stroke="#14171a"[^>]*paint-order="stroke"/.test(html);
+ok(pintadoBlanco(vencido), 'el código va pintado en blanco con filo negro, que sobre negro se lee');
 
 const aTiempo = negro('2099-01-01', 'devolucion');
 ok(!aTiempo.includes('fill="#14171a" stroke'), 'una devolución en plazo conserva su color');
@@ -549,20 +615,15 @@ ok(/#boton-nuevo:empty[^{]*{[^}]*display:\s*none/.test(css),
 // ---------------------------------------------------------------------
 titulo('El texto encima de un color se lee: ámbar con letra oscura.');
 
-// El corte de claridad vive por duplicado —claro() en mapa.js pinta los
-// códigos del plano, contraste() en app.js pinta botones y etiquetas—.
-// Si se separan, el mismo lote sale con letra blanca en el plano y
-// oscura en su ficha.
-const fuenteMapa = await readFile(new URL('../web/js/mapa.js', import.meta.url), 'utf8');
-const corte = (t) => (t.match(/\(r \* 299 \+ g \* 587 \+ b \* 114\) \/ 1000 > (\d+)/) || [])[1];
-ok(corte(fuenteMapa) && corte(fuenteMapa) === corte(fuenteApp),
-   `plano y ficha usan el mismo corte de claridad (${corte(fuenteMapa)})`);
-
-const ambar = negro(null, 'por_muestrear');
-ok(ambar.includes('fill="#14171a"'),
-   'sobre el ámbar de "por muestrear" el código va oscuro, que blanco casi no se ve');
-const azul = negro(null, 'facturado');
-ok(azul.includes('fill="#ffffff"'), 'y sobre el azul de "facturado" sigue yendo blanco');
+// En el plano el código va pintado: letra blanca con filo negro, así que
+// se lee igual sobre cualquier estado, sobre el relieve del montón y
+// sobre la foto aérea, sin caja que lo tape. Fuera del plano (fichas,
+// botones) sigue mandando contraste() de app.js.
+ok(pintadoBlanco(negro(null, 'por_muestrear')),
+   'sobre el ámbar de "por muestrear" el código se lee: blanco con filo negro');
+ok(pintadoBlanco(negro(null, 'facturado')), 'y sobre el azul de "facturado", igual');
+ok(!/<rect[^>]*fill="#fdfbf7"/.test(negro(null, 'facturado')), 'sin placa ni caja debajo del código');
+ok(/function contraste\(/.test(fuenteApp), 'las fichas siguen eligiendo letra clara u oscura según el fondo');
 
 // ---------------------------------------------------------------------
 titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
@@ -737,16 +798,20 @@ titulo('La volqueta ENTRA: la salida no puede rellenar hacia atrás.');
 // entrada: la volqueta se quedaba quieta en el sitio y no entraba nunca.
 // Comprobado en un navegador de verdad; aquí se fija para que nadie lo
 // "ordene" de vuelta.
-const salida = css.slice(css.indexOf('.vq-camion {'), css.indexOf('@keyframes vq-entrar'));
-ok(/vq-salir[^;]*forwards/.test(salida),
+// Ahora la escena se anima desde app.js: la salida es la animación de
+// .vq-mov que arranca con retardo, y tiene que ir `forwards`.
+const llegada = fuenteApp.slice(fuenteApp.indexOf('function animarLlegada(lote)'),
+                                fuenteApp.indexOf('// ------------------------------------------------ los obreros muestrean'));
+ok(/a\('\.vq-mov'[^;]*delay: 1680[^;]*fill: 'forwards'/.test(llegada),
    'la salida de la volqueta rellena `forwards`, nunca `both`');
-const ruedas = css.slice(css.indexOf('.vq-rueda {'), css.indexOf('@keyframes vq-rodar-entrada'));
-ok(/vq-rodar-salida[^;]*forwards/.test(ruedas), 'y las ruedas, igual');
 
 // El relevo con el lote de verdad depende de que el montón tenga su
-// misma silueta: el plano se mira desde ARRIBA y el lote es un círculo.
-ok(/const monton = \(col\) => `[\s\S]*?<circle r="40"/.test(fuenteApp),
-   'el montón sigue siendo un círculo del radio del lote, para que el relevo no se vea');
+// misma silueta. Ya no se dibuja aparte: es el dibujo del lote mismo.
+ok(/Mapa\.dibujoLote\(lote\)/.test(llegada),
+   'el montón que deja la volqueta es el mismo dibujo del lote, para que el relevo no se vea');
+const msDe = (n) => +(fuenteApp.match(new RegExp(`const ${n} = (\\d+)`)) || [])[1];
+ok(msDe('LOTE_APARECE') > 0 && msDe('LOTE_APARECE') < msDe('DURACION_VOLQUETA'),
+   'el lote de verdad entra antes de que la escena se quite');
 
 // ---------------------------------------------------------------------
 titulo('Los obreros salen sin fondo, y a 1,5 veces la velocidad.');
@@ -835,6 +900,51 @@ ok((sw.match(/\.mp3/g) || []).length === 2,
 // Y respetan el interruptor de silencio que ya existía.
 ok(/const ruidoEn = \(cual, ms\) => setTimeout\(\(\) => \{\s*\n\s*if \(S\.mudo\) return;/.test(fuenteApp),
    'con los avisos apagados, la escena se ve pero no suena');
+
+// ---------------------------------------------------------------------
+titulo('Un lote de bigbags muestra cuántos son, apilados de a tres.');
+
+const d27 = Mapa.disposicionBigbags(27);
+ok(Mapa.ALTO_BIGBAGS === 3, 'se apilan de a tres');
+ok(d27.pilas.length === 9 && d27.pilas.every((p) => p.alto === 3), '27 bigbags son 9 columnas de 3');
+ok(d27.porFila === 3 && d27.filas === 3, 'sin reparto elegido, el grupo sale cuadrado (3 × 3)');
+const d28 = Mapa.disposicionBigbags(28);
+ok(d28.pilas.length === 10 && d28.pilas.at(-1).alto === 1 && d28.pilas.slice(0, -1).every((p) => p.alto === 3),
+   'con 28, la última columna lleva el que sobra');
+const enFila = Mapa.disposicionBigbags(27, 9);
+ok(enFila.porFila === 9 && enFila.filas === 1, 'repartidas de a 9 por fila quedan en una sola fila');
+const lado = (d) => d.pilas.length > 1 ? Math.abs(d.pilas[1].x - d.pilas[0].x) : null;
+ok(lado(enFila) === lado(d27), 'cambiar el reparto no cambia el tamaño de cada bigbag');
+ok(enFila.rx > d27.rx && enFila.ry < d27.ry, 'solo cambia cuánto ocupa el grupo a lo ancho y a lo alto');
+ok(Mapa.disposicionBigbags(27, 50).porFila === 9, 'no se pueden pedir más columnas por fila de las que hay');
+
+const grupo = { id: 'bb', codigo: 'CRN0733', estado: 'muestreado', pila_id: null, material: 'bigbag',
+  forma: 'rectangulo', x: 500, y: 350, rot: 0, bigbags: 27, bigbags_fila: null, rx: d27.rx, ry: d27.ry };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [grupo] });
+ok((lienzo.innerHTML.match(/class="forma"/g) || []).length === 27, 'en el plano se ven los 27, cada uno con su filo');
+ok(Mapa.esGrupoBigbags(grupo) && !Mapa.esGrupoBigbags({ ...grupo, bigbags: null }),
+   'un bigbag de antes, sin cantidad, sigue siendo un solo saco');
+
+// en modo edición, la manija del costado reparte; no estira
+unoAUno();
+Mapa.editar(true);
+Mapa.seleccionar('lote', grupo.id);
+ok(lienzo.innerHTML.includes('data-handle="columnas"') && !lienzo.innerHTML.includes('data-handle="tamano"'),
+   'el grupo tiene manija de reparto y no de tamaño');
+disparar('pointerdown', evento(grupo.x + grupo.rx + 16, grupo.y, { manija: 'columnas' }));
+disparar('pointermove', evento(grupo.x + enFila.rx + 16, grupo.y));
+disparar('pointerup', evento(grupo.x + enFila.rx + 16, grupo.y));
+ok(grupo.bigbags_fila === 9, `arrastrar la manija hasta el ancho de 9 columnas las pone en fila (${grupo.bigbags_fila})`);
+ok(grupo.rx === enFila.rx && grupo.ry === enFila.ry, 'y el tamaño del lote en el plano sigue al reparto');
+Mapa.editar(false);
+
+const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
+ok(/material === 'bigbag' && bigbags > 0 \? \{ bigbags, bigbags_fila: null \} : \{\}/.test(fuenteStore),
+   'un lote a granel no manda la columna de bigbags (no rompe un servidor sin migrar)');
+const fuenteMigracion = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+ok(/add column if not exists bigbags\s+integer/.test(fuenteMigracion)
+   && /add column if not exists bigbags_fila integer/.test(fuenteMigracion),
+   'la migración agrega las dos columnas sin borrar nada');
 
 // ---------------------------------------------------------------------
 titulo('Un botón con icono no lo pierde al pulsarlo.');

@@ -1118,6 +1118,21 @@ do $$ begin
   end if;
 end $$;
 
+-- -------------------------------------------------- lotes en bigbags
+-- Cuántos bigbags trae el lote y cuántas columnas (de a 3) van por fila
+-- en el plano. Vacíos en el granel y en los bigbags de antes, que siguen
+-- dibujándose como un solo saco hasta que se les ponga la cantidad.
+alter table lotes add column if not exists bigbags      integer;
+alter table lotes add column if not exists bigbags_fila integer;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'lotes_bigbags_check') then
+    alter table lotes add constraint lotes_bigbags_check check (bigbags between 1 and 999);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'lotes_bigbags_fila_check') then
+    alter table lotes add constraint lotes_bigbags_fila_check check (bigbags_fila between 1 and 999);
+  end if;
+end $$;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 
