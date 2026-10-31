@@ -1005,6 +1005,24 @@ function montarMapa() {
       // agarrar una manija concreta. Todo arrastre sí pregunta, por corto
       // que sea: la posición en el plano es la ubicación real en el
       // patio, y cambiarla sin querer deja el material mal ubicado.
+      // Un lote que estaba DENTRO de una pila de bigbags y se soltó fuera
+      // de ella sale de la pila. (Si cayó dentro de su pila, o en otra, el
+      // mapa llama a alSoltarSobre, no aquí.)
+      if (origen && tipo === 'lote' && obj.pila_id) {
+        const pila = S.pilas.find((p) => p.id === obj.pila_id);
+        const ok = await confirmar({
+          titulo: `¿Sacar ${obj.codigo} de la pila ${pila?.codigo || ''}?`,
+          detalle: 'Queda suelto donde lo soltaste, y queda en el historial del lote y de la pila.',
+          aceptar: 'Sacarlo y dejarlo aquí'
+        });
+        if (!ok) return Mapa.deshacerGeom(tipo, obj.id, antes);
+        await Store.guardarFigura('lotes', { ...obj });
+        await anotarRecorrido(obj, origen);
+        await Store.registrarEvento({ lote_id: obj.id, tipo: 'salida_pila', usuario_id: S.perfil.id });
+        if (pila) await revisarPila(pila);
+        await recargar(); sincronizar();
+        return;
+      }
       if (origen) {
         const ok = await confirmar({
           titulo: tipo === 'figura' ? '¿Dejar la figura aquí?' : `¿Dejar ${obj.codigo} aquí?`,
@@ -1016,6 +1034,15 @@ function montarMapa() {
       const tabla = tipo === 'lote' ? 'lotes' : tipo === 'pila' ? 'pilas' : 'mapa_figuras';
       await Store.guardarFigura(tabla, { ...obj });
       if (tipo === 'lote' && origen) await anotarRecorrido(obj, origen);
+      // Mover una pila mueve lo que tiene adentro: en una de bigbags cada
+      // lote se ve en su sitio y tiene que seguir dentro; en una de granel
+      // no se ven, pero su posición guardada tampoco puede quedarse atrás.
+      if (tipo === 'pila' && origen) {
+        const dx = obj.x - origen.x, dy = obj.y - origen.y;
+        for (const l of S.lotes.filter((q) => q.pila_id === obj.id)) {
+          await Store.guardarFigura('lotes', { ...l, x: l.x + dx, y: l.y + dy });
+        }
+      }
       await recargar();
       sincronizar();
     }),
@@ -3022,7 +3049,23 @@ async function manejarSoltar(lote, blanco, antes) {
   if (soloLectura()) return refrescarMapa();
   const volver = () => Mapa.deshacerGeom('lote', lote.id, antes);
 
+  // Acomodarlo dentro de SU pila (solo pasa en las de bigbags, que son las
+  // que muestran sus lotes): no cambia de pila, solo de sitio.
+  if (blanco.tipo === 'pila' && lote.pila_id === blanco.obj.id) {
+    const ok = await confirmar({
+      titulo: `¿Dejar ${lote.codigo} aquí?`,
+      detalle: `Se acomoda dentro de la pila ${blanco.obj.codigo}.`,
+      aceptar: 'Dejar aquí'
+    });
+    if (!ok) return volver();
+    await Store.guardarFigura('lotes', { ...lote });
+    await anotarRecorrido(lote, antes);
+    await recargar(); sincronizar();
+    return;
+  }
+
   if (blanco.tipo === 'pila') {
+    const anterior = lote.pila_id ? S.pilas.find((p) => p.id === lote.pila_id) : null;
     const ok = await confirmar({
       titulo: `¿Meter ${lote.codigo} en la pila ${blanco.obj.codigo}?`,
       detalle: 'Queda registrado en el historial del lote y en el de la pila.',
@@ -3040,6 +3083,8 @@ async function manejarSoltar(lote, blanco, antes) {
     await Store.registrarEvento({
       lote_id: lote.id, tipo: 'ingreso_pila', pila_id: blanco.obj.id, usuario_id: S.perfil.id
     });
+    // venía de otra pila de bigbags: esa puede quedarse con uno solo
+    if (anterior) await revisarPila(anterior);
     await recargar(); sincronizar();
     return;
   }
@@ -3052,11 +3097,21 @@ async function manejarSoltar(lote, blanco, antes) {
   if (!okPila) return volver();
 
   const otro = blanco.obj;
-  const cx = (lote.x + otro.x) / 2, cy = (lote.y + otro.y) / 2;
   const codigo = siguienteCodigoPila();
+  let geo = { x: (lote.x + otro.x) / 2, y: (lote.y + otro.y) / 2,
+              rx: Math.max(lote.rx, otro.rx) + 46, ry: Math.max(lote.ry, otro.ry) + 34 };
+  // Dos lotes de bigbags no se montan uno encima del otro: en una pila de
+  // bigbags se ve cada grupo con su código. El que se soltó se acomoda al
+  // lado del otro, y la pila (rectangular) abarca a los dos.
+  if (lote.material === 'bigbag' && otro.material === 'bigbag') {
+    lote.x = otro.x + otro.rx + lote.rx + 10; lote.y = otro.y;
+    await Store.guardarFigura('lotes', { ...lote });
+    const x1 = otro.x - otro.rx, x2 = lote.x + lote.rx;
+    const y1 = Math.min(otro.y - otro.ry, lote.y - lote.ry), y2 = Math.max(otro.y + otro.ry, lote.y + lote.ry);
+    geo = { x: (x1 + x2) / 2, y: (y1 + y2) / 2, rx: (x2 - x1) / 2 + 22, ry: (y2 - y1) / 2 + 26, forma: 'rectangulo' };
+  }
   const pila = await Store.crearPila({
-    codigo, tipo: 'otro', nota: null, x: cx, y: cy,
-    rx: Math.max(lote.rx, otro.rx) + 46, ry: Math.max(lote.ry, otro.ry) + 34,
+    codigo, tipo: 'otro', nota: null, ...geo,
     plataforma_id: S.plataforma, usuario_id: S.perfil.id
   });
   for (const l of [otro, lote]) {

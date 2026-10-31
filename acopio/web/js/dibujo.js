@@ -446,6 +446,29 @@ function curvasA(campo, t) {
   return lazos;
 }
 
+// Una pila de BIGBAGS no es un montón: es un sector del patio donde se
+// acomodan los grupos de bigbags, cada uno con su código. Se dibuja como
+// un piso claro con cinta del color del tipo por dentro del borde, y
+// encima van los lotes (los pinta mapa.js). El borde se edita igual que
+// el de cualquier pila.
+export function patioPila(ps, colTipo) {
+  const col = hexValido(colTipo, TINTA);
+  return recordar(`pp|${JSON.stringify(ps)}|${col}`, () => {
+    const m = muestrear(ps), contorno = recto(m), id = 'pp' + (cache.size + 1);
+    const ymin = Math.min(...m.map((p) => p[1]));
+    const arriba = m.filter((p) => p[1] < ymin + 6);
+    return {
+      svg: `<path class="sombra-lote" d="${contorno}" transform="translate(5 6)" fill="#0c0c0b" opacity=".14"/>
+        <clipPath id="${id}"><path d="${contorno}"/></clipPath>
+        <path class="forma" d="${contorno}" fill="${tono(col, .86)}" stroke="${TINTA}" stroke-width="2.6" stroke-linejoin="round"/>
+        <g clip-path="url(#${id})">
+          <path d="${contorno}" fill="none" stroke="${col}" stroke-width="12" stroke-dasharray="16 10"/></g>
+        <path d="${contorno}" fill="none" stroke="${TINTA}" stroke-width="2.6" stroke-linejoin="round"/>`,
+      tope: [arriba.reduce((s, p) => s + p[0], 0) / arriba.length, ymin]
+    };
+  });
+}
+
 // Cuántos lotes llenan una pila hasta la cima, según su área. Un lote
 // ocupa unas 4300 unidades² de plano y en una pila se apilan en unas dos
 // capas. Es un número a calibrar con pilas reales del patio.

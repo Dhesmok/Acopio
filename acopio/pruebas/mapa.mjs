@@ -938,6 +938,34 @@ ok(grupo.bigbags_fila === 9, `arrastrar la manija hasta el ancho de 9 columnas l
 ok(grupo.rx === enFila.rx && grupo.ry === enFila.ry, 'y el tamaño del lote en el plano sigue al reparto');
 Mapa.editar(false);
 
+// ---------------------------------------------------------------------
+titulo('Una pila de bigbags muestra sus lotes, cada uno con su código.');
+
+const pb = { id: 'pb', codigo: '9', tipo: 'otro', estado: 'abierta', forma: 'rectangulo',
+             x: 300, y: 300, rx: 140, ry: 80, rot: 0 };
+const enPb = (id, codigo, x, material = 'bigbag') => ({ id, codigo, estado: 'muestreado', pila_id: 'pb',
+  material, forma: material === 'bigbag' ? 'rectangulo' : 'elipse', x, y: 300, rot: 0,
+  bigbags: material === 'bigbag' ? 9 : null, rx: 46, ry: 46 });
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [pb],
+              lotes: [enPb('b1', 'CRN0801', 230), enPb('b2', 'CRN0802', 370)] });
+const conBigbags = lienzo.innerHTML;
+ok(conBigbags.includes('>CRN0801<') && conBigbags.includes('>CRN0802<'),
+   'en una pila de bigbags se ve el código de cada lote');
+ok(conBigbags.includes('>PILA 9<'), 'y el nombre de la pila');
+ok((conBigbags.match(/data-id="b1"/g) || []).length === 3, 'cada lote de la pila responde al dedo, como uno suelto');
+
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [pb],
+              lotes: [enPb('b1', 'CRN0801', 230), enPb('g1', 'ABG0901', 370, 'granel')] });
+ok(!lienzo.innerHTML.includes('>CRN0801<') && !lienzo.innerHTML.includes('>ABG0901<'),
+   'con un solo lote de granel adentro es una pila de material: un montón, sin códigos');
+
+ok(/origen && tipo === 'lote' && obj\.pila_id[\s\S]{0,1200}tipo: 'salida_pila'/.test(fuenteApp),
+   'soltar un lote fuera de su pila de bigbags lo saca de la pila (con confirmación)');
+ok(/lote\.pila_id === blanco\.obj\.id/.test(fuenteApp),
+   'soltarlo dentro de su misma pila solo lo acomoda, no lo vuelve a meter');
+ok(/tipo === 'pila' && origen[\s\S]{0,300}q\.pila_id === obj\.id/.test(fuenteApp),
+   'mover la pila mueve sus lotes');
+
 const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
 ok(/material === 'bigbag' && bigbags > 0 \? \{ bigbags, bigbags_fila: null \} : \{\}/.test(fuenteStore),
    'un lote a granel no manda la columna de bigbags (no rompe un servidor sin migrar)');

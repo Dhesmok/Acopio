@@ -250,8 +250,13 @@ export function pintar(d) {
   // `naciendo` es el lote que la volqueta está descargando en la capa de
   // encima: no se dibuja hasta que el material cae, o se vería aparecer
   // antes de que lo traigan.
-  const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l) && l.id !== datos.naciendo);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
+  // Los lotes de una pila de BIGBAGS sí se dibujan, cada uno en su sitio y
+  // con su código: ahí lo que se busca es qué lote es cada grupo. Los de
+  // una pila de granel no: esa pila es un solo montón.
+  const deBigbags = new Set(pilasVivas.filter(esPilaDeBigbags).map((p) => p.id));
+  const sueltos = datos.lotes.filter((l) => (!l.pila_id || deBigbags.has(l.pila_id))
+    && !fuera(l) && l.id !== datos.naciendo);
 
   const dibujo = `
     <defs>
@@ -539,11 +544,28 @@ function verticesDe(o) {
 // nombre, PINTADO sobre el material como el código de los lotes. Cuántos
 // lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
 // plano no hace falta.
+// Una pila es de bigbags cuando TODOS sus lotes (los que siguen en el
+// patio) son bigbags.
+export function esPilaDeBigbags(p) {
+  const ls = datos.lotes.filter((l) => l.pila_id === p.id && !fuera(l));
+  return ls.length > 0 && ls.every((l) => l.material === 'bigbag');
+}
 function figuraPila(p, lotes) {
-  const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
+  const rotulo = `PILA ${p.codigo}`;
+  if (esPilaDeBigbags(p)) {
+    // el nombre va en el borde de arriba: el centro es de los códigos
+    const m = Dib.patioPila(verticesDe(p), col);
+    const t = tamanoTexto(p, rotulo, { min: 12, max: 26, paso: .66 });
+    return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
+    ${datos.resaltado === p.id ? halo(p) : ''}
+    <g class="cuerpo-lote">${m.svg}</g>
+    <g class="rotulo-mapa">${Dib.pintado(esc(rotulo), t, m.tope[0], m.tope[1] + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
+  </g>`;
+  }
+  const n = lotes.filter((l) => l.pila_id === p.id).length;
   const m = Dib.montonPila(verticesDe(p), n, col);
-  const rotulo = `PILA ${p.codigo}`, c = anclaTexto(p);
+  const c = anclaTexto(p);
   const t = tamanoTexto(p, rotulo, { min: 12, max: 34, paso: .66 });
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
@@ -827,7 +849,18 @@ export function deshacerGeom(tipo, id, antes) {
   const o = objeto({ tipo, id });
   if (!o || !antes) return;
   Object.assign(o, antes);
+  // Lo arrastrado se movió tocando el SVG a mano, sin repintar: el texto
+  // armado es igual al de antes del gesto y pintar() no tocaría nada. Se
+  // fuerza el repintado para que todo vuelva a su sitio en pantalla.
+  ultimoDibujo = '';
   pintarYa();
+}
+
+// Los lotes que se ven dentro de una pila (solo en las de bigbags).
+function hijosDe(p) {
+  if (!esPilaDeBigbags(p)) return [];
+  return datos.lotes.filter((l) => l.pila_id === p.id && !fuera(l))
+    .map((l) => ({ l, nodos: nodosDe(l.id) }));
 }
 
 export function movimientoReal(o, desde) {
@@ -1013,7 +1046,8 @@ function abajo(ev) {
     arrastre = {
       tipo, obj, nodos: nodosDe(obj.id), inicio: aPlano(ev),
       origen: { x: obj.x, y: obj.y },
-      antes: instantanea(obj)             // para poder deshacer si se cancela
+      antes: instantanea(obj),            // para poder deshacer si se cancela
+      hijos: tipo === 'pila' ? hijosDe(obj) : []
     };
     // la selección es inmediata: se ven las manijas al tocar
     if (seleccion?.id !== obj.id) {
@@ -1078,6 +1112,13 @@ function movimiento(ev) {
     arrastre.obj.y = arrastre.origen.y + dy;
     const t = `translate(${arrastre.obj.x} ${arrastre.obj.y}) rotate(${arrastre.obj.rot || 0})`;
     arrastre.nodos.forEach((n) => n.setAttribute('transform', t));
+    // Los lotes de una pila de bigbags van con ella. Solo se mueve su
+    // dibujo: dónde quedan lo guarda la app al confirmar (si se cancela,
+    // no hay nada que devolver).
+    for (const h of arrastre.hijos || []) {
+      const th = `translate(${h.l.x + dx} ${h.l.y + dy}) rotate(${h.l.rot || 0})`;
+      h.nodos.forEach((n) => n.setAttribute('transform', th));
+    }
     if (arrastre.tipo === 'lote') resaltarBlanco(arrastre.obj);
   } else if (modo === 'ajustando') {
     const o = arrastre.obj;
@@ -1108,6 +1149,7 @@ function movimiento(ev) {
 function resaltarBlanco(lote) {
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
   const b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
+  if (b?.tipo === 'pila' && b.obj.id === lote.pila_id) return;   // se acomoda en la suya
   // Todas sus copias, no la primera: la del lote en la capa de trazos
   // queda tapada por los rellenos y el aro azul no se vería.
   if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] .forma`)
