@@ -292,8 +292,19 @@ export function disposicionBigbags(n, porFila) {
     y: -H / 2 + Math.floor(i / ancho) * PASO_BIGBAG + LADO_BIGBAG / 2,
     alto: i < columnas - 1 ? ALTO_BIGBAGS : total - ALTO_BIGBAGS * (columnas - 1)
   }));
-  // rx/ry del lote: lo que ocupa el grupo, con el margen de las sombras
-  return { pilas, porFila: ancho, filas, rx: f(W / 2 + 2), ry: f(H / 2 + 2) };
+  // El contorno de lo que OCUPA el grupo: las filas llenas y, si la
+  // última va a medias, solo sus columnas. Con 12 columnas de a 5 por
+  // fila queda una L, no el rectángulo de 3 × 5 con tres huecos vacíos.
+  const m = 2, r = columnas - ancho * (filas - 1);
+  const x0 = -W / 2 - m, x1 = W / 2 + m, y0 = -H / 2 - m, y1 = H / 2 + m;
+  const contorno = r === ancho
+    ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    : [[x0, y0], [x1, y0], [x1, -H / 2 + (filas - 1) * PASO_BIGBAG - HUECO_BIGBAG + m],
+       [-W / 2 + r * PASO_BIGBAG - HUECO_BIGBAG + m, -H / 2 + (filas - 1) * PASO_BIGBAG - HUECO_BIGBAG + m],
+       [-W / 2 + r * PASO_BIGBAG - HUECO_BIGBAG + m, y1], [x0, y1]];
+  // rx/ry del lote: la caja de todo, con el margen de las sombras
+  return { pilas, porFila: ancho, filas, rx: f(W / 2 + m), ry: f(H / 2 + m),
+           contorno: contorno.map(([x, y]) => [f(x), f(y)]) };
 }
 
 // Las columnas se ven desde arriba: se ve el bigbag de encima, y por
@@ -352,8 +363,10 @@ export function grupoBigbags(o, color) {
     // Con varios grupos pegados en el patio, es lo que deja ver dónde
     // acaba uno y empieza el otro; sin ella, los sacos de todos se
     // confundían en una sola mancha.
-    const piso = `<rect class="piso-grupo" x="${f(-d.rx)}" y="${f(-d.ry)}" width="${f(2 * d.rx)}" height="${f(2 * d.ry)}"
-      rx="3" fill="${tono(col, -.55)}" fill-opacity=".45" stroke="${TINTA}" stroke-width="1.6"/>`;
+    // Bordea los bigbags que hay, no la caja: si la última fila va a
+    // medias, la base no se extiende bajo los huecos vacíos.
+    const piso = `<path class="piso-grupo" d="${recto(d.contorno)}" fill="${tono(col, -.55)}" fill-opacity=".45"
+      stroke="${TINTA}" stroke-width="1.6" stroke-linejoin="round"/>`;
     return { ...g, base: piso + g.base, disposicion: d };
   });
 }
