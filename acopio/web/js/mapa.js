@@ -255,6 +255,14 @@ export function pintar(d) {
   // `naciendo` es el lote que la volqueta está descargando en la capa de
   // encima: no se dibuja hasta que el material cae, o se vería aparecer
   // antes de que lo traigan.
+  // Un grupo de bigbags ocupa lo que dicen su cantidad y su reparto, no
+  // el rx/ry que quedó guardado: los guardados antes de achicar los
+  // bigbags al 60 % traían el tamaño viejo, y el halo, el dedo y el
+  // código caían lejos del grupo.
+  for (const l of datos.lotes) if (esGrupoBigbags(l)) {
+    const dd = Dib.disposicionBigbags(l.bigbags, l.bigbags_fila);
+    l.rx = dd.rx; l.ry = dd.ry;
+  }
   const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l) && l.id !== datos.naciendo);
   apilado = calcularApilado(sueltos);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
@@ -531,27 +539,6 @@ function halo(o) {
 // Con un tamaño fijo, un código como SJ1015.2 se salía por los lados de
 // su óvalo y "CASETA" quedaba minúscula dentro de una caseta enorme.
 
-// Hueco útil dentro de cada forma.
-//
-// En una elipse el ancho NO es constante: depende de a qué altura se
-// mida. Un renglón de texto es bajo, así que puede usar casi toda la
-// cuerda central —2·rx·√(1−(h/ry)²)— en vez del rectángulo inscrito, que
-// es mucho más estrecho. Usar el rectángulo inscrito dejaba los códigos
-// bastante más pequeños de lo que hacía falta.
-function cajaInterior(o, tam = 0) {
-  if (o.forma === 'poligono') {
-    const ps = listaPuntos(o);
-    const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
-    // un polígono irregular aprovecha bastante menos que su caja
-    return { w: (Math.max(...xs) - Math.min(...xs)) * .68,
-             h: (Math.max(...ys) - Math.min(...ys)) * .5 };
-  }
-  if (o.forma === 'rectangulo') return { w: o.rx * 1.78, h: o.ry * 1.5 };
-  const media = tam ? Math.min(tam * .38, o.ry * .92) : o.ry * .6;
-  const cuerda = 2 * o.rx * Math.sqrt(Math.max(1 - (media / o.ry) ** 2, .05));
-  return { w: cuerda * .88, h: o.ry * 1.2 };
-}
-
 // Dónde se ancla el rótulo. En elipse y rectángulo, el origen. En un
 // polígono, el centro de sus vértices: al arrastrarlos deja de estar en
 // el origen, y el rótulo se quedaba colgado fuera de la figura.
@@ -562,22 +549,62 @@ function anclaTexto(o) {
            y: ps.reduce((a, p) => a + p.y, 0) / ps.length };
 }
 
+// ¿Cabe el rectángulo de centro (cx, cy) y medio ancho/alto (a, b)
+// dentro del polígono `ps`? Basta con que el centro quede adentro y que
+// ningún lado del polígono toque el rectángulo. Mirar solo las esquinas
+// no alcanza: en una pila con un entrante (una L, una media luna) las
+// cuatro quedan adentro con el borde metido en medio del texto.
+function rectanguloDentro(ps, cx, cy, a, b) {
+  const x0 = cx - a, x1 = cx + a, y0 = cy - b, y1 = cy + b;
+  let dentro = false;
+  for (let i = 0, j = ps.length - 1; i < ps.length; j = i++) {
+    const [px, py] = ps[i], [qx, qy] = ps[j];
+    if ((py > cy) !== (qy > cy) && cx < qx + (cy - qy) * (px - qx) / (py - qy)) dentro = !dentro;
+    // recorte de Liang-Barsky: ¿algún tramo del lado cae en el rectángulo?
+    const dx = px - qx, dy = py - qy;
+    let t0 = 0, t1 = 1, toca = true;
+    for (const [pp, q] of [[-dx, qx - x0], [dx, x1 - qx], [-dy, qy - y0], [dy, y1 - qy]]) {
+      if (pp === 0) { if (q < 0) { toca = false; break; } continue; }
+      const r = q / pp;
+      if (pp < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+      if (t0 > t1) { toca = false; break; }
+    }
+    if (toca) return false;
+  }
+  return dentro;
+}
+
 // El ancho de un texto se sabe sin medirlo si se conoce cuánto avanza
 // cada carácter. La monoespaciada de los códigos avanza ~0.6 em; la
-// etiqueta del fondo va en versalitas espaciadas y avanza ~0.72, bastante
-// más —dar por bueno el 0.6 ahí dejaba "VÍA DE ACCESO PRINCIPAL"
-// saliéndose 50 px por los lados—. Manda el límite más estrecho de los
-// dos, y el resultado se recorta a un rango que siga siendo legible.
-function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6 }) {
-  const calcular = (caja) => Math.max(min, Math.min(max,
-    caja.w / Math.max(String(texto).length * paso, 1),
-    (caja.h / lineas) * .92));
-  let t = calcular(cajaInterior(o));
-  // En la elipse el ancho depende del tamaño del texto y el tamaño del
-  // ancho: una segunda pasada con la cuerda ya a la altura correcta
-  // basta para que converja.
-  if (o.forma !== 'rectangulo' && o.forma !== 'poligono') t = calcular(cajaInterior(o, t));
-  return +t.toFixed(1);
+// etiqueta del fondo va en versalitas espaciadas y avanza ~0.72.
+//
+// El tamaño es el MAYOR que deja el bloque de texto entero —con su filo
+// negro y un margen— dentro de la forma DE VERDAD, girada como esté. Antes
+// se medía contra la caja del polígono, y una pila larga y en diagonal
+// tiene una caja enorme: "PILA 1 (ARENAS)" salía a tope y cruzaba el
+// montón de lado a lado. `max` es el techo: un código de tres letras en
+// un lote grande no se vuelve un titular. `min` es el suelo legible: si
+// ni así cabe, prefiere sobresalir un poco a volverse invisible.
+const FILO = .22;   // el trazo negro del pintado, en em (ver Dib.pintado)
+//
+// `giro` (grados, en el marco de la figura) mide el texto girado: se
+// gira la figura al revés alrededor del ancla y se mide derecho.
+function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0 }) {
+  const c = anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
+  const ps = verticesDe(o).map(([x, y]) => giro
+    ? [c.x + (x - c.x) * cs - (y - c.y) * sn, c.y + (x - c.x) * sn + (y - c.y) * cs] : [x, y]);
+  const em = Math.max(String(texto).length, 1) * paso + FILO;
+  // alto de los renglones: mayúsculas y paréntesis, sin el aire de abajo
+  const alto = lineas * .9 + FILO;
+  const cabe = (t) => rectanguloDentro(ps, c.x, c.y, t * em / 2 + margen, t * alto / 2 + margen);
+  if (cabe(max)) return max;
+  if (!cabe(min)) return min;
+  let bajo = min, alto2 = max;
+  for (let i = 0; i < 12; i++) {
+    const m = (bajo + alto2) / 2;
+    if (cabe(m)) bajo = m; else alto2 = m;
+  }
+  return +bajo.toFixed(1);
 }
 
 // Un nombre largo en una sola línea se sale de la figura o queda
@@ -624,16 +651,46 @@ function verticesDe(o) {
 // nombre, PINTADO sobre el material como el código de los lotes. Cuántos
 // lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
 // plano no hace falta.
+// Hacia dónde se alarga una figura: el eje principal de sus vértices,
+// en grados del marco de la figura.
+function ejeLargo(o) {
+  const ps = verticesDe(o), c = anclaTexto(o);
+  let xx = 0, yy = 0, xy = 0;
+  for (const [x, y] of ps) { xx += (x - c.x) ** 2; yy += (y - c.y) ** 2; xy += (x - c.x) * (y - c.y); }
+  return Math.atan2(2 * xy, xx - yy) / 2 * 180 / Math.PI;
+}
+// Que en PANTALLA no quede cabeza abajo ni leyéndose de abajo arriba
+// más de lo necesario: el ángulo final queda entre −90° y 90°.
+const derecho = (giro, rot) => {
+  let a = ((giro + rot) % 360 + 540) % 360 - 180;
+  if (a > 90) a -= 180; else if (a <= -90) a += 180;
+  return a - rot;
+};
+
+// El nombre de la pila no sigue a ciegas el giro de la figura: una pila
+// larga girada deja el texto cruzando el montón de canto. Se prueba
+// derecho en pantalla y a lo largo del montón, y gana el que deja la
+// letra más grande; a casi igualdad (15 %), derecho, que se lee mejor.
+function rotuloPila(p) {
+  const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
+  const op = { min: 12, max: 28, paso: .68, margen: 10 };
+  const recto = derecho(-rot, rot), largo = derecho(ejeLargo(p), rot);
+  const a = { ...rotuloEnRenglones(p, texto, { ...op, giro: recto }), giro: recto };
+  const b = { ...rotuloEnRenglones(p, texto, { ...op, giro: largo }), giro: largo };
+  return b.t > a.t * 1.15 ? b : a;
+}
+
 function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   const m = Dib.montonPila(verticesDe(p), n, col);
   const c = anclaTexto(p);
-  const { lineas, t } = rotuloEnRenglones(p, `PILA ${p.codigo}`, { min: 12, max: 34, paso: .66 });
+  const { lineas, t, giro } = rotuloPila(p);
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
     <g class="cuerpo-lote">${m.svg}</g>
-    <g class="rotulo-mapa">${Dib.pintado(lineas.map(esc), t, c.x, c.y + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
+    <g class="rotulo-mapa"${Math.abs(giro) > .5 ? ` transform="rotate(${+giro.toFixed(1)} ${c.x} ${c.y})"` : ''}>${
+      Dib.pintado(lineas.map(esc), t, c.x, c.y + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
   </g>`;
 }
 
@@ -696,13 +753,29 @@ function figuraLote(l, capa) {
   // menos, así que sobra sitio antes que faltar—, pero el punto o los
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
-  const t = tamanoTexto(ap?.abajo || l, base + volqueta, { min: 11, max: 20 });
-  // Montados unos sobre otros se tienen que leer TODOS los códigos, y un
-  // grupo de bigbags puede ser una sola fila: adentro no caben. El del
-  // piso va justo debajo del grupo y los de encima justo arriba, uno por
-  // renglón, el último montado más arriba.
-  if (ap?.abajo) c = { x: 0, y: -ap.abajo.ry - t * (.55 + 1.2 * ap.k) };
-  else if (ap?.carga) c = { x: 0, y: l.ry + t * .75 };
+  //
+  // Un grupo de bigbags NO lleva el código encima: los sacos son
+  // pequeños y dibujados, y un código encima no deja ver ni lo uno ni lo
+  // otro. Va FUERA del grupo, y DERECHO en pantalla aunque el grupo esté
+  // girado: el del piso justo debajo, y los montados encima justo arriba,
+  // uno por renglón, el último montado más arriba. Así se leen TODOS los
+  // códigos, también los de un grupo de una sola fila.
+  const piso = ap?.abajo || l;
+  if (esGrupoBigbags(piso)) {
+    const rot = piso.rot || 0, g = rot * Math.PI / 180;
+    const cs = Math.abs(Math.cos(g)), sn = Math.abs(Math.sin(g));
+    // lo que ocupa el grupo en pantalla, ya girado
+    const ancho = piso.rx * cs + piso.ry * sn, alto = piso.rx * sn + piso.ry * cs;
+    const t = Math.max(11, Math.min(16, +((2 * ancho) / ((base + volqueta).length * .6 + FILO)).toFixed(1)));
+    const yp = ap?.abajo ? -alto - t * (.55 + 1.2 * ap.k) : alto + t * .75;
+    // de pantalla al marco del lote: girar (0, yp) al revés
+    const x = +(yp * Math.sin(g)).toFixed(1), y = +(yp * Math.cos(g)).toFixed(1);
+    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${-rot} ${x} ${y})">${
+      Dib.pintado(esc(base), t, x, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
+  }
+  const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
+  // lleva lotes montados pero ya no es grupo (le cambiaron el material)
+  if (ap?.carga) c = { x: 0, y: l.ry + t * .75 };
   // El código va PINTADO sobre el montón: letra blanca con filo negro,
   // como marcado con spray en el material. No lleva caja, así que no tapa
   // el relieve, y el filo lo hace legible sobre cualquier color de estado
@@ -1197,7 +1270,7 @@ function movimiento(ev) {
     const lx = l.x - d.x, ly = l.y - d.y;   // descontando dónde se agarró
     if (arrastre.handle === 'columnas') {
       // el borde derecho sigue al dedo: cuántas columnas caben hasta ahí
-      const n = Math.max(1, Math.round((2 * Math.max(lx, 0) + 4) / Dib.PASO_BIGBAG));
+      const n = Math.max(1, Math.round((2 * Math.max(lx, 0) + Dib.PASO_BIGBAG - Dib.LADO_BIGBAG) / Dib.PASO_BIGBAG));
       if (n !== o.bigbags_fila) {
         const d = Dib.disposicionBigbags(o.bigbags, n);
         o.bigbags_fila = d.porFila; o.rx = d.rx; o.ry = d.ry;
