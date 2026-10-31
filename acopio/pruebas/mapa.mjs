@@ -17,6 +17,8 @@ const nodoFalso = () => ({ setAttribute() {}, remove() {}, classList: { add() {}
 
 const lienzo = {
   attrs: {}, innerHTML: '', isConnected: true, oyentes: {},
+  // hace también de capa que envuelve al SVG: ahí va el transform del gesto
+  style: { transform: '' },
   // el lienzo se marca mientras el plano se mueve, para apagar los códigos
   clases: new Set(),
   get classList() {
@@ -782,22 +784,49 @@ titulo('Mover el plano no toca la escena: solo cambia el encuadre.');
 // los controles que flotan FUERA del SVG, como si el mapa prendiera y
 // apagara una capa blanca.
 //
-// Vale más una escena estable que un cuadro más rápido: mientras el dedo
-// arrastra, lo único que cambia es el viewBox.
+// Vale más una escena estable que un cuadro más rápido. Y ni siquiera el
+// viewBox se toca mientras el dedo arrastra: cambiarlo obliga a volver a
+// dibujar el SVG entero en cada movimiento, que en un gama baja eran
+// ~80 ms. Lo que se corre es la imagen ya pintada, con un transform de
+// la capa; el viewBox se fija al soltar.
 Mapa.pintar(mismos);
 unoAUno();
 const antesDelGesto = lienzo.innerHTML;
+const encuadreAntes = lienzo.attrs.viewBox;
 
 disparar('pointerdown', dedo(1, 500, 350));
 for (let i = 1; i <= 20; i++) disparar('pointermove', dedo(1, 500 - i * 7, 350 - i * 5));
 
 ok(lienzo.clases.size === 0, 'arrastrando no se le pone ninguna clase al lienzo');
-ok(lienzo.innerHTML === antesDelGesto, 'y el SVG no se toca: lo que cambia es el encuadre');
-const enc = lienzo.attrs.viewBox.split(' ').map(Number);
-ok(enc[0] !== 0 || enc[1] !== 0, `el encuadre sí se movió (${lienzo.attrs.viewBox})`);
+ok(lienzo.innerHTML === antesDelGesto, 'y el SVG no se toca');
+ok(lienzo.attrs.viewBox === encuadreAntes, 'ni su viewBox: mientras el dedo arrastra no se vuelve a dibujar');
+// 140 px a la izquierda y 100 hacia arriba, con escala 1
+ok(/^translate3d\(-140\.00px, -100\.00px, 0\) scale\(1\.00000\)$/.test(lienzo.style.transform),
+   `lo que se mueve es la imagen ya pintada (${lienzo.style.transform})`);
 
 disparar('pointerup', dedo(1, 360, 250));
 ok(lienzo.clases.size === 0, 'y al soltar tampoco queda ninguna puesta');
+ok(lienzo.style.transform === '', 'al soltar se quita el transform…');
+const v0 = Mapa.obtenerVista();
+ok(Math.abs(v0.x - 140) < .01 && Math.abs(v0.y - 100) < .01, `…el encuadre quedó donde lo dejó el dedo (${v0.x}, ${v0.y})`);
+// el viewBox lleva el sobrante escondido alrededor (40 % de cada lado)
+const enc = lienzo.attrs.viewBox.split(' ').map(Number);
+ok(Math.abs(enc[0] - (140 - 400)) < .01 && Math.abs(enc[1] - (100 - 280)) < .01
+   && Math.abs(enc[2] - 1800) < .01 && Math.abs(enc[3] - 1260) < .01,
+   `y el viewBox lo dibuja ahí de verdad, con su sobra alrededor (${lienzo.attrs.viewBox})`);
+
+// Un gesto que se va más allá de lo que hay dibujado alrededor vuelve a
+// dibujar ahí mismo, una vez, en vez de enseñar el vacío.
+unoAUno();
+disparar('pointerdown', dedo(1, 900, 600));
+disparar('pointermove', dedo(1, 100, 600));      // 800 px: más que el 40 % que sobra
+// (aquí el mapa está montado dos veces y el movimiento llega repetido:
+// la segunda pasada ya parte de lo recién dibujado y no corre nada)
+const sinCorrer = (t) => t === '' || /^translate3d\(0\.00px, 0\.00px, 0\) scale\(1\.00000\)$/.test(t);
+ok(sinCorrer(lienzo.style.transform) && lienzo.attrs.viewBox.startsWith('400 '),
+
+   `al pasarse de lo dibujado se vuelve a dibujar (${lienzo.attrs.viewBox})`);
+disparar('pointerup', dedo(1, 100, 600));
 
 // ---------------------------------------------------------------------
 titulo('El pellizco apaga los códigos; el paneo no.');

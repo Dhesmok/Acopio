@@ -875,7 +875,10 @@ button:focus:not(:focus-visible) { outline: none; }
    foto de fondo fuera de la página. */
 #lienzo, #lienzo * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 #lienzo .fondo-plano { pointer-events: none; -webkit-user-drag: none; }
+/* El lienzo es más grande que esta caja y sobresale por los cuatro
+   lados (lo coloca mapa.js): la caja lo recorta. */
 #lienzo-caja {
+  position: relative; overflow: hidden;
   background: var(--superficie);
   contain: layout paint size;
   isolation: isolate;

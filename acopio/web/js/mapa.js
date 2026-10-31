@@ -6,7 +6,7 @@
 
 import * as Dib from './dibujo.js';
 
-let svg, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
+let svg, capa, caja0, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
 let datos = { config: {}, figuras: [], pilas: [], lotes: [] };
 let seleccion = null;
 let modo = 'ninguno', arrastre = null;
@@ -111,9 +111,26 @@ export function montar(contenedor, callbacks) {
   repintadoPendiente = null;
   ultimoDibujo = '';
   seleccion = null;
-  contenedor.innerHTML = `<svg id="lienzo" xmlns="http://www.w3.org/2000/svg"
-      preserveAspectRatio="xMidYMid meet" touch-action="none"></svg>`;
+  // El lienzo es MÁS GRANDE que su caja: sobra un SOBRA de cada lado,
+  // escondido por el recorte de la caja. Es el margen que se ve al
+  // desplazar o alejar con el dedo antes de volver a dibujar (ver
+  // verVista). Va en el propio elemento, y no en la hoja de estilos,
+  // porque la cuenta del encuadre depende de este número.
+  //
+  // El transform del gesto se le pone a una CAPA que envuelve al SVG, no
+  // al SVG: en el propio <svg> el navegador vuelve a calcular la
+  // disposición de todo lo de adentro en cada cambio, y se perdía la
+  // mitad de lo ganado. En un <div> con will-change lo mueve la tarjeta
+  // gráfica sin preguntarle nada a nadie.
+  const pct = (v) => `${+(v * 100).toFixed(3)}%`;
+  contenedor.innerHTML = `<div class="lienzo-capa" style="position:absolute;left:${pct(-SOBRA)};top:${
+      pct(-SOBRA)};width:${pct(1 + 2 * SOBRA)};height:${pct(1 + 2 * SOBRA)};transform-origin:0 0;will-change:transform">
+    <svg id="lienzo" xmlns="http://www.w3.org/2000/svg"
+      preserveAspectRatio="xMidYMid meet" touch-action="none"></svg></div>`;
   svg = contenedor.querySelector('#lienzo');
+  capa = contenedor.querySelector('.lienzo-capa');
+  caja0 = contenedor;
+  pintada = null;
   svg.addEventListener('pointerdown', abajo);
   svg.addEventListener('pointermove', movimiento);
   svg.addEventListener('pointerup', arriba);
@@ -169,8 +186,7 @@ function deslizarHasta(destino, ms = 420) {
     const k = Math.min((ahora - t0) / ms, 1), e = suave(k);
     vista = { x: desde.x + (destino.x - desde.x) * e, y: desde.y + (destino.y - desde.y) * e,
               w: desde.w + (destino.w - desde.w) * e, h: desde.h + (destino.h - desde.h) * e };
-    aplicarVista();
-    if (k < 1) animacion = requestAnimationFrame(paso);
+    if (k < 1) { verVista(); animacion = requestAnimationFrame(paso); } else aplicarVista();
   };
   animacion = requestAnimationFrame(paso);
 }
@@ -190,7 +206,7 @@ export function enfocar(objs, { margen = 90, animar = true } = {}) {
 
   // El lienzo dibuja con "meet", así que si la caja no tiene su misma
   // proporción sobra espacio por un lado y la figura queda descentrada.
-  const r = svg.getBoundingClientRect();
+  const r = cajaLienzo();
   const prop = r.height / Math.max(r.width, 1);
   if (caja.h / caja.w < prop) {
     const h = caja.w * prop; caja.y -= (h - caja.h) / 2; caja.h = h;
@@ -909,8 +925,16 @@ function aPlano(ev) { return aPlanoPunto(ev.clientX, ev.clientY); }
 // una vez al apoyar el dedo y se guarda hasta soltarlo. Fuera de un gesto
 // se pregunta cada vez, que es lo seguro: la caja cambia al girar el
 // teléfono, al abrir el buscador o al cambiar de pestaña.
+//
+// La caja que cuenta es la VISIBLE, la del contenedor: el lienzo es más
+// grande que ella (ver SOBRA) y, mientras el dedo arrastra, lleva además
+// un transform que corre su rectángulo. La del lienzo solo queda de
+// respaldo, cuando no hay contenedor que medir.
 let caja = null;
-const cajaLienzo = () => caja || svg.getBoundingClientRect();
+const cajaLienzo = () => caja || medirCaja();
+function medirCaja() {
+  return caja0?.getBoundingClientRect ? caja0.getBoundingClientRect() : svg.getBoundingClientRect();
+}
 
 // De un punto de la PANTALLA a uno del PLANO, a mano.
 //
@@ -934,9 +958,71 @@ function aPlanoPunto(cx, cy, v = vista) {
 // apagara una capa blanca. El mapa debe ser estable mientras se desplaza,
 // así que no se toca ninguna clase: el navegador conserva la misma escena
 // y solo recalcula el encuadre.
+//
+// Y aun así cambiar el viewBox es caro: el navegador vuelve a calcular,
+// a grabar y a rasterizar el SVG ENTERO —cientos de montones con su
+// relieve, sus códigos y la foto de fondo— en cada movimiento del dedo.
+// Medido con 180 lotes y la CPU frenada 6 veces, como un teléfono de
+// gama baja: unos 80 ms por movimiento, el plano a tirones.
+//
+// Por eso, mientras el dedo arrastra (o el plano vuela hasta un lote),
+// el viewBox se queda quieto y lo que se mueve es la IMAGEN ya pintada,
+// con un transform del elemento: eso lo hace la tarjeta gráfica, sin
+// volver a dibujar nada. Al soltar se fija el viewBox de verdad y se
+// quita el transform, las dos cosas en el mismo instante, así que en
+// pantalla no salta nada.
+//
+// Para que al desplazar no asome el vacío por el borde, el lienzo es más
+// grande que su caja: SOBRA de cada lado, dibujado pero escondido. Si el
+// gesto se va más allá de lo que hay dibujado (o acerca tanto que la
+// imagen ya se vería borrosa) se vuelve a dibujar ahí mismo, una vez, y
+// se sigue.
+const SOBRA = .4;
+let pintada = null;          // el encuadre que dice el viewBox ahora mismo
+
+// el viewBox con su sobra: con "meet" la escala queda la misma que la de
+// `v` en la caja visible, y los dos centros coinciden
+const conSobra = (v) => ({ x: v.x - v.w * SOBRA, y: v.y - v.h * SOBRA,
+                           w: v.w * (1 + 2 * SOBRA), h: v.h * (1 + 2 * SOBRA) });
+
 function aplicarVista() {
-  svg.setAttribute('viewBox', `${vista.x} ${vista.y} ${vista.w} ${vista.h}`);
+  if (capa?.style) capa.style.transform = '';
+  const v = conSobra(vista);
+  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  pintada = { ...vista };
   gpsAlZoom();
+}
+
+// Mostrar `vista` sin volver a dibujar: se corre y se escala lo que ya
+// está pintado con `pintada`.
+function verVista() {
+  const p = pintada;
+  if (!p || !capa?.style) { aplicarVista(); return; }
+  const k = p.w / vista.w;                       // cuánto se acercó
+  const fuera = vista.x < p.x - p.w * SOBRA * .95 || vista.y < p.y - p.h * SOBRA * .95
+    || vista.x + vista.w > p.x + p.w * (1 + SOBRA * .95)
+    || vista.y + vista.h > p.y + p.h * (1 + SOBRA * .95);
+  if (fuera || k > 1.6 || k < .6) { aplicarVista(); return; }
+  // Cuentas en píxeles, con el origen en la esquina de la caja visible.
+  // De la caja visible a la del lienzo hay SOBRA de cada lado.
+  const r = cajaLienzo();
+  const s0 = Math.min(r.width / p.w, r.height / p.h) || 1;   // escala de lo pintado
+  const s1 = s0 * k;
+  // dónde cae, con cada encuadre, la esquina de lo pintado (p.x, p.y)
+  const x0 = (r.width - p.w * s0) / 2, y0 = (r.height - p.h * s0) / 2;
+  const x1 = (r.width - vista.w * s1) / 2 + (p.x - vista.x) * s1;
+  const y1 = (r.height - vista.h * s1) / 2 + (p.y - vista.y) * s1;
+  // el transform escala desde la esquina del LIENZO, que empieza SOBRA
+  // antes que la caja visible
+  const ox = -r.width * SOBRA, oy = -r.height * SOBRA;
+  const tx = x1 - ox - k * (x0 - ox), ty = y1 - oy - k * (y0 - oy);
+  capa.style.transform = `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) scale(${k.toFixed(5)})`;
+}
+
+// Fija lo que se estaba mostrando con transform, si es que algo cambió.
+function asentarVista() {
+  if (!pintada || pintada.x !== vista.x || pintada.y !== vista.y || pintada.w !== vista.w
+      || pintada.h !== vista.h || capa?.style?.transform) aplicarVista();
 }
 
 // Unidades del plano que cubre un píxel de pantalla. Con
@@ -955,11 +1041,11 @@ function unidadesPorPixel(v = vista) {
 // Ya no hace falta escribir el encuadre antes de medir: la cuenta usa el
 // `vista` que hay en memoria —que el pellizco acaba de actualizar— en vez
 // de preguntarle al navegador dónde quedó dibujado.
-function anclarEn(cx, cy, ancla) {
+function anclarEn(cx, cy, ancla, mostrar = aplicarVista) {
   const ahora = aPlanoPunto(cx, cy);
   vista.x += ancla.x - ahora.x;
   vista.y += ancla.y - ahora.y;
-  aplicarVista();
+  mostrar();
 }
 
 // Guardar y reponer el encuadre: al rearmar la barra del mapa no se
@@ -1137,11 +1223,12 @@ function acercando(si) {
 
 function abajo(ev) {
   cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
+  asentarVista();                    // y el vuelo cortado queda donde iba
   svg.setPointerCapture(ev.pointerId);
   // La caja del lienzo, una sola vez para todo el gesto. Mientras el dedo
   // esté abajo no puede cambiar, y preguntarla en cada movimiento era
   // obligar al navegador a recalcular la disposición del plano entero.
-  if (!punteros.size) caja = svg.getBoundingClientRect();
+  if (!punteros.size) caja = medirCaja();
   punteros.set(ev.pointerId, ev);
 
   if (punteros.size >= 2) { soltarEspera(); iniciarZoom(); return; }
@@ -1255,7 +1342,7 @@ function movimiento(ev) {
     const h = w * (pinchInicial.h / pinchInicial.w);
     // el punto que estaba entre los dos dedos sigue estando ahí
     vista = { x: pinchInicial.x, y: pinchInicial.y, w, h };
-    anclarEn(pinchInicial.cx, pinchInicial.cy, pinchInicial.ancla);
+    anclarEn(pinchInicial.cx, pinchInicial.cy, pinchInicial.ancla, verVista);
     return;
   }
   if (!arrastre) return;
@@ -1271,7 +1358,7 @@ function movimiento(ev) {
     if (arrastre.espera) return;        // quieto esperando: el plano no se mueve
     vista.x = arrastre.vista.x - sx * arrastre.u;
     vista.y = arrastre.vista.y - sy * arrastre.u;
-    aplicarVista();
+    verVista();
     return;
   }
 
@@ -1351,7 +1438,7 @@ function arriba(ev) {
                    vista: { ...vista }, u: unidadesPorPixel() };
     } else {
       modo = 'ninguno';
-      acercando(false);
+      asentarVista();
       caja = null;                 // se soltó todo: la caja puede cambiar
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
@@ -1391,7 +1478,7 @@ function arriba(ev) {
   }
   modo = 'ninguno';
   arrastre = null;
-  if (!punteros.size) caja = null;   // se soltó todo: la caja puede cambiar
+  if (!punteros.size) { asentarVista(); caja = null; }   // se soltó todo: la caja puede cambiar
   if (repintadoPendiente) pintar(repintadoPendiente);
 }
 
