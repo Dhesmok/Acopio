@@ -348,7 +348,13 @@ export function grupoBigbags(o, color) {
     const d = disposicionBigbags(o.bigbags, o.bigbags_fila);
     const g = columnasBigbags(d.pilas.map((p) => ({ x: p.x, y: p.y, desde: 0, cuantos: p.alto })),
                               col, `${o.bigbags}-${o.bigbags_fila || 0}`);
-    return { ...g, disposicion: d };
+    // La base del grupo: un piso con borde que abarca todas sus columnas.
+    // Con varios grupos pegados en el patio, es lo que deja ver dónde
+    // acaba uno y empieza el otro; sin ella, los sacos de todos se
+    // confundían en una sola mancha.
+    const piso = `<rect class="piso-grupo" x="${f(-d.rx)}" y="${f(-d.ry)}" width="${f(2 * d.rx)}" height="${f(2 * d.ry)}"
+      rx="3" fill="${tono(col, -.55)}" fill-opacity=".45" stroke="${TINTA}" stroke-width="1.6"/>`;
+    return { ...g, base: piso + g.base, disposicion: d };
   });
 }
 

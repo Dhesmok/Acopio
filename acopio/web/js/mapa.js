@@ -754,24 +754,33 @@ function figuraLote(l, capa) {
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
   //
-  // Un grupo de bigbags NO lleva el código encima: los sacos son
-  // pequeños y dibujados, y un código encima no deja ver ni lo uno ni lo
-  // otro. Va FUERA del grupo, y DERECHO en pantalla aunque el grupo esté
-  // girado: el del piso justo debajo, y los montados encima justo arriba,
-  // uno por renglón, el último montado más arriba. Así se leen TODOS los
-  // códigos, también los de un grupo de una sola fila.
+  // Un grupo de bigbags lleva el código ADENTRO, centrado y derecho en
+  // pantalla aunque el grupo esté girado. Probamos a ponerlo debajo del
+  // grupo para no tapar los sacos, pero con varios grupos pegados ya no
+  // se sabía de quién era cada código: el código tiene que estar sobre
+  // SU grupo. Para que se lea sobre los sacos dibujados lleva una
+  // placa oscura detrás.
+  //
+  // Con lotes montados, todos los códigos del montaje van en un solo
+  // bloque centrado, uno por renglón: arriba el último montado y abajo
+  // el del piso, como quedan los bigbags.
   const piso = ap?.abajo || l;
   if (esGrupoBigbags(piso)) {
-    const rot = piso.rot || 0, g = rot * Math.PI / 180;
-    const cs = Math.abs(Math.cos(g)), sn = Math.abs(Math.sin(g));
-    // lo que ocupa el grupo en pantalla, ya girado
-    const ancho = piso.rx * cs + piso.ry * sn, alto = piso.rx * sn + piso.ry * cs;
-    const t = Math.max(11, Math.min(16, +((2 * ancho) / ((base + volqueta).length * .6 + FILO)).toFixed(1)));
-    const yp = ap?.abajo ? -alto - t * (.55 + 1.2 * ap.k) : alto + t * .75;
-    // de pantalla al marco del lote: girar (0, yp) al revés
-    const x = +(yp * Math.sin(g)).toFixed(1), y = +(yp * Math.cos(g)).toFixed(1);
-    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${-rot} ${x} ${y})">${
-      Dib.pintado(esc(base), t, x, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
+    const encima = [...apilado].filter(([, v]) => v.abajo?.id === piso.id)
+      .sort((x, y) => y[1].k - x[1].k).map(([id]) => datos.lotes.find((x) => x.id === id)).filter(Boolean);
+    const montaje = [...encima, piso];
+    const codigos = montaje.map((x) => { const p = partesCodigo(x.codigo); return p.base + p.volqueta; });
+    const largo = codigos.reduce((m, x) => (x.length > m.length ? x : m), '');
+    const giro = derecho(-(piso.rot || 0), piso.rot || 0);
+    const n = montaje.length;
+    const t = tamanoTexto(piso, largo, { min: 9, max: 18, lineas: n * Dib.INTERLINEA, giro, margen: 2 });
+    const i = montaje.findIndex((x) => x.id === l.id);
+    const y = (i - (n - 1) / 2) * t * Dib.INTERLINEA;
+    const w = (base + volqueta).length * .6 * t + t * .7, h = t * 1.05;
+    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${+giro.toFixed(1)})">
+      <rect class="placa-codigo" x="${+(-w / 2).toFixed(1)}" y="${+(y - h / 2).toFixed(1)}" width="${+w.toFixed(1)}" height="${+h.toFixed(1)}"
+        rx="${+(h * .25).toFixed(1)}" fill="#14171a" opacity=".62"/>${
+      Dib.pintado(esc(base), t, 0, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
   }
   const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
   // lleva lotes montados pero ya no es grupo (le cambiaron el material)

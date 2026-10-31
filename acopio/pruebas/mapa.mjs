@@ -343,21 +343,32 @@ ok(tamDiag >= 12 && tamDiag <= 28, `y a un tamaño con techo, no a lo que dé la
   ok(t * (5 * .6 + .22) / 2 < 70 - 4, `"PG303" cabe a lo ancho de su óvalo (${t})`);
 }
 
-// Un grupo de bigbags no lleva el código encima de los sacos: va debajo
-// del grupo y derecho en pantalla, aunque el grupo esté girado.
+// El código de un grupo de bigbags va ADENTRO de su grupo, centrado y
+// derecho en pantalla aunque el grupo esté girado. Debajo del grupo no
+// sirvió: con varios grupos pegados no se sabía de quién era cada código.
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
   { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
     bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
 {
-  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+) ([-\d.]+) ([-\d.]+)\)">\s*<text[^>]*>PG244</);
+  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+)\)">\s*<rect class="placa-codigo"[^>]*\/><text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
   ok(!!m && +m[1] === -60, 'el código del grupo va derecho en pantalla');
-  // de vuelta a pantalla: debajo del grupo, no encima de él
-  const x = +m?.[2], y = +m?.[3], g = 60 * Math.PI / 180;
-  const ys = x * Math.sin(g) + y * Math.cos(g), xs = x * Math.cos(g) - y * Math.sin(g);
+  ok(!!m && +m[2] === 0 && Math.abs(+m[3]) < 8, 'y en el centro de su grupo, no afuera');
+  ok(lienzo.innerHTML.includes('class="piso-grupo"'), 'el grupo lleva una base que marca hasta dónde llega');
   const d = Mapa.disposicionBigbags(27, 3);
-  ok(Math.abs(xs) < .5 && ys > d.rx * Math.sin(g) + d.ry * Math.cos(g),
-     `y justo debajo del grupo, fuera de los sacos (${ys.toFixed(0)} px bajo el centro)`);
   ok(d.rx < 30, `los bigbags van al 60 %: 3×3 columnas ocupan ${(2 * d.rx).toFixed(0)} de ancho`);
+}
+
+// Con un lote montado, los dos códigos van sobre el grupo, uno por
+// renglón: arriba el montado, abajo el del piso.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+  { id: 'm1', codigo: 'SM203', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+    bigbags: 4, bigbags_fila: 2, x: 400, y: 400, rx: 20, ry: 20, rot: 0 },
+  { id: 'm2', codigo: 'SM204', estado: 'muestreado', pila_id: null, forma: 'rectangulo', sobre_lote: 'm1',
+    bigbags: 2, bigbags_fila: 1, x: 400, y: 400, rx: 20, ry: 20, rot: 0 }] });
+{
+  const y = (c) => +(lienzo.innerHTML.match(new RegExp(`<text x="0" y="([-\\d.]+)"[^>]*>${c}<`)) || [])[1];
+  ok(y('SM204') < y('SM203') && y('SM203') - y('SM204') < 20,
+     `el montado arriba y el del piso abajo, pegados (${y('SM204')} / ${y('SM203')})`);
 }
 
 // ---------------------------------------------------------------------
