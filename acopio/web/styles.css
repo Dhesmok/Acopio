@@ -1061,7 +1061,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .g-lote:active, .g-pila:active { cursor: grabbing; }
 .g-lote > *, .g-pila > * { transition: stroke-width var(--t-rapido) var(--curva); }
 .txt-lote {
-  font-family: var(--mono); font-weight: 700;
+  font-family: var(--mono); font-weight: 800;
   pointer-events: none; user-select: none;
 }
 /* Al DESPLAZAR los códigos se quedan puestos: ahí el texto solo se
@@ -1072,12 +1072,10 @@ button:focus:not(:focus-visible) { outline: none; }
    doble con los códigos y acercar cuesta siete veces más. Solo el
    pellizco los apaga, y solo mientras dura. Ver mapa.js, acercando(). */
 #lienzo.acercando .txt-lote { display: none; }
-/* Lo mismo con las placas de los códigos, el letrero de las pilas y la
-   textura de grano: la textura es un patrón, y un patrón se vuelve a
+/* Lo mismo con el nombre de las pilas y la textura de grano: la textura es un patrón, y un patrón se vuelve a
    rasterizar en cada cuadro de zoom. Solo durante el pellizco. */
 #lienzo.acercando .rotulo-lote, #lienzo.acercando .rotulo-mapa,
 #lienzo.acercando .textura { display: none; }
-.txt-letrero { font-family: var(--mono); pointer-events: none; user-select: none; }
 
 /* Mantener para mover: el aro se llena en lo que dura la espera. */
 .aro-mantener { pointer-events: none; }
@@ -1099,13 +1097,11 @@ button:focus:not(:focus-visible) { outline: none; }
   .g-lote .cuerpo-lote, .g-lote .sombra-lote { transition: none; }
   .g-lote.apoyando .cuerpo-lote { animation: none; }
 }
-.pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
+/* El nombre de la pila va pintado como los códigos de los lotes: el
+   color (blanco con filo negro) lo pone mapa.js en el propio texto, así
+   que aquí NO va `fill`, que le ganaría. */
 .txt-pila {
-  font-family: var(--mono); font-weight: 700;
-  fill: #14171a; pointer-events: none; user-select: none;
-}
-.txt-pila-sub {
-  font-weight: 600; fill: #4d4a43;
+  font-family: var(--mono); font-weight: 800;
   pointer-events: none; user-select: none;
 }
 .txt-fondo {
@@ -1587,7 +1583,6 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
    mismo desaparecio el `backdrop-filter` de los controles flotantes:
    ahora son opacos, que ademas se leen mejor a pleno sol. */
 .txt-lote { letter-spacing: -.03em; }
-.txt-pila { letter-spacing: -.02em; }
 .txt-fondo { letter-spacing: .06em; text-transform: uppercase; }
 .ctrl:active, .btn-mapa:active { transform: translate(2px, 2px); }
 .grupo-herramientas { box-shadow: var(--sombra-media); }

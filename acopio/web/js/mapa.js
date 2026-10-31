@@ -535,24 +535,20 @@ function verticesDe(o) {
 }
 
 // La pila es UN montón con la forma de sus vértices y no muestra los
-// lotes de adentro (ver dibujo.js, montonPila). Lo que se lee de lejos
-// es el letrero: número, cuántos lotes y cuántos hay de cada estado.
-//
-// El letrero va en unidades del plano y se escala con el ancho de la
-// pila, no con el zoom: así no hay que rearmar el plano al acercar.
-const ORDEN_ESTADOS = ['alimentado', 'facturado', 'muestreado', 'remuestreo', 'por_muestrear', 'devolucion'];
+// lotes de adentro (ver dibujo.js, montonPila). Encima solo lleva su
+// nombre, PINTADO sobre el material como el código de los lotes. Cuántos
+// lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
+// plano no hace falta.
 function figuraPila(p, lotes) {
-  const suyos = lotes.filter((l) => l.pila_id === p.id);
-  const pal = paleta();
-  const col = pal[`pila_${p.tipo}`] || '#14171a';
-  const m = Dib.montonPila(verticesDe(p), suyos.length, col);
-  const conteo = ORDEN_ESTADOS.map((e) => [pal[e] || '#5f6863', suyos.filter((l) => l.estado === e).length]);
-  const s = +Math.min(1.5, Math.max(.45, m.ancho / 320)).toFixed(2);
+  const n = lotes.filter((l) => l.pila_id === p.id).length;
+  const col = paleta()[`pila_${p.tipo}`] || '#14171a';
+  const m = Dib.montonPila(verticesDe(p), n, col);
+  const rotulo = `PILA ${p.codigo}`, c = anclaTexto(p);
+  const t = tamanoTexto(p, rotulo, { min: 12, max: 34, paso: .66 });
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
     <g class="cuerpo-lote">${m.svg}</g>
-    <g class="rotulo-mapa" transform="translate(${m.tope[0].toFixed(1)} ${(m.tope[1] - 8 * s).toFixed(1)}) rotate(${-(p.rot || 0)}) scale(${s})">
-      ${Dib.letreroPila(`PILA ${esc(p.codigo)}`, suyos.length, conteo, col)}</g>
+    <g class="rotulo-mapa">${Dib.pintado(esc(rotulo), t, c.x, c.y + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
   </g>`;
 }
 
@@ -608,21 +604,12 @@ function figuraLote(l, capa) {
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
   const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
-  // El código va en una PLACA blanca con letra negra: se lee igual sobre
-  // cualquier color, también sobre el negro de una devolución vencida y
-  // sobre el relieve del montón. Si la placa es más ancha que el lote,
-  // se cuelga debajo como una etiqueta y el montón sigue viéndose.
-  const ancho = (base.length + volqueta.length * .62) * t * .62 + t * 1.1;
-  const caja = cajaInterior(l, t);
-  const y = ancho > caja.w * 1.15 && l.forma !== 'poligono' ? l.ry + t * 1.05 : c.y + t * .35;
-  return `<g ${marca}><g class="cuerpo-lote rotulo-lote">
-    <rect x="${(c.x - ancho / 2).toFixed(1)}" y="${(y - t * 1.1).toFixed(1)}" width="${ancho.toFixed(1)}" height="${(t * 1.5).toFixed(1)}"
-      rx="3" fill="#fdfbf7" stroke="#14171a" stroke-width="1.4"/>
-    <text x="${c.x}" y="${y.toFixed(1)}" text-anchor="middle" class="txt-lote"
-      font-size="${t}" fill="#14171a">${esc(base)}${
-      volqueta ? `<tspan font-size="62%" dy="${(-t * .38).toFixed(1)}"
-        >${esc(volqueta)}</tspan>` : ''}</text>
-  </g></g>`;
+  // El código va PINTADO sobre el montón: letra blanca con filo negro,
+  // como marcado con spray en el material. No lleva caja, así que no tapa
+  // el relieve, y el filo lo hace legible sobre cualquier color de estado
+  // y sobre la foto aérea.
+  return `<g ${marca}><g class="cuerpo-lote rotulo-lote">${
+    Dib.pintado(esc(base), t, c.x, c.y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g>`;
 }
 
 const hoyISO = () => {

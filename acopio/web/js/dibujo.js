@@ -419,25 +419,16 @@ export function montonPila(ps, n, colTipo) {
   });
 }
 
-// El letrero de la pila: número, cuántos lotes y una barra con cuántos
-// hay de cada estado. Es lo único que se lee de la pila de lejos.
-// `conteo` = [[color, cantidad]…] ya en el orden en que se quieren.
-export function letreroPila(rotulo, n, conteo, colTipo) {
-  const W = 150, ancho = W - 20, total = Math.max(1, conteo.reduce((s, [, c]) => s + c, 0));
-  let x = -W / 2 + 10;
-  const barra = conteo.filter(([, c]) => c > 0).map(([col, c]) => {
-    const w = ancho * c / total, r = `<rect x="${f(x)}" y="8" width="${f(w)}" height="8" fill="${hexValido(col)}"/>`;
-    x += w; return r;
-  }).join('');
-  return `<g class="letrero">
-    <line x1="-44" y1="24" x2="-44" y2="34" stroke="${TINTA}" stroke-width="3"/>
-    <line x1="44" y1="24" x2="44" y2="34" stroke="${TINTA}" stroke-width="3"/>
-    <rect x="${-W / 2}" y="-22" width="${W}" height="46" fill="${TINTA}"/>
-    <rect x="${-W / 2}" y="-22" width="5" height="46" fill="${hexValido(colTipo, TINTA)}"/>
-    <text x="${-W / 2 + 10}" y="-3" class="txt-letrero" font-size="16" font-weight="800" fill="#f2c007">${rotulo}</text>
-    <text x="${W / 2 - 10}" y="-3" text-anchor="end" class="txt-letrero" font-size="11" font-weight="600" fill="#fdfbf7">${n} lote${n === 1 ? '' : 's'}</text>
-    ${barra}<rect x="${-W / 2 + 10}" y="8" width="${ancho}" height="8" fill="none" stroke="#fdfbf7" stroke-width="1"/>
-  </g>`;
+// Texto PINTADO sobre el material: letra blanca con filo negro, como
+// marcado con spray. El filo va por detrás del relleno (paint-order), así
+// que engorda hacia afuera y la letra no adelgaza. Sirve para el código
+// de un lote y para el nombre de una pila. `texto` y `volqueta` llegan ya
+// escapados.
+export function pintado(texto, t, x, y, { volqueta = '', espaciado = .04, clase = '' } = {}) {
+  return `<text x="${f(x)}" y="${f(y)}" text-anchor="middle"${clase ? ` class="${clase}"` : ''}
+    font-size="${f(t)}" letter-spacing="${f(t * espaciado)}" fill="#fdfbf7"
+    stroke="${TINTA}" stroke-width="${f(Math.max(2, t * .22))}" stroke-linejoin="round" paint-order="stroke">${texto}${
+    volqueta ? `<tspan font-size="62%" dy="${f(-t * .38)}">${volqueta}</tspan>` : ''}</text>`;
 }
 
 // ======================================================== volqueta

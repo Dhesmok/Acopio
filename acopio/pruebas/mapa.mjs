@@ -272,18 +272,17 @@ const caseta = tamRotulo({ figuras: [{ id: 'f1', forma: 'rectangulo', etiqueta: 
   x: 300, y: 300, rx: 180, ry: 110, rot: 0, color: '#ccc' }] }, 'CASETA');
 ok(caseta > 25, `la etiqueta de una caseta grande la llena, no se queda en 13px (${caseta})`);
 
-// El letrero de una pila va clavado en su borde de ARRIBA, sea cual sea
-// la forma que le dieron: al arrastrar los vértices se va con el borde y
-// nunca queda colgando fuera de la pila ni tapando su centro.
+// el nombre de un polígono va en el centro de sus vértices, no en el
+// origen: al arrastrarlos, el origen deja de estar dentro de la figura
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [
   { id: 'pz', codigo: 'SAN JUDAS', tipo: 'otro', estado: 'abierta', forma: 'poligono',
     x: 300, y: 300, rx: 150, ry: 110, rot: 0,
     puntos: [{ x: -120, y: 60 }, { x: -80, y: -90 }, { x: 60, y: -120 },
              { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
-const [, lx, ly] = lienzo.innerHTML.match(/class="rotulo-mapa" transform="translate\(([-\d.]+) ([-\d.]+)\)/) || [];
-ok(+lx > -120 && +lx < 120 && +ly < -100,
-   `el letrero se ancla en el borde de arriba de la pila (${lx}, ${ly})`);
-ok(lienzo.innerHTML.includes('PILA SAN JUDAS'), 'y lleva el nombre de la pila');
+const anclaX = +(lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/) || [])[1];
+ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
+ok(lienzo.innerHTML.includes('>PILA SAN JUDAS<'), 'y lleva solo el nombre de la pila');
+ok(!/\d+ lotes?</.test(lienzo.innerHTML), 'sin la cantidad de lotes: eso se ve al entrar a la pila');
 
 // ---------------------------------------------------------------------
 titulo('Buscar un lote lleva el plano hasta él y lo señala.');
@@ -545,8 +544,8 @@ const vencido = negro('2020-01-01', 'devolucion');
 ok(vencido.includes('fill="#14171a"'), 'el lote sin recoger se rellena de negro');
 ok(!vencido.includes('stroke-dasharray="8 5"'), 'y se va el borde rojo a rayas');
 ok(!vencido.includes('stroke-width="10"'), 'y el borde vuelve al grosor de siempre');
-ok(/<rect[^>]*fill="#fdfbf7"[^>]*\/>\s*<text[^>]*fill="#14171a"/.test(vencido),
-   'el código va en su placa blanca con letra negra, que sobre negro se lee');
+const pintadoBlanco = (html) => /<text[^>]*class="txt-lote"[^>]*fill="#fdfbf7"[^>]*stroke="#14171a"[^>]*paint-order="stroke"/.test(html);
+ok(pintadoBlanco(vencido), 'el código va pintado en blanco con filo negro, que sobre negro se lee');
 
 const aTiempo = negro('2099-01-01', 'devolucion');
 ok(!aTiempo.includes('fill="#14171a" stroke'), 'una devolución en plazo conserva su color');
@@ -616,14 +615,14 @@ ok(/#boton-nuevo:empty[^{]*{[^}]*display:\s*none/.test(css),
 // ---------------------------------------------------------------------
 titulo('El texto encima de un color se lee: ámbar con letra oscura.');
 
-// En el plano el código ya no va directo sobre el color: va en una placa
-// blanca con letra negra, así que se lee igual sobre cualquier estado y
-// sobre el relieve del montón. Fuera del plano (fichas, botones) sigue
-// mandando contraste() de app.js.
-const placaNegra = (html) => /<rect[^>]*fill="#fdfbf7"[^>]*\/>\s*<text[^>]*fill="#14171a"/.test(html);
-ok(placaNegra(negro(null, 'por_muestrear')),
-   'sobre el ámbar de "por muestrear" el código va oscuro en su placa');
-ok(placaNegra(negro(null, 'facturado')), 'y sobre el azul de "facturado", igual: placa blanca, letra negra');
+// En el plano el código va pintado: letra blanca con filo negro, así que
+// se lee igual sobre cualquier estado, sobre el relieve del montón y
+// sobre la foto aérea, sin caja que lo tape. Fuera del plano (fichas,
+// botones) sigue mandando contraste() de app.js.
+ok(pintadoBlanco(negro(null, 'por_muestrear')),
+   'sobre el ámbar de "por muestrear" el código se lee: blanco con filo negro');
+ok(pintadoBlanco(negro(null, 'facturado')), 'y sobre el azul de "facturado", igual');
+ok(!/<rect[^>]*fill="#fdfbf7"/.test(negro(null, 'facturado')), 'sin placa ni caja debajo del código');
 ok(/function contraste\(/.test(fuenteApp), 'las fichas siguen eligiendo letra clara u oscura según el fondo');
 
 // ---------------------------------------------------------------------
