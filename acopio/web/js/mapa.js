@@ -109,7 +109,7 @@ export function montar(contenedor, callbacks) {
   cb = callbacks;
   reiniciarInteraccion();
   repintadoPendiente = null;
-  ultimoDibujo = '';
+  ultimoDibujo = ''; enLienzo = null;
   seleccion = null;
   // El lienzo es MÁS GRANDE que su caja: sobra un SOBRA de cada lado,
   // escondido por el recorte de la caja. Es el margen que se ve al
@@ -287,7 +287,7 @@ export function pintar(d) {
   apilado = calcularApilado(sueltos);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
 
-  const dibujo = `
+  const fondo = `
     <defs>
       <pattern id="reticula" width="50" height="50" patternUnits="userSpaceOnUse">
         <path d="M50 0H0V50" fill="none" stroke="#14171a" stroke-width="1" opacity=".07"/>
@@ -299,13 +299,21 @@ export function pintar(d) {
         opacity="${c.imagen_opacidad ?? 1}" preserveAspectRatio="none"/>` : ''}
     ${c.imagen_url ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}
     <rect x="0" y="0" width="${c.ancho}" height="${c.alto}"
-          fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>
-    ${datos.figuras.map(figuraFondo).join('')}
-    ${capasPila(pilasVivas, datos.lotes)}
-    <g class="atenuado">${capasLote(sueltos.filter((l) => tenue(l.id)))}</g>
-    ${capasLote(sueltos.filter((l) => !tenue(l.id)))}
-    ${recorrido(datos.recorrido)}
-    ${seleccion ? manijas() : ''}`;
+          fill="none" stroke="#14171a" stroke-width="2" stroke-dasharray="10 8" opacity=".3"/>`;
+
+  // El plano va en CAPAS fijas, en el orden en que se apilan. Las de
+  // figuras, pilas y lotes son listas de piezas con su clave; el fondo y
+  // lo de encima (recorrido, manijas) son un bloque cada uno.
+  const capas = [
+    { nombre: 'fondo', bloque: fondo },
+    { nombre: 'figuras', piezas: datos.figuras.map((f) => ({ k: f.id, html: figuraFondo(f) })) },
+    { nombre: 'pilas', piezas: capasPila(pilasVivas, datos.lotes) },
+    { nombre: 'tenue', attrs: ' class="atenuado"', piezas: capasLote(sueltos.filter((l) => tenue(l.id))) },
+    { nombre: 'lotes', piezas: capasLote(sueltos.filter((l) => !tenue(l.id))) },
+    { nombre: 'encima', bloque: `${recorrido(datos.recorrido)}${seleccion ? manijas() : ''}` }
+  ];
+  for (const k of capas) k.html = k.bloque ?? k.piezas.map((x) => x.html).join('');
+  const dibujo = capas.map((k) => `<g data-capa="${k.nombre}"${k.attrs || ''}>${k.html}</g>`).join('');
 
   // Si sale exactamente el mismo plano, no se toca el SVG.
   //
@@ -323,7 +331,110 @@ export function pintar(d) {
   if (dibujo === ultimoDibujo) return;
   ultimoDibujo = dibujo;
   // La capa del GPS NO va aquí: ver ponerGps.
-  svg.innerHTML = dibujo;
+  if (!parchear(capas)) {
+    svg.innerHTML = dibujo;
+    recordarCapas(capas);
+  }
+}
+
+// ------------------------------------------------ repintar solo lo cambiado
+// Cuando algo cambia —un lote que cambia de estado, otro que llega, uno
+// que se arrastra o se ajusta— ya no se rearma el plano entero: se
+// cambian solo las piezas cuyo texto cambió. Rearmarlo eran miles de
+// nodos destruidos y vueltos a crear, y luego estilo, disposición y
+// pintado de todos; con la CPU frenada 6 veces, casi 200 ms por cambio
+// en un patio de 150 lotes. Ajustando la forma de un lote pasaba en
+// CADA movimiento del dedo.
+//
+// Cada pieza es UN elemento (el <g> de un lote, una pila o una figura) y
+// se recuerda con su texto. Al repintar, las que tienen el mismo texto se
+// quedan donde están; las demás se arman todas de una vez y se ponen en
+// su sitio. Si algo no cuadra —una pieza que no dio exactamente un
+// elemento, una capa que ya no está en el lienzo— se rearma todo como
+// antes: lo peor que puede pasar es ir igual de lento, nunca pintar mal.
+let enLienzo = null;   // nombre de capa → { nodo, piezas: Map(k → { html, el }) }
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function recordarCapas(capas) {
+  enLienzo = null;
+  if (typeof document === 'undefined' || !svg.children) return;
+  const nuevo = { vuelta: Dib.vueltaCache(), capas: new Map() };
+  const nodos = [...svg.children];
+  if (nodos.length < capas.length) return;
+  for (let i = 0; i < capas.length; i++) {
+    const k = capas[i], nodo = nodos[i];
+    if (nodo.getAttribute('data-capa') !== k.nombre) return;
+    const r = { nodo, html: k.html, piezas: null };
+    if (k.piezas) {
+      const hijos = [...nodo.children];
+      if (hijos.length === k.piezas.length) {
+        r.piezas = new Map();
+        k.piezas.forEach((x, j) => r.piezas.set(x.k, { html: x.html, el: hijos[j] }));
+        if (r.piezas.size !== k.piezas.length) r.piezas = null;   // clave repetida
+      }
+    }
+    nuevo.capas.set(k.nombre, r);
+  }
+  enLienzo = nuevo;
+}
+
+// Arma de una sola vez los elementos de varias piezas. null si alguna no
+// dio exactamente un elemento.
+function armar(htmls) {
+  const g = document.createElementNS(SVGNS, 'g');
+  g.innerHTML = htmls.join('');
+  const hijos = [...g.children];
+  return hijos.length === htmls.length ? hijos : null;
+}
+
+function parchear(capas) {
+  const p = enLienzo;
+  // Las figuras guardadas en dibujo.js llevan ids (los recortes) que se
+  // vuelven a numerar si su memoria se vacía: ahí un elemento viejo y uno
+  // nuevo podrían llamarse igual, así que se rearma todo.
+  if (!p || p.vuelta !== Dib.vueltaCache() || typeof document === 'undefined') return false;
+  for (const k of capas) {
+    const r = p.capas.get(k.nombre);
+    if (!r || r.nodo.parentNode !== svg) return false;
+  }
+  for (const k of capas) {
+    const r = p.capas.get(k.nombre);
+    if (r.html === k.html) continue;
+    r.html = k.html;
+    if (!k.piezas || !r.piezas) {
+      r.nodo.innerHTML = k.html;
+      r.piezas = null;
+      if (k.piezas) {
+        const hijos = [...r.nodo.children];
+        if (hijos.length === k.piezas.length) {
+          r.piezas = new Map(k.piezas.map((x, j) => [x.k, { html: x.html, el: hijos[j] }]));
+          if (r.piezas.size !== k.piezas.length) r.piezas = null;
+        }
+      }
+      continue;
+    }
+    const claves = new Set(k.piezas.map((x) => x.k));
+    if (claves.size !== k.piezas.length) { enLienzo = null; return false; }
+    const nuevas = k.piezas.filter((x) => r.piezas.get(x.k)?.html !== x.html);
+    const cambian = new Set(nuevas.map((x) => x.k));
+    const els = nuevas.length ? armar(nuevas.map((x) => x.html)) : [];
+    if (!els) { enLienzo = null; return false; }
+    // fuera lo que ya no está y lo que se va a cambiar
+    for (const [clave, v] of r.piezas) {
+      const sigue = claves.has(clave) && !cambian.has(clave);
+      if (!sigue) { v.el.remove(); r.piezas.delete(clave); }
+    }
+    nuevas.forEach((x, j) => r.piezas.set(x.k, { html: x.html, el: els[j] }));
+    // y todo en su orden, moviendo solo lo que no está en su sitio
+    let ref = r.nodo.firstElementChild;
+    for (const x of k.piezas) {
+      const el = r.piezas.get(x.k).el;
+      if (el === ref) { ref = ref.nextElementSibling; continue; }
+      r.nodo.insertBefore(el, ref);
+    }
+    while (ref) { const sig = ref.nextElementSibling; ref.remove(); ref = sig; }
+  }
+  return true;
 }
 
 // ------------------------------------------------------------------ GPS
@@ -434,10 +545,14 @@ function capasLote(ls) {
   const montado = (l) => !!apilado.get(l.id)?.abajo;
   const piso = orden.filter((l) => !montado(l));
   const arriba = orden.filter(montado).sort((a, b) => apilado.get(a.id).orden - apilado.get(b.id).orden);
-  const pasada = (xs) => xs.map((l) => figuraLote(l, 'trazo')).join('')
-    + xs.map((l) => figuraLote(l, 'relleno')).join('');
-  return pasada(piso) + arriba.map((l) => figuraLote(l, 'trazo') + figuraLote(l, 'relleno')).join('')
-    + orden.map((l) => figuraLote(l, 'rotulo')).join('');
+  // Cada pieza con su clave, para poder cambiar solo las que cambian
+  // (ver parchear): t = trazo, r = relleno, c = código.
+  const pieza = (l, capa) => ({ k: `${{ trazo: 't', relleno: 'r', rotulo: 'c' }[capa]}:${l.id}`, html: figuraLote(l, capa) });
+  return [
+    ...piso.map((l) => pieza(l, 'trazo')), ...piso.map((l) => pieza(l, 'relleno')),
+    ...arriba.flatMap((l) => [pieza(l, 'trazo'), pieza(l, 'relleno')]),
+    ...orden.map((l) => pieza(l, 'rotulo'))
+  ];
 }
 
 // ------------------------------------------------- bigbags montados
@@ -516,7 +631,7 @@ export function montadoSobre(id) {
 // los lotes se siguen fundiendo entre ellos, que se hace con el orden de
 // las capas y no necesita máscara ninguna.
 function capasPila(ps, lotes) {
-  return ps.map((p) => figuraPila(p, lotes)).join('');
+  return ps.map((p) => ({ k: p.id, html: figuraPila(p, lotes) }));
 }
 
 const trazo = (o) => `transform="translate(${o.x} ${o.y}) rotate(${o.rot || 0})"`;
@@ -629,7 +744,34 @@ const FILO = .22;   // el trazo negro del pintado, en em (ver Dib.pintado)
 //
 // `centro` (opcional, en el marco de la figura) mide el bloque puesto en
 // otro sitio que el ancla: así se busca dónde le cabe más grande.
-function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
+//
+// El resultado se RECUERDA: depende solo de la forma, del texto y de las
+// opciones, y el plano se vuelve a armar en cada sincronización, cada
+// búsqueda y cada cambio de estado. Medido con la CPU frenada 6 veces,
+// esta búsqueda (doce tanteos por rótulo, contra los 28 lados del óvalo)
+// era casi todo lo que costaba armar el plano: ~270 ms por repintado con
+// 150 lotes, aunque no hubiera cambiado nada.
+const medidas = new Map();
+function recordarMedida(clave, calcular) {
+  let v = medidas.get(clave);
+  if (v === undefined) {
+    if (medidas.size > 4000) medidas.clear();
+    v = calcular();
+    medidas.set(clave, v);
+  }
+  return v;
+}
+// lo que define la forma de una figura en su propio marco
+const firmaForma = (o) => o.forma === 'poligono'
+  ? 'p' + listaPuntos(o).map((q) => `${q.x},${q.y}`).join(';')
+  : `${o.forma === 'rectangulo' ? 'r' : 'e'}${o.rx},${o.ry}`;
+function tamanoTexto(o, texto, op) {
+  const c = op.centro;
+  return recordarMedida(`t|${firmaForma(o)}|${texto}|${op.min}|${op.max}|${op.lineas ?? 1}|${
+    op.paso ?? .6}|${op.margen ?? 5}|${op.giro ?? 0}|${c ? `${c.x},${c.y}` : ''}`,
+    () => medirTexto(o, texto, op));
+}
+function medirTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
   const c = centro || anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
   const ps = verticesDe(o).map(([x, y]) => giro
     ? [c.x + (x - c.x) * cs - (y - c.y) * sn, c.y + (x - c.x) * sn + (y - c.y) * cs] : [x, y]);
@@ -698,6 +840,9 @@ const derecho = (giro, rot) => {
 // muy angosta, mejor chico y adentro.
 const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
+  return recordarMedida(`r|${firmaForma(p)}|${p.rot || 0}|${p.codigo}`, () => calcularRotuloPila(p));
+}
+function calcularRotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
   const giro = derecho(-rot, rot);
   const ps = verticesDe(p), a = anclaTexto(p);
@@ -1134,7 +1279,7 @@ export function deshacerGeom(tipo, id, antes) {
   // Lo arrastrado se movió tocando el SVG a mano, sin repintar: el texto
   // armado es igual al de antes del gesto y pintar() no tocaría nada. Se
   // fuerza el repintado para que todo vuelva a su sitio en pantalla.
-  ultimoDibujo = '';
+  ultimoDibujo = ''; enLienzo = null;
   pintarYa();
 }
 

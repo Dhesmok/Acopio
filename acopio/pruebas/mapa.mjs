@@ -1168,4 +1168,29 @@ ok(/this\.innerHTML = antes;/.test(acc), 'y se le devuelve entero al terminar');
 ok(/this\.textContent = ocupado;/.test(acc),
    'y lo que se enseña mientras trabaja se pinta como texto, nunca como marcado');
 
+// ---------------------------------------------------------------------
+titulo('El tamaño de los rótulos se recuerda, pero sigue a la forma.');
+
+// Medir cuánto cabe un código en su figura era casi todo lo que costaba
+// armar el plano, y ahora se recuerda. Lo que no puede pasar es que se
+// recuerde DE MÁS: un polígono al que le arrastran un vértice, o un
+// óvalo que agrandan, tienen que volver a medirse.
+const memoTam = () => Number(/class="txt-lote"[^>]*font-size="([\d.]+)"|font-size="([\d.]+)"[^>]*class="txt-lote"/
+  .exec(lienzo.innerHTML)?.slice(1).find(Boolean));
+const memoPintar = (l) => Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [],
+  lotes: [{ id: 'm1', codigo: 'PG1234', estado: 'por_muestrear', pila_id: null, x: 300, y: 300, rot: 0, ...l }] });
+const memoAngosto = [{ x: -40, y: -14 }, { x: 40, y: -14 }, { x: 40, y: 14 }, { x: -40, y: 14 }];
+const memoAncho = [{ x: -80, y: -30 }, { x: 80, y: -30 }, { x: 80, y: 30 }, { x: -80, y: 30 }];
+memoPintar({ forma: 'poligono', rx: 40, ry: 14, puntos: memoAngosto });
+const memoChico = memoTam();
+memoPintar({ forma: 'poligono', rx: 40, ry: 14, puntos: memoAncho });
+const memoGrande = memoTam();
+ok(memoChico > 0 && memoGrande > memoChico, `un polígono más ancho deja el código más grande (${memoChico} → ${memoGrande})`);
+memoPintar({ forma: 'poligono', rx: 40, ry: 14, puntos: memoAngosto });
+ok(memoTam() === memoChico, 'y al volver a la forma de antes vuelve al tamaño de antes');
+memoPintar({ forma: 'elipse', rx: 30, ry: 14 });
+const memoOvalo = memoTam();
+memoPintar({ forma: 'elipse', rx: 70, ry: 34 });
+ok(memoTam() > memoOvalo, 'un óvalo agrandado también se vuelve a medir');
+
 cerrar();

@@ -613,7 +613,11 @@ input.placa { text-transform: uppercase; }
   background: rgb(var(--sombra-tinte) / .62);
   display: flex; align-items: flex-end; justify-content: center;
   animation: aparecer var(--t-medio) var(--curva);
-  backdrop-filter: blur(4px);
+  /* Sin backdrop-filter: desenfocar lo de atrás obliga a la tarjeta
+     gráfica a leer y emborronar la pantalla entera en cada cuadro de la
+     animación, y detrás está el plano, que es la capa más pesada de la
+     app. En un gama baja la hoja subía a tirones. El velo oscuro ya
+     separa la hoja del fondo. */
 }
 .hoja {
   position: relative;
@@ -855,6 +859,14 @@ button:focus:not(:focus-visible) { outline: none; }
 .lista > *:nth-child(4) { animation-delay: 54ms; }
 .lista > *:nth-child(5) { animation-delay: 70ms; }
 .lista > *:nth-child(n+6) { animation-delay: 84ms; }
+/* Solo entran animadas las primeras: la lista se rearma entera con cada
+   letra de la búsqueda y cada sincronización, y animar cien tarjetas
+   que ni se ven era trabajo puro para un teléfono modesto. */
+.lista > *:nth-child(n+13) { animation: none; }
+/* Las tarjetas que quedan fuera de la pantalla no se disponen ni se
+   pintan hasta que uno baja hasta ellas. Con cientos de lotes es la
+   diferencia entre rearmar la lista al instante o a tirones. */
+.lista > .lote { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 @keyframes entrar { from { opacity: 0; transform: translateY(5px); } }
 
 /* =====================================================================
