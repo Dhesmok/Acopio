@@ -272,8 +272,10 @@ export function bigbag(o, color) {
 // esas columnas (`bigbags_fila`: cuántas van por fila), nunca el tamaño
 // de cada bigbag: un bigbag mide lo mismo en cualquier lote.
 export const ALTO_BIGBAGS = 3;
-export const LADO_BIGBAG = 26;        // unidades del plano por bigbag
-const HUECO_BIGBAG = 4;               // pasillo entre columnas
+// Medidas al 60 % de las primeras: a 26 unidades un bigbag salía del
+// tamaño de medio lote de granel, y en el patio es bastante menos.
+export const LADO_BIGBAG = 15.6;      // unidades del plano por bigbag
+const HUECO_BIGBAG = 2.4;             // pasillo entre columnas
 export const PASO_BIGBAG = LADO_BIGBAG + HUECO_BIGBAG;
 
 // Dónde va cada columna y cuántos bigbags lleva. Las columnas van llenas
@@ -291,7 +293,7 @@ export function disposicionBigbags(n, porFila) {
     alto: i < columnas - 1 ? ALTO_BIGBAGS : total - ALTO_BIGBAGS * (columnas - 1)
   }));
   // rx/ry del lote: lo que ocupa el grupo, con el margen de las sombras
-  return { pilas, porFila: ancho, filas, rx: f(W / 2 + 3), ry: f(H / 2 + 3) };
+  return { pilas, porFila: ancho, filas, rx: f(W / 2 + 2), ry: f(H / 2 + 2) };
 }
 
 // Las columnas se ven desde arriba: se ve el bigbag de encima, y por
@@ -303,27 +305,27 @@ export function disposicionBigbags(n, porFila) {
 // `cols` = [{x, y, desde, cuantos}]: en qué columna, desde qué nivel
 // (0 = el piso) y cuántos bigbags pone ESTE lote. Un lote en el piso
 // empieza en 0; uno montado encima de otro empieza donde acaba el de abajo.
-const SUBE_NIVEL = 2.6;
+const SUBE_NIVEL = 1.6;
 function columnasBigbags(cols, col, clave, { sombra = true } = {}) {
-  const L = LADO_BIGBAG, m = L / 2, r = 3.5;
+  const L = LADO_BIGBAG, m = L / 2, r = 2.1;
   const sombras = [], bordes = [], cuerpos = [];
   cols.forEach((p, k) => {
     const tope = p.desde + p.cuantos;                   // altura total de la columna
     const subir = (tope - 1) * SUBE_NIVEL;
     const tx = p.x - subir, ty = p.y - subir;
     if (sombra) {
-      const s = 4 + tope * 3;
+      const s = 2.4 + tope * 1.8;
       sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
     }
     for (let i = p.desde; i < tope; i++) {
       const x = p.x - i * SUBE_NIVEL - m, y = p.y - i * SUBE_NIVEL - m;
-      bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (tope - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
+      bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (tope - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="1.8"/>`);
     }
     const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
     const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
     const id = `gbc${k}-${clave}`;
     const marcas = Array.from({ length: tope }, (_, i) =>
-      `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
+      `<rect x="${f(x1 - 2.8 - i * 2.2)}" y="${f(y1 - 3.4)}" width="1.5" height="2.2" fill="${TINTA}"/>`).join('');
     cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
       <g clip-path="url(#${id})">
         ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
@@ -332,8 +334,8 @@ function columnasBigbags(cols, col, clave, { sombra = true } = {}) {
         ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
         <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
       </g>
-      <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
-      <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
+      <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.2"/>
+      <circle cx="${f(cx)}" cy="${f(cy)}" r="2.1" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1"/>
       ${marcas}`);
   });
   return { base: (sombras.length ? `<g class="sombra-lote">${sombras.join('')}</g>` : '') + bordes.join(''),

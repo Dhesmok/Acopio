@@ -305,6 +305,61 @@ ok(filas.join(' ') === 'PILA 1 (ARENAS FINAS)', 'sin perder ni cambiar ninguna p
 ok(filas.includes('(ARENAS FINAS)'), 'y lo que va entre paréntesis no se parte');
 ok(!/\d+ lotes?</.test(lienzo.innerHTML), 'sin la cantidad de lotes: eso se ve al entrar a la pila');
 
+// El caso que lo motivó: una pila larga y angosta, girada, con el
+// montón en diagonal dentro de su propio marco. Medido contra la caja
+// del polígono, "PILA 1 (ARENAS)" salía a tope y cruzaba el montón de
+// lado a lado, sobresaliendo por arriba y por abajo.
+const diagonal = { id: 'pd', codigo: '1 (ARENAS)', tipo: 'otro', estado: 'abierta', forma: 'poligono',
+  x: 300, y: 300, rx: 200, ry: 80, rot: 65,
+  puntos: [[-180, -100], [-150, -110], [150, 50], [160, 100], [130, 112], [-20, 105], [-190, 20], [-187, -65]]
+    .map(([px, py]) => { const g = -65 * Math.PI / 180;
+      return { x: +(px * Math.cos(g) - py * Math.sin(g)).toFixed(1), y: +(px * Math.sin(g) + py * Math.cos(g)).toFixed(1) }; }) };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [diagonal] });
+const rotuloDiag = lienzo.innerHTML.match(/<g class="rotulo-mapa"(?: transform="rotate\(([-\d.]+)[^"]*")?>\s*<text[^>]*font-size="([\d.]+)"/);
+const giroDiag = +(rotuloDiag?.[1] || 0), tamDiag = +(rotuloDiag?.[2] || 0);
+const enPantalla = giroDiag + 65;
+ok(Math.abs(enPantalla - 25) < 8,
+   `en una pila larga y girada el nombre va a lo largo del montón (${enPantalla.toFixed(0)}° en pantalla)`);
+ok(tamDiag >= 12 && tamDiag <= 28, `y a un tamaño con techo, no a lo que dé la caja (${tamDiag})`);
+// el bloque de texto, girado como va, entra entero en el polígono
+{
+  const pts = diagonal.puntos.map((q) => [q.x, q.y]);
+  const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length;
+  const dentro = (x, y) => { let d = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[j];
+      if ((ay > y) !== (by > y) && x < bx + (y - by) * (ax - bx) / (ay - by)) d = !d; }
+    return d; };
+  const w = 'PILA 1 (ARENAS)'.length * .68 * tamDiag / 2, h = .45 * tamDiag, g = giroDiag * Math.PI / 180;
+  const esquinas = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([u, v]) =>
+    [cx + u * Math.cos(g) - v * Math.sin(g), cy + u * Math.sin(g) + v * Math.cos(g)]);
+  ok(esquinas.every(([x, y]) => dentro(x, y)), 'y el nombre entero queda dentro del montón, sin salirse por ningún lado');
+}
+
+// Un código de lote no se sale de su óvalo, aunque el óvalo sea alargado
+// y el código esté al tope.
+{
+  const t = tamRotulo({ lotes: [conCodigo('PG303', 70, 34)] }, 'PG303');
+  ok(t * (5 * .6 + .22) / 2 < 70 - 4, `"PG303" cabe a lo ancho de su óvalo (${t})`);
+}
+
+// Un grupo de bigbags no lleva el código encima de los sacos: va debajo
+// del grupo y derecho en pantalla, aunque el grupo esté girado.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+  { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+    bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
+{
+  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+) ([-\d.]+) ([-\d.]+)\)">\s*<text[^>]*>PG244</);
+  ok(!!m && +m[1] === -60, 'el código del grupo va derecho en pantalla');
+  // de vuelta a pantalla: debajo del grupo, no encima de él
+  const x = +m?.[2], y = +m?.[3], g = 60 * Math.PI / 180;
+  const ys = x * Math.sin(g) + y * Math.cos(g), xs = x * Math.cos(g) - y * Math.sin(g);
+  const d = Mapa.disposicionBigbags(27, 3);
+  ok(Math.abs(xs) < .5 && ys > d.rx * Math.sin(g) + d.ry * Math.cos(g),
+     `y justo debajo del grupo, fuera de los sacos (${ys.toFixed(0)} px bajo el centro)`);
+  ok(d.rx < 30, `los bigbags van al 60 %: 3×3 columnas ocupan ${(2 * d.rx).toFixed(0)} de ancho`);
+}
+
 // ---------------------------------------------------------------------
 titulo('Buscar un lote lleva el plano hasta él y lo señala.');
 
