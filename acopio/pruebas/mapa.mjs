@@ -376,11 +376,39 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
   { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
     bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
 {
-  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+)\)">\s*<text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
-  ok(!!m && +m[1] === -60, 'el código del grupo va derecho en pantalla');
+  // girado más de 90°, se voltea para no quedar cabeza abajo
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+    { id: 'gv', codigo: 'PG9', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+      bigbags: 9, x: 400, y: 400, rx: 20, ry: 20, rot: 150 }] });
+  const v = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+) [-\d.]+ [-\d.]+\)">\s*<text[^>]*>PG9</);
+  ok(!!v && Math.abs(+v[1]) === 180, `girado 150°, el código no queda cabeza abajo (${v?.[1]}°)`);
+}
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+  { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+    bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
+{
+  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+) [-\d.]+ [-\d.]+\)">\s*<text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
+  ok(!!m && +m[1] === 0, 'el código del grupo gira con el grupo');
   ok(!lienzo.innerHTML.includes("placa-codigo"), "sin placa detrás: el filo negro del texto basta");
   ok(!!m && +m[2] === 0 && Math.abs(+m[3]) < 8, 'y en el centro de su grupo, no afuera');
   ok(lienzo.innerHTML.includes('class="piso-grupo"'), 'el grupo lleva una base que marca hasta dónde llega');
+}
+
+// La base bordea los bigbags que HAY: con la última fila a medias no se
+// extiende bajo los huecos vacíos, y el código va centrado en lo ocupado.
+{
+  const dL = Mapa.disposicionBigbags(34, 5);         // 12 columnas: 5 + 5 + 2
+  ok(dL.contorno.length === 6, `con la última fila a medias, la base es una L (${dL.contorno.length} esquinas)`);
+  const derecha = Math.max(...dL.contorno.filter(([, y]) => y > dL.ry - 1).map(([x]) => x));
+  ok(derecha < 0, `abajo llega solo hasta la segunda columna, no hasta el borde (x=${derecha})`);
+  ok(Mapa.disposicionBigbags(27, 3).contorno.length === 4, 'y con todas las filas llenas sigue siendo un rectángulo');
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+    { id: 'gl', codigo: 'PG246', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+      bigbags: 34, bigbags_fila: 5, x: 400, y: 400, rx: 20, ry: 20, rot: 0 }] });
+  const t = lienzo.innerHTML.match(/<text x="([-\d.]+)" y="([-\d.]+)"[^>]*font-size="([\d.]+)"[^>]*>PG246</);
+  // la línea base va .35 em por debajo del centro del renglón
+  const centroY = t ? +t[2] - .35 * +t[3] : NaN;
+  ok(centroY < -2, `el código sube hacia las filas llenas, no queda entre huecos (y=${centroY.toFixed(1)})`);
   const d = Mapa.disposicionBigbags(27, 3);
   ok(d.rx < 30, `los bigbags van al 60 %: 3×3 columnas ocupan ${(2 * d.rx).toFixed(0)} de ancho`);
 }

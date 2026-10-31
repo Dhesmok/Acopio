@@ -760,8 +760,8 @@ function figuraLote(l, capa) {
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
   //
-  // Un grupo de bigbags lleva el código ADENTRO, centrado y derecho en
-  // pantalla aunque el grupo esté girado. Probamos a ponerlo debajo del
+  // Un grupo de bigbags lleva el código ADENTRO, centrado y girado con
+  // el grupo (nunca cabeza abajo). Probamos a ponerlo debajo del
   // grupo para no tapar los sacos, pero con varios grupos pegados ya no
   // se sabía de quién era cada código: el código tiene que estar sobre
   // SU grupo. Sin placa ni caja: el filo negro del pintado ya lo
@@ -777,13 +777,24 @@ function figuraLote(l, capa) {
     const montaje = [...encima, piso];
     const codigos = montaje.map((x) => { const p = partesCodigo(x.codigo); return p.base + p.volqueta; });
     const largo = codigos.reduce((m, x) => (x.length > m.length ? x : m), '');
-    const giro = derecho(-(piso.rot || 0), piso.rot || 0);
+    // gira CON el grupo, así siempre cabe a lo largo de los sacos; solo
+    // se voltea 180° si el giro lo dejaría cabeza abajo
+    const giro = derecho(0, piso.rot || 0);
     const n = montaje.length;
-    const t = tamanoTexto(piso, largo, { min: 9, max: 18, lineas: n * Dib.INTERLINEA, giro, margen: 2 });
+    // Se centra en lo que OCUPAN los bigbags —el promedio de sus
+    // columnas—, no en el centro de la caja: con la última fila a medias,
+    // el centro de la caja cae entre huecos vacíos. Y se mide contra ese
+    // mismo contorno.
+    const d = Dib.disposicionBigbags(piso.bigbags, piso.bigbags_fila);
+    const cx = +(d.pilas.reduce((a, q) => a + q.x, 0) / d.pilas.length).toFixed(1);
+    const cy = +(d.pilas.reduce((a, q) => a + q.y, 0) / d.pilas.length).toFixed(1);
+    const forma = { forma: 'poligono', puntos: d.contorno.map(([x, y]) => ({ x, y })) };
+    const t = tamanoTexto(forma, largo, { min: 9, max: 18, lineas: n * Dib.INTERLINEA, giro, margen: 2,
+                                          centro: { x: cx, y: cy } });
     const i = montaje.findIndex((x) => x.id === l.id);
-    const y = (i - (n - 1) / 2) * t * Dib.INTERLINEA;
-    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${+giro.toFixed(1)})">${
-      Dib.pintado(esc(base), t, 0, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
+    const y = cy + (i - (n - 1) / 2) * t * Dib.INTERLINEA;
+    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${+giro.toFixed(1)} ${cx} ${cy})">${
+      Dib.pintado(esc(base), t, cx, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
   }
   const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
   // lleva lotes montados pero ya no es grupo (le cambiaron el material)
