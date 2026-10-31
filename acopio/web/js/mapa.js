@@ -120,6 +120,11 @@ export function montar(contenedor, callbacks) {
   svg.addEventListener('pointercancel', arriba);
   svg.addEventListener('lostpointercapture', arriba);
   svg.addEventListener('wheel', rueda, { passive: false });
+  // Mantener el dedo sobre el plano es un gesto de la app (mover un
+  // lote), no del navegador. Sin esto, en el celular salía el menú de
+  // "Copiar imagen / Descargar imagen" de la foto de fondo, incluso con
+  // la app instalada, porque por dentro sigue siendo el navegador.
+  svg.addEventListener('contextmenu', (ev) => ev.preventDefault());
   ponerRed();
 }
 
@@ -261,7 +266,7 @@ export function pintar(d) {
       </pattern>${Dib.DEFS}
     </defs>
     <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${esc(c.color_fondo || '#e4e7e2')}"/>
-    ${c.imagen_url ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
+    ${c.imagen_url ? `<image class="fondo-plano" href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
         width="${c.imagen_ancho}" height="${c.imagen_alto}"
         opacity="${c.imagen_opacidad ?? 1}" preserveAspectRatio="none"/>` : ''}
     ${c.imagen_url ? '' : `<rect x="0" y="0" width="${c.ancho}" height="${c.alto}" fill="url(#reticula)"/>`}
@@ -935,7 +940,9 @@ function cargaDe(o) {
 }
 
 // ------------------------------------------------ mantener para mover
-export const MANTENER_MS = 3000;
+// Un segundo y medio: se pidió la mitad de los 3 s de la primera
+// versión. Sigue siendo bastante más que un toque largo sin querer.
+export const MANTENER_MS = 1500;
 let espera = null;
 
 function empezarAMantener(obj, ev) {

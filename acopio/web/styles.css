@@ -870,6 +870,11 @@ button:focus:not(:focus-visible) { outline: none; }
   border-top: 1px solid var(--linea);
 }
 #lienzo-caja, #lienzo { width: 100%; height: 100%; display: block; touch-action: none; }
+/* Mantener presionado el plano es para mover lotes: ni menú de la imagen
+   ("Copiar / Descargar imagen"), ni lupa de selección, ni arrastrar la
+   foto de fondo fuera de la página. */
+#lienzo, #lienzo * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#lienzo .fondo-plano { pointer-events: none; -webkit-user-drag: none; }
 #lienzo-caja {
   background: var(--superficie);
   contain: layout paint size;

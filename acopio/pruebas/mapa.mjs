@@ -197,7 +197,14 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
 Mapa.editar(false);
 guardado = null; tocado = null;
 
-ok(Mapa.MANTENER_MS >= 2000, `hay que mantenerlo un buen rato, no un toque largo (${Mapa.MANTENER_MS} ms)`);
+ok(Mapa.MANTENER_MS >= 1000 && Mapa.MANTENER_MS <= 1500,
+   `hay que mantenerlo un rato, pero sin hacer esperar (${Mapa.MANTENER_MS} ms)`);
+ok(!!lienzo.oyentes.contextmenu?.length, 'mantener presionado el plano no abre el menú del navegador');
+let prevenido = false;
+lienzo.oyentes.contextmenu?.forEach((fn) => fn({ preventDefault: () => { prevenido = true; } }));
+ok(prevenido, 'el menú de la imagen de fondo se cancela');
+const cssMapa = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+ok(/#lienzo, #lienzo \* \{ -webkit-touch-callout: none;/.test(cssMapa), 'ni el menú largo de iPhone');
 
 // mantener sin esperar lo suficiente y moverse = paneo de siempre
 disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
