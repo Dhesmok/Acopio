@@ -82,9 +82,14 @@ export const DEFS = `
 // cada cuadro de un ajuste). La geometría de un montón cuesta: se guarda
 // por todo lo que la determina y se reaprovecha.
 const cache = new Map();
+// Cuántas veces se vació. Las figuras guardadas llevan ids numerados con
+// el tamaño de la memoria: tras vaciarla se repiten, y mapa.js necesita
+// saberlo para no mezclar en el plano piezas de antes y de después.
+let vueltas = 0;
+export const vueltaCache = () => vueltas;
 function recordar(clave, armar) {
   if (cache.has(clave)) return cache.get(clave);
-  if (cache.size > 3000) cache.clear();
+  if (cache.size > 3000) { cache.clear(); vueltas++; }
   const v = armar();
   cache.set(clave, v);
   return v;
