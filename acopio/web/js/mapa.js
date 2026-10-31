@@ -250,13 +250,9 @@ export function pintar(d) {
   // `naciendo` es el lote que la volqueta está descargando en la capa de
   // encima: no se dibuja hasta que el material cae, o se vería aparecer
   // antes de que lo traigan.
+  const sueltos = datos.lotes.filter((l) => !l.pila_id && !fuera(l) && l.id !== datos.naciendo);
+  apilado = calcularApilado(sueltos);
   const pilasVivas = datos.pilas.filter((p) => p.estado === 'abierta');
-  // Los lotes de una pila de BIGBAGS sí se dibujan, cada uno en su sitio y
-  // con su código: ahí lo que se busca es qué lote es cada grupo. Los de
-  // una pila de granel no: esa pila es un solo montón.
-  const deBigbags = new Set(pilasVivas.filter(esPilaDeBigbags).map((p) => p.id));
-  const sueltos = datos.lotes.filter((l) => (!l.pila_id || deBigbags.has(l.pila_id))
-    && !fuera(l) && l.id !== datos.naciendo);
 
   const dibujo = `
     <defs>
@@ -382,9 +378,73 @@ function capasLote(ls) {
   // por encima de los vecinos que lo toquen, no debajo.
   const orden = ls.filter((l) => l.id !== datos.resaltado)
     .concat(ls.filter((l) => l.id === datos.resaltado));
-  return orden.map((l) => figuraLote(l, 'trazo')).join('')
-    + orden.map((l) => figuraLote(l, 'relleno')).join('')
+  // Los bigbags MONTADOS sobre otro lote van en una pasada aparte, al
+  // final y en el orden en que se montaron: están más arriba que todo lo
+  // que hay en el piso, y el de encima tapa al de abajo.
+  const montado = (l) => !!apilado.get(l.id)?.abajo;
+  const piso = orden.filter((l) => !montado(l));
+  const arriba = orden.filter(montado).sort((a, b) => apilado.get(a.id).orden - apilado.get(b.id).orden);
+  const pasada = (xs) => xs.map((l) => figuraLote(l, 'trazo')).join('')
+    + xs.map((l) => figuraLote(l, 'relleno')).join('');
+  return pasada(piso) + arriba.map((l) => figuraLote(l, 'trazo') + figuraLote(l, 'relleno')).join('')
     + orden.map((l) => figuraLote(l, 'rotulo')).join('');
+}
+
+// ------------------------------------------------- bigbags montados
+// Un lote de bigbags puede ir MONTADO sobre otro (lotes.sobre_lote): sus
+// bigbags llenan las columnas del de abajo sin pasar de 3 de alto. No es
+// una pila: cada lote sigue siendo suelto y con su código.
+//
+// `apilado` dice, para cada lote visible:
+//   { abajo, cols, orden }   si va montado: sobre qué lote del piso y en
+//                            qué columnas y niveles quedaron sus bigbags
+//   { carga: n }             si en el piso y tiene n lotes montados encima
+let apilado = new Map();
+function calcularApilado(visibles) {
+  const porId = new Map(visibles.map((l) => [l.id, l]));
+  const res = new Map();
+  // el lote del piso de cada montaje, y a qué profundidad está cada uno
+  const raiz = (l) => {
+    let x = l, prof = 0; const vistos = new Set();
+    while (x.sobre_lote && porId.has(x.sobre_lote) && !vistos.has(x.id)) {
+      vistos.add(x.id); x = porId.get(x.sobre_lote); prof++;
+    }
+    return { r: x, prof };
+  };
+  const grupos = new Map();
+  for (const l of visibles) {
+    if (!l.sobre_lote || !esGrupoBigbags(l)) continue;
+    const { r, prof } = raiz(l);
+    if (r.id === l.id || !esGrupoBigbags(r)) continue;
+    if (!grupos.has(r.id)) grupos.set(r.id, []);
+    grupos.get(r.id).push({ l, prof });
+  }
+  let orden = 0;
+  for (const [rid, encima] of grupos) {
+    encima.sort((a, b) => a.prof - b.prof || String(a.l.id).localeCompare(String(b.l.id)));
+    const reparto = Dib.repartirEncima(porId.get(rid), encima.map((e) => e.l));
+    let n = 0;
+    for (const { l } of encima) {
+      const cols = reparto.get(l.id);
+      if (cols) res.set(l.id, { abajo: porId.get(rid), cols, orden: orden++, k: n++ });
+    }
+    if (n) res.set(rid, { carga: n });
+  }
+  return res;
+}
+const visiblesEnPiso = () => datos.lotes.filter((l) => !l.pila_id && !fuera(l));
+// Lo que la app necesita saber para decidir al soltar un lote encima de otro.
+export function cabeEncima(lote, sobre) {
+  const prueba = visiblesEnPiso().filter((l) => l.id !== lote.id)
+    .concat({ ...lote, sobre_lote: sobre.id });
+  return !!calcularApilado(prueba).get(lote.id)?.abajo;
+}
+export function encimaDe(id) {
+  return [...calcularApilado(visiblesEnPiso())].filter(([, v]) => v.abajo?.id === id).map(([k]) => k);
+}
+export const tieneCarga = (id) => !!calcularApilado(visiblesEnPiso()).get(id)?.carga;
+export function montadoSobre(id) {
+  return calcularApilado(visiblesEnPiso()).get(id)?.abajo?.id || null;
 }
 
 // Las pilas se dibujan una a una, con su cerco. Hubo una versión que
@@ -544,28 +604,11 @@ function verticesDe(o) {
 // nombre, PINTADO sobre el material como el código de los lotes. Cuántos
 // lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
 // plano no hace falta.
-// Una pila es de bigbags cuando TODOS sus lotes (los que siguen en el
-// patio) son bigbags.
-export function esPilaDeBigbags(p) {
-  const ls = datos.lotes.filter((l) => l.pila_id === p.id && !fuera(l));
-  return ls.length > 0 && ls.every((l) => l.material === 'bigbag');
-}
 function figuraPila(p, lotes) {
-  const col = paleta()[`pila_${p.tipo}`] || '#14171a';
-  const rotulo = `PILA ${p.codigo}`;
-  if (esPilaDeBigbags(p)) {
-    // el nombre va en el borde de arriba: el centro es de los códigos
-    const m = Dib.patioPila(verticesDe(p), col);
-    const t = tamanoTexto(p, rotulo, { min: 12, max: 26, paso: .66 });
-    return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
-    ${datos.resaltado === p.id ? halo(p) : ''}
-    <g class="cuerpo-lote">${m.svg}</g>
-    <g class="rotulo-mapa">${Dib.pintado(esc(rotulo), t, m.tope[0], m.tope[1] + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
-  </g>`;
-  }
   const n = lotes.filter((l) => l.pila_id === p.id).length;
+  const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   const m = Dib.montonPila(verticesDe(p), n, col);
-  const c = anclaTexto(p);
+  const rotulo = `PILA ${p.codigo}`, c = anclaTexto(p);
   const t = tamanoTexto(p, rotulo, { min: 12, max: 34, paso: .66 });
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
@@ -609,9 +652,11 @@ export function dibujoLote(l) {
 // es la posición: levantar el lote al moverlo se hace en el de adentro.
 function figuraLote(l, capa) {
   const col = colorLote(l);
-  const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)}
+  const ap = apilado.get(l.id);
+  // montado: va donde está el de abajo, con su giro
+  const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(ap?.abajo || l)}
     class="g-lote${datos.resaltado === l.id ? ' g-resaltado' : ''}"`;
-  const a = aspectoLote(l, col);
+  const a = ap?.abajo ? Dib.bigbagsEncima(ap.cols, col, l.id) : aspectoLote(l, col);
 
   if (capa === 'trazo') return `<g ${marca}><g class="cuerpo-lote">${a.base}</g></g>`;
   if (capa === 'relleno') {
@@ -621,7 +666,7 @@ function figuraLote(l, capa) {
     </g>`;
   }
 
-  const c = anclaTexto(l);
+  let c = anclaTexto(l);
   const { base, volqueta } = partesCodigo(l.codigo);
   // El suelo son 11 px: por debajo de eso un código deja de leerse a un
   // brazo de distancia. Un código absurdamente largo prefiere sobresalir
@@ -631,7 +676,13 @@ function figuraLote(l, capa) {
   // menos, así que sobra sitio antes que faltar—, pero el punto o los
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
-  const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
+  const t = tamanoTexto(ap?.abajo || l, base + volqueta, { min: 11, max: 20 });
+  // Montados unos sobre otros se tienen que leer TODOS los códigos, y un
+  // grupo de bigbags puede ser una sola fila: adentro no caben. El del
+  // piso va justo debajo del grupo y los de encima justo arriba, uno por
+  // renglón, el último montado más arriba.
+  if (ap?.abajo) c = { x: 0, y: -ap.abajo.ry - t * (.55 + 1.2 * ap.k) };
+  else if (ap?.carga) c = { x: 0, y: l.ry + t * .75 };
   // El código va PINTADO sobre el montón: letra blanca con filo negro,
   // como marcado con spray en el material. No lleva caja, así que no tapa
   // el relieve, y el filo lo hace legible sobre cualquier color de estado
@@ -831,7 +882,9 @@ export function blancoEn(pt, excluirId) {
     x.estado === 'abierta' && x.id !== excluirId && contiene(x, pt));
   if (p.length) return { tipo: 'pila', obj: p[0] };
   const l = datos.lotes.filter((x) =>
-    !x.pila_id && x.id !== excluirId && !fuera(x) && contiene(x, pt));
+    !x.pila_id && x.id !== excluirId && !fuera(x) && contiene(x, pt)
+    // lo que va montado sobre el lote que se arrastra viaja con él
+    && (!excluirId || apilado.get(x.id)?.abajo?.id !== excluirId));
   if (l.length) return { tipo: 'lote', obj: l[0] };
   return null;
 }
@@ -856,13 +909,6 @@ export function deshacerGeom(tipo, id, antes) {
   pintarYa();
 }
 
-// Los lotes que se ven dentro de una pila (solo en las de bigbags).
-function hijosDe(p) {
-  if (!esPilaDeBigbags(p)) return [];
-  return datos.lotes.filter((l) => l.pila_id === p.id && !fuera(l))
-    .map((l) => ({ l, nodos: nodosDe(l.id) }));
-}
-
 export function movimientoReal(o, desde) {
   if (!desde) return true;
   const d = Math.hypot(o.x - desde.x, o.y - desde.y);
@@ -883,6 +929,11 @@ const nodosDe = (id) => [...svg.querySelectorAll(`[data-id="${id}"]`)];
 // dos, el encuadre se vuelve a medir desde donde están los dedos y no
 // desde donde estaban. Antes un tercer dedo cancelaba el zoom y hasta
 // podía arrancar un arrastre.
+// Lo que está montado encima de un lote del piso, con sus nodos.
+function cargaDe(o) {
+  return [...apilado].filter(([, v]) => v.abajo?.id === o.id).map(([id]) => ({ id, nodos: nodosDe(id) }));
+}
+
 // ------------------------------------------------ mantener para mover
 export const MANTENER_MS = 3000;
 let espera = null;
@@ -921,11 +972,12 @@ function levantar(obj, ev) {
   if (modo !== 'paneando' || !arrastre || movio) return;
   // si el plano alcanzó a correrse un pelo, vuelve a donde estaba
   vista = { ...arrastre.vista }; aplicarVista();
-  const nodos = nodosDe(obj.id);
+  const hijos = cargaDe(obj);
+  const nodos = nodosDe(obj.id).concat(...hijos.map((h) => h.nodos));
   nodos.forEach((n) => n.classList.add('levantado'));
   try { navigator.vibrate?.(30); } catch { /* sin vibración no pasa nada */ }
   modo = 'arrastrando';
-  arrastre = { tipo: 'lote', obj, nodos, inicio: aPlano(ev), levantado: true,
+  arrastre = { tipo: 'lote', obj, nodos, inicio: aPlano(ev), levantado: true, hijos: [],
                origen: { x: obj.x, y: obj.y }, antes: instantanea(obj) };
 }
 
@@ -1047,7 +1099,7 @@ function abajo(ev) {
       tipo, obj, nodos: nodosDe(obj.id), inicio: aPlano(ev),
       origen: { x: obj.x, y: obj.y },
       antes: instantanea(obj),            // para poder deshacer si se cancela
-      hijos: tipo === 'pila' ? hijosDe(obj) : []
+      hijos: tipo === 'lote' ? cargaDe(obj) : []
     };
     // la selección es inmediata: se ven las manijas al tocar
     if (seleccion?.id !== obj.id) {
@@ -1112,13 +1164,9 @@ function movimiento(ev) {
     arrastre.obj.y = arrastre.origen.y + dy;
     const t = `translate(${arrastre.obj.x} ${arrastre.obj.y}) rotate(${arrastre.obj.rot || 0})`;
     arrastre.nodos.forEach((n) => n.setAttribute('transform', t));
-    // Los lotes de una pila de bigbags van con ella. Solo se mueve su
-    // dibujo: dónde quedan lo guarda la app al confirmar (si se cancela,
-    // no hay nada que devolver).
-    for (const h of arrastre.hijos || []) {
-      const th = `translate(${h.l.x + dx} ${h.l.y + dy}) rotate(${h.l.rot || 0})`;
-      h.nodos.forEach((n) => n.setAttribute('transform', th));
-    }
+    // lo que va montado encima se mueve con el de abajo (solo el dibujo:
+    // dónde queda lo guarda la app al confirmar)
+    for (const h of arrastre.hijos || []) h.nodos.forEach((n) => n.setAttribute('transform', t));
     if (arrastre.tipo === 'lote') resaltarBlanco(arrastre.obj);
   } else if (modo === 'ajustando') {
     const o = arrastre.obj;
@@ -1149,7 +1197,7 @@ function movimiento(ev) {
 function resaltarBlanco(lote) {
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
   const b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
-  if (b?.tipo === 'pila' && b.obj.id === lote.pila_id) return;   // se acomoda en la suya
+  if (b?.tipo === 'lote' && apilado.get(b.obj.id)?.abajo?.id === lote.id) return;   // su propia carga
   // Todas sus copias, no la primera: la del lote en la capa de trazos
   // queda tapada por los rellenos y el aro azul no se vería.
   if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] .forma`)

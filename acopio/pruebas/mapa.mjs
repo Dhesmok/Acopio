@@ -939,32 +939,41 @@ ok(grupo.rx === enFila.rx && grupo.ry === enFila.ry, 'y el tamaño del lote en e
 Mapa.editar(false);
 
 // ---------------------------------------------------------------------
-titulo('Una pila de bigbags muestra sus lotes, cada uno con su código.');
+titulo('Bigbags sobre bigbags: se montan si caben, nunca más de 3 de alto.');
 
-const pb = { id: 'pb', codigo: '9', tipo: 'otro', estado: 'abierta', forma: 'rectangulo',
-             x: 300, y: 300, rx: 140, ry: 80, rot: 0 };
-const enPb = (id, codigo, x, material = 'bigbag') => ({ id, codigo, estado: 'muestreado', pila_id: 'pb',
-  material, forma: material === 'bigbag' ? 'rectangulo' : 'elipse', x, y: 300, rot: 0,
-  bigbags: material === 'bigbag' ? 9 : null, rx: 46, ry: 46 });
-Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [pb],
-              lotes: [enPb('b1', 'CRN0801', 230), enPb('b2', 'CRN0802', 370)] });
-const conBigbags = lienzo.innerHTML;
-ok(conBigbags.includes('>CRN0801<') && conBigbags.includes('>CRN0802<'),
-   'en una pila de bigbags se ve el código de cada lote');
-ok(conBigbags.includes('>PILA 9<'), 'y el nombre de la pila');
-ok((conBigbags.match(/data-id="b1"/g) || []).length === 3, 'cada lote de la pila responde al dedo, como uno suelto');
+const bbLote = (id, codigo, n, extra = {}) => {
+  const d = Mapa.disposicionBigbags(n);
+  return { id, codigo, estado: 'muestreado', pila_id: null, material: 'bigbag', forma: 'rectangulo',
+           x: 400, y: 300, rot: 0, bigbags: n, bigbags_fila: null, rx: d.rx, ry: d.ry, ...extra };
+};
+const abajoM = bbLote('m1', 'CRN0901', 4);          // dos columnas: 3 y 1
+const dosBb = bbLote('m2', 'CRN0902', 2);
+const seis = bbLote('m3', 'CRN0903', 6);
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [abajoM, dosBb, seis] });
+ok(Mapa.cabeEncima(dosBb, abajoM), 'sobre una columna de 1 caben 2 más (queda en 3)');
+ok(!Mapa.cabeEncima(seis, abajoM), 'pero 6 no caben: solo hay sitio para 2');
 
-Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [pb],
-              lotes: [enPb('b1', 'CRN0801', 230), enPb('g1', 'ABG0901', 370, 'granel')] });
-ok(!lienzo.innerHTML.includes('>CRN0801<') && !lienzo.innerHTML.includes('>ABG0901<'),
-   'con un solo lote de granel adentro es una pila de material: un montón, sin códigos');
+const chicoArriba = { ...dosBb, sobre_lote: 'm1' };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [abajoM, chicoArriba, seis] });
+const dibMontaje = lienzo.innerHTML;
+ok(Mapa.montadoSobre('m2') === 'm1' && Mapa.encimaDe('m1').includes('m2'), 'el de 2 queda montado sobre el de 4');
+ok(Mapa.tieneCarga('m1') && !Mapa.tieneCarga('m3'), 'y el de abajo sabe que lleva carga');
+ok(dibMontaje.includes('>CRN0901<') && dibMontaje.includes('>CRN0902<'), 'se leen los dos códigos: no es una pila');
+ok(!dibMontaje.includes('data-tipo="pila"'), 'y no se creó ninguna pila');
+ok((dibMontaje.match(/class="forma"/g) || []).length === 4 + 2 + 6, 'se dibujan los 12 bigbags, cada uno con su filo');
+ok(dibMontaje.indexOf('data-id="m2"') > dibMontaje.indexOf('data-id="m1"'),
+   'el montado se dibuja después (encima) del de abajo');
+ok(!Mapa.cabeEncima({ ...seis }, abajoM), 'con 2 ya montados, a la columna no le cabe nada más');
 
-ok(/origen && tipo === 'lote' && obj\.pila_id[\s\S]{0,1200}tipo: 'salida_pila'/.test(fuenteApp),
-   'soltar un lote fuera de su pila de bigbags lo saca de la pila (con confirmación)');
-ok(/lote\.pila_id === blanco\.obj\.id/.test(fuenteApp),
-   'soltarlo dentro de su misma pila solo lo acomoda, no lo vuelve a meter');
-ok(/tipo === 'pila' && origen[\s\S]{0,300}q\.pila_id === obj\.id/.test(fuenteApp),
-   'mover la pila mueve sus lotes');
+const fuenteAppM = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+ok(/Mapa\.esGrupoBigbags\(lote\) && Mapa\.esGrupoBigbags\(blanco\.obj\)[\s\S]{0,80}montarBigbags/.test(fuenteAppM),
+   'soltar bigbags sobre bigbags monta o deja al lado; no arma pila');
+ok(/no cabe encima[\s\S]{0,300}alLado\(/.test(fuenteAppM), 'si no cabe, queda pegado al lado');
+ok(/sobre_lote = null/.test(fuenteAppM), 'bajarlo al piso lo desmonta');
+ok(/await moverCarga\(obj\)/.test(fuenteAppM), 'mover el de abajo se lleva lo montado');
+const fuenteMigM = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+ok(/add column if not exists sobre_lote uuid references lotes \(id\) on delete set null/.test(fuenteMigM),
+   'la migración agrega sobre_lote sin borrar nada');
 
 const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
 ok(/material === 'bigbag' && bigbags > 0 \? \{ bigbags, bigbags_fila: null \} : \{\}/.test(fuenteStore),

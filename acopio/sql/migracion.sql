@@ -1133,6 +1133,10 @@ do $$ begin
   end if;
 end $$;
 
+-- ------------------------------------------- bigbags montados en otros
+-- Sobre qué lote va montado un lote de bigbags. Vacío = en el piso.
+alter table lotes add column if not exists sobre_lote uuid references lotes (id) on delete set null;
+
 -- PostgREST guarda en caché la forma de las tablas: hay que avisarle
 notify pgrst, 'reload schema';
 

@@ -299,45 +299,85 @@ export function disposicionBigbags(n, porFila) {
 // derecha (la luz viene de arriba a la izquierda). Cuanto más alta la
 // columna, más larga su sombra. Unas muescas en la esquina dicen cuántos
 // tiene, para no tener que contarlos por los bordes.
+//
+// `cols` = [{x, y, desde, cuantos}]: en qué columna, desde qué nivel
+// (0 = el piso) y cuántos bigbags pone ESTE lote. Un lote en el piso
+// empieza en 0; uno montado encima de otro empieza donde acaba el de abajo.
+const SUBE_NIVEL = 2.6;
+function columnasBigbags(cols, col, clave, { sombra = true } = {}) {
+  const L = LADO_BIGBAG, m = L / 2, r = 3.5;
+  const sombras = [], bordes = [], cuerpos = [];
+  cols.forEach((p, k) => {
+    const tope = p.desde + p.cuantos;                   // altura total de la columna
+    const subir = (tope - 1) * SUBE_NIVEL;
+    const tx = p.x - subir, ty = p.y - subir;
+    if (sombra) {
+      const s = 4 + tope * 3;
+      sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
+    }
+    for (let i = p.desde; i < tope; i++) {
+      const x = p.x - i * SUBE_NIVEL - m, y = p.y - i * SUBE_NIVEL - m;
+      bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (tope - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
+    }
+    const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
+    const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
+    const id = `gbc${k}-${clave}`;
+    const marcas = Array.from({ length: tope }, (_, i) =>
+      `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
+    cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
+      <g clip-path="url(#${id})">
+        ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
+        ${cara([[x0, y0], [x0, y1], [cx, cy]], tono(col, .06))}
+        ${cara([[x1, y0], [x1, y1], [cx, cy]], tono(col, -.12))}
+        ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
+        <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
+      </g>
+      <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
+      <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
+      ${marcas}`);
+  });
+  return { base: (sombras.length ? `<g class="sombra-lote">${sombras.join('')}</g>` : '') + bordes.join(''),
+           cuerpo: cuerpos.join('') };
+}
+
 export function grupoBigbags(o, color) {
   const col = hexValido(color);
   return recordar(`gb|${o.bigbags}|${o.bigbags_fila || ''}|${col}`, () => {
     const d = disposicionBigbags(o.bigbags, o.bigbags_fila);
-    const L = LADO_BIGBAG, m = L / 2, r = 3.5, paso = 2.6;
-    const sombras = [], bordes = [], cuerpos = [];
-    d.pilas.forEach((p, k) => {
-      const subir = (p.alto - 1) * paso;                 // cuánto sube el de encima
-      const tx = p.x - subir, ty = p.y - subir;
-      const s = 4 + p.alto * 3;
-      sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
-      // filo de todos los niveles, de abajo hacia arriba
-      for (let i = 0; i < p.alto; i++) {
-        const x = p.x - i * paso - m, y = p.y - i * paso - m;
-        bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (p.alto - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
-      }
-      const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
-      const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
-      const id = `gbc${k}-${o.bigbags}-${o.bigbags_fila || 0}`;
-      const marcas = Array.from({ length: p.alto }, (_, i) =>
-        `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
-      cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
-        <g clip-path="url(#${id})">
-          ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
-          ${cara([[x0, y0], [x0, y1], [cx, cy]], tono(col, .06))}
-          ${cara([[x1, y0], [x1, y1], [cx, cy]], tono(col, -.12))}
-          ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
-          <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
-        </g>
-        <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
-        <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
-        ${marcas}`);
-    });
-    return {
-      base: `<g class="sombra-lote">${sombras.join('')}</g>${bordes.join('')}`,
-      cuerpo: cuerpos.join(''),
-      disposicion: d
-    };
+    const g = columnasBigbags(d.pilas.map((p) => ({ x: p.x, y: p.y, desde: 0, cuantos: p.alto })),
+                              col, `${o.bigbags}-${o.bigbags_fila || 0}`);
+    return { ...g, disposicion: d };
   });
+}
+
+// Un lote MONTADO sobre otro: solo sus bigbags, en los niveles que le
+// tocaron. Sin sombra propia: la sombra es la del montón de abajo.
+export function bigbagsEncima(cols, color, clave) {
+  const col = hexValido(color);
+  return recordar(`gm|${JSON.stringify(cols)}|${col}|${clave}`,
+    () => columnasBigbags(cols, col, `m${clave}`, { sombra: false }));
+}
+
+// Dónde va cada bigbag de los lotes montados unos sobre otros. `abajo` es
+// el lote que está en el piso (con su cantidad y su reparto) y `encima`
+// los que se le montaron, en el orden en que se montaron. Cada uno llena
+// las columnas de abajo, en orden, sin pasar de ALTO_BIGBAGS. El que no
+// cabe entero no se monta (devuelve null para él).
+export function repartirEncima(abajo, encima) {
+  const d = disposicionBigbags(abajo.bigbags, abajo.bigbags_fila);
+  const alto = d.pilas.map((p) => p.alto);
+  const res = new Map();
+  for (const l of encima) {
+    let resto = Math.max(1, Math.round(Number(l.bigbags)) || 1);
+    const cols = [], antes = alto.slice();
+    for (let i = 0; i < alto.length && resto > 0; i++) {
+      const c = Math.min(ALTO_BIGBAGS - alto[i], resto);
+      if (c > 0) { cols.push({ x: d.pilas[i].x, y: d.pilas[i].y, desde: alto[i], cuantos: c }); alto[i] += c; resto -= c; }
+    }
+    if (resto > 0) { alto.splice(0, alto.length, ...antes); res.set(l.id, null); continue; }
+    res.set(l.id, cols);
+  }
+  return res;
 }
 
 // ============================================================= pila
@@ -444,29 +484,6 @@ function curvasA(campo, t) {
     if (lazo.length >= 6) lazos.push(lazo.filter((_, i) => i % 2 === 0));
   }
   return lazos;
-}
-
-// Una pila de BIGBAGS no es un montón: es un sector del patio donde se
-// acomodan los grupos de bigbags, cada uno con su código. Se dibuja como
-// un piso claro con cinta del color del tipo por dentro del borde, y
-// encima van los lotes (los pinta mapa.js). El borde se edita igual que
-// el de cualquier pila.
-export function patioPila(ps, colTipo) {
-  const col = hexValido(colTipo, TINTA);
-  return recordar(`pp|${JSON.stringify(ps)}|${col}`, () => {
-    const m = muestrear(ps), contorno = recto(m), id = 'pp' + (cache.size + 1);
-    const ymin = Math.min(...m.map((p) => p[1]));
-    const arriba = m.filter((p) => p[1] < ymin + 6);
-    return {
-      svg: `<path class="sombra-lote" d="${contorno}" transform="translate(5 6)" fill="#0c0c0b" opacity=".14"/>
-        <clipPath id="${id}"><path d="${contorno}"/></clipPath>
-        <path class="forma" d="${contorno}" fill="${tono(col, .86)}" stroke="${TINTA}" stroke-width="2.6" stroke-linejoin="round"/>
-        <g clip-path="url(#${id})">
-          <path d="${contorno}" fill="none" stroke="${col}" stroke-width="12" stroke-dasharray="16 10"/></g>
-        <path d="${contorno}" fill="none" stroke="${TINTA}" stroke-width="2.6" stroke-linejoin="round"/>`,
-      tope: [arriba.reduce((s, p) => s + p[0], 0) / arriba.length, ymin]
-    };
-  });
 }
 
 // Cuántos lotes llenan una pila hasta la cima, según su área. Un lote

@@ -579,14 +579,12 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   return fila;
 }
 
-export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, forma, plataforma_id, usuario_id }) {
+export async function crearPila({ codigo, tipo, nota, x, y, rx, ry, plataforma_id, usuario_id }) {
   const t = ahora();
   const fila = {
     id: uuid(), codigo: codigo.trim().toUpperCase(), tipo, estado: 'abierta',
     plataforma_id,
     nota: nota || null, x, y, rx: rx || 100, ry: ry || 70, rot: 0,
-    // la de bigbags nace rectangular; la de granel, con la forma de siempre
-    ...(forma ? { forma } : {}),
     creado_por: usuario_id, creado_en: t, actualizado_en: t
   };
   await idb.guardar('pilas', fila);
