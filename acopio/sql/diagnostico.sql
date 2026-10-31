@@ -20,7 +20,8 @@ select 'columnas de lotes' as bloque, c.nombre,
           where table_schema = 'public' and table_name = 'lotes' and column_name = c.nombre
        ) then 'ok' else 'FALTA' end as estado
   from (values ('placa'), ('material'), ('forma'), ('puntos'),
-               ('x'), ('y'), ('rx'), ('ry'), ('rot'), ('fecha_recogida')) as c(nombre);
+               ('x'), ('y'), ('rx'), ('ry'), ('rot'), ('fecha_recogida'),
+               ('bigbags'), ('bigbags_fila')) as c(nombre);
 
 -- 3. ¿Quién tiene cuenta, quién tiene perfil y quién está ACTIVO?
 --    Un perfil inactivo no lee ni escribe nada: fn_mi_rol() devuelve null

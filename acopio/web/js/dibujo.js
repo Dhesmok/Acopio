@@ -265,6 +265,81 @@ export function bigbag(o, color) {
   });
 }
 
+// =================================================== grupo de bigbags
+// Un lote en bigbags puede traer muchos: se guarda CUÁNTOS (`bigbags`) y
+// en el patio se apilan de a ALTO_BIGBAGS, uno encima de otro. 27 bigbags
+// son 9 columnas de 3. Lo que se ajusta en el plano es cómo se reparten
+// esas columnas (`bigbags_fila`: cuántas van por fila), nunca el tamaño
+// de cada bigbag: un bigbag mide lo mismo en cualquier lote.
+export const ALTO_BIGBAGS = 3;
+export const LADO_BIGBAG = 26;        // unidades del plano por bigbag
+const HUECO_BIGBAG = 4;               // pasillo entre columnas
+export const PASO_BIGBAG = LADO_BIGBAG + HUECO_BIGBAG;
+
+// Dónde va cada columna y cuántos bigbags lleva. Las columnas van llenas
+// (de a 3) y la última se lleva lo que sobre. Sin `bigbags_fila`, el
+// grupo sale lo más cuadrado posible.
+export function disposicionBigbags(n, porFila) {
+  const total = Math.max(1, Math.round(n) || 1);
+  const columnas = Math.ceil(total / ALTO_BIGBAGS);
+  const ancho = Math.max(1, Math.min(columnas, Math.round(porFila) || Math.ceil(Math.sqrt(columnas))));
+  const filas = Math.ceil(columnas / ancho);
+  const W = ancho * PASO_BIGBAG - HUECO_BIGBAG, H = filas * PASO_BIGBAG - HUECO_BIGBAG;
+  const pilas = Array.from({ length: columnas }, (_, i) => ({
+    x: -W / 2 + (i % ancho) * PASO_BIGBAG + LADO_BIGBAG / 2,
+    y: -H / 2 + Math.floor(i / ancho) * PASO_BIGBAG + LADO_BIGBAG / 2,
+    alto: i < columnas - 1 ? ALTO_BIGBAGS : total - ALTO_BIGBAGS * (columnas - 1)
+  }));
+  // rx/ry del lote: lo que ocupa el grupo, con el margen de las sombras
+  return { pilas, porFila: ancho, filas, rx: f(W / 2 + 3), ry: f(H / 2 + 3) };
+}
+
+// Las columnas se ven desde arriba: se ve el bigbag de encima, y por
+// debajo asoman los bordes de los de abajo, corridos hacia abajo a la
+// derecha (la luz viene de arriba a la izquierda). Cuanto más alta la
+// columna, más larga su sombra. Unas muescas en la esquina dicen cuántos
+// tiene, para no tener que contarlos por los bordes.
+export function grupoBigbags(o, color) {
+  const col = hexValido(color);
+  return recordar(`gb|${o.bigbags}|${o.bigbags_fila || ''}|${col}`, () => {
+    const d = disposicionBigbags(o.bigbags, o.bigbags_fila);
+    const L = LADO_BIGBAG, m = L / 2, r = 3.5, paso = 2.6;
+    const sombras = [], bordes = [], cuerpos = [];
+    d.pilas.forEach((p, k) => {
+      const subir = (p.alto - 1) * paso;                 // cuánto sube el de encima
+      const tx = p.x - subir, ty = p.y - subir;
+      const s = 4 + p.alto * 3;
+      sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
+      // filo de todos los niveles, de abajo hacia arriba
+      for (let i = 0; i < p.alto; i++) {
+        const x = p.x - i * paso - m, y = p.y - i * paso - m;
+        bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (p.alto - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
+      }
+      const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
+      const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
+      const id = `gbc${k}-${o.bigbags}-${o.bigbags_fila || 0}`;
+      const marcas = Array.from({ length: p.alto }, (_, i) =>
+        `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
+      cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
+        <g clip-path="url(#${id})">
+          ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
+          ${cara([[x0, y0], [x0, y1], [cx, cy]], tono(col, .06))}
+          ${cara([[x1, y0], [x1, y1], [cx, cy]], tono(col, -.12))}
+          ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
+          <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
+        </g>
+        <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
+        <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
+        ${marcas}`);
+    });
+    return {
+      base: `<g class="sombra-lote">${sombras.join('')}</g>${bordes.join('')}`,
+      cuerpo: cuerpos.join(''),
+      disposicion: d
+    };
+  });
+}
+
 // ============================================================= pila
 // La pila es UN montón. No se dibujan los lotes de adentro: con ochenta
 // en una pila, ochenta códigos encimados en un teléfono no se leen. El

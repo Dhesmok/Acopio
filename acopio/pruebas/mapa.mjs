@@ -902,6 +902,51 @@ ok(/const ruidoEn = \(cual, ms\) => setTimeout\(\(\) => \{\s*\n\s*if \(S\.mudo\)
    'con los avisos apagados, la escena se ve pero no suena');
 
 // ---------------------------------------------------------------------
+titulo('Un lote de bigbags muestra cuántos son, apilados de a tres.');
+
+const d27 = Mapa.disposicionBigbags(27);
+ok(Mapa.ALTO_BIGBAGS === 3, 'se apilan de a tres');
+ok(d27.pilas.length === 9 && d27.pilas.every((p) => p.alto === 3), '27 bigbags son 9 columnas de 3');
+ok(d27.porFila === 3 && d27.filas === 3, 'sin reparto elegido, el grupo sale cuadrado (3 × 3)');
+const d28 = Mapa.disposicionBigbags(28);
+ok(d28.pilas.length === 10 && d28.pilas.at(-1).alto === 1 && d28.pilas.slice(0, -1).every((p) => p.alto === 3),
+   'con 28, la última columna lleva el que sobra');
+const enFila = Mapa.disposicionBigbags(27, 9);
+ok(enFila.porFila === 9 && enFila.filas === 1, 'repartidas de a 9 por fila quedan en una sola fila');
+const lado = (d) => d.pilas.length > 1 ? Math.abs(d.pilas[1].x - d.pilas[0].x) : null;
+ok(lado(enFila) === lado(d27), 'cambiar el reparto no cambia el tamaño de cada bigbag');
+ok(enFila.rx > d27.rx && enFila.ry < d27.ry, 'solo cambia cuánto ocupa el grupo a lo ancho y a lo alto');
+ok(Mapa.disposicionBigbags(27, 50).porFila === 9, 'no se pueden pedir más columnas por fila de las que hay');
+
+const grupo = { id: 'bb', codigo: 'CRN0733', estado: 'muestreado', pila_id: null, material: 'bigbag',
+  forma: 'rectangulo', x: 500, y: 350, rot: 0, bigbags: 27, bigbags_fila: null, rx: d27.rx, ry: d27.ry };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [grupo] });
+ok((lienzo.innerHTML.match(/class="forma"/g) || []).length === 27, 'en el plano se ven los 27, cada uno con su filo');
+ok(Mapa.esGrupoBigbags(grupo) && !Mapa.esGrupoBigbags({ ...grupo, bigbags: null }),
+   'un bigbag de antes, sin cantidad, sigue siendo un solo saco');
+
+// en modo edición, la manija del costado reparte; no estira
+unoAUno();
+Mapa.editar(true);
+Mapa.seleccionar('lote', grupo.id);
+ok(lienzo.innerHTML.includes('data-handle="columnas"') && !lienzo.innerHTML.includes('data-handle="tamano"'),
+   'el grupo tiene manija de reparto y no de tamaño');
+disparar('pointerdown', evento(grupo.x + grupo.rx + 16, grupo.y, { manija: 'columnas' }));
+disparar('pointermove', evento(grupo.x + enFila.rx + 16, grupo.y));
+disparar('pointerup', evento(grupo.x + enFila.rx + 16, grupo.y));
+ok(grupo.bigbags_fila === 9, `arrastrar la manija hasta el ancho de 9 columnas las pone en fila (${grupo.bigbags_fila})`);
+ok(grupo.rx === enFila.rx && grupo.ry === enFila.ry, 'y el tamaño del lote en el plano sigue al reparto');
+Mapa.editar(false);
+
+const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
+ok(/material === 'bigbag' && bigbags > 0 \? \{ bigbags, bigbags_fila: null \} : \{\}/.test(fuenteStore),
+   'un lote a granel no manda la columna de bigbags (no rompe un servidor sin migrar)');
+const fuenteMigracion = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+ok(/add column if not exists bigbags\s+integer/.test(fuenteMigracion)
+   && /add column if not exists bigbags_fila integer/.test(fuenteMigracion),
+   'la migración agrega las dos columnas sin borrar nada');
+
+// ---------------------------------------------------------------------
 titulo('Un botón con icono no lo pierde al pulsarlo.');
 
 // Pasaba de verdad: al tocar el trofeo se quedaba un rectángulo negro y

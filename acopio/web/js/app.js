@@ -48,6 +48,13 @@ const estadosPosibles = (l) => l.estado === 'por_muestrear'
 // para ordenar la barra de colores del tablero de plataformas
 const ORDEN_ESTADO = Object.fromEntries(ESTADOS_ELEGIBLES.map((k, i) => [k, i]));
 const MATERIALES = { granel: 'Granel', bigbag: 'Bigbag' };
+// Cuántos bigbags trae un lote. Se apilan de a Mapa.ALTO_BIGBAGS en el
+// plano; el tope es solo para que un dedo de más no dibuje un patio entero.
+const MAX_BIGBAGS = 999;
+const leerBigbags = (sel) => {
+  const n = Number(String($(sel)?.value || '').trim());
+  return Number.isInteger(n) && n >= 1 && n <= MAX_BIGBAGS ? n : null;
+};
 // el material define con qué figura se dibuja
 const FORMA_DE = { granel: 'elipse', bigbag: 'rectangulo' };
 // El granel es redondo. Al volver a él desde un bigbag o desde un polígono
@@ -2983,7 +2990,9 @@ function barraEdicion() {
 function barraForma(tipo, obj) {
   const nombre = tipo === 'lote' ? obj.codigo
     : tipo === 'pila' ? `Pila ${obj.codigo}` : (obj.etiqueta || 'Figura');
-  const ayuda = obj.forma === 'poligono'
+  const ayuda = tipo === 'lote' && Mapa.esGrupoBigbags(obj)
+    ? `arrástralo para moverlo; la manija del costado reparte las columnas (de a ${Mapa.ALTO_BIGBAGS} bigbags) y la de arriba lo gira`
+    : obj.forma === 'poligono'
     ? 'arrástrala para moverla; los vértices se mueven uno a uno, un “+” agrega y tocar un vértice lo quita'
     : 'arrástrala para moverla, el punto de la esquina es el tamaño y el de arriba el giro';
   $('#barra-forma').innerHTML = `
@@ -3540,7 +3549,8 @@ async function fichaLote(id) {
   // se queda arriba, y todo lo demás pasa por debajo.
   const encabezado = `
     <h2>${codigoHTML(l.codigo)}</h2>
-    <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}
+    <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}${
+      l.material === 'bigbag' && Number(l.bigbags) > 0 ? ` × ${Number(l.bigbags)}` : ''}
       · ${placasDe(l).length > 1 ? 'volquetas' : 'volqueta'} ${esc(placasTexto(l) || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
     <div class="fila-chips">
       <span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span>
@@ -3585,11 +3595,19 @@ async function fichaLote(id) {
         ${Object.entries(MATERIALES).map(([k, v]) =>
           `<button data-material="${k}" ${(l.material || 'granel') === k ? 'class="btn-lleno"' : ''}>${v}</button>`).join('')}
       </div>
+      ${l.material === 'bigbag' ? `
+      <h3>Bigbags</h3>
+      <div class="campo">
+        <label for="bb-cant">Cantidad</label>
+        <input id="bb-cant" type="number" inputmode="numeric" min="1" max="${MAX_BIGBAGS}" value="${Number(l.bigbags) || 1}">
+      </div>
+      <button class="btn btn-guardar btn-ancho" id="bb-guardar" style="width:100%">Guardar cantidad</button>
+      <p class="pista">Se apilan de a ${Mapa.ALTO_BIGBAGS} en el mapa. Para repartir las columnas de otra forma, toca «Ajustar forma» y arrastra la manija del costado: cambia la distribución, no el tamaño de cada bigbag.</p>` : ''}
 
       <h3>Forma en el mapa</h3>
       <div class="acciones">
         <button id="editar-forma">Ajustar forma</button>
-        <button id="poligono">${l.forma === 'poligono' ? 'Volver a la forma simple' : 'Dibujar a mano'}</button>
+        ${Mapa.esGrupoBigbags(l) ? '' : `<button id="poligono">${l.forma === 'poligono' ? 'Volver a la forma simple' : 'Dibujar a mano'}</button>`}
       </div>
       <p class="pista">"Dibujar a mano" convierte el lote en un polígono: arrastras cada vértice, agregas puntos con los “+” y los quitas tocándolos.</p>
 
@@ -3713,6 +3731,11 @@ async function fichaLote(id) {
       if (l.forma !== 'poligono') {
         cambios.forma = FORMA_DE[material];
         if (cambios.forma === 'elipse') Object.assign(cambios, aCirculo(l));
+        // vuelve a bigbag con la cantidad que ya tenía: ocupa lo de su grupo
+        if (material === 'bigbag' && Number(l.bigbags) > 0) {
+          const d = Mapa.disposicionBigbags(l.bigbags, l.bigbags_fila);
+          Object.assign(cambios, { rx: d.rx, ry: d.ry });
+        }
       }
       await Store.actualizarLote(l.id, cambios);
       cerrarHoja(); await recargar(); sincronizar();
@@ -3729,6 +3752,17 @@ async function fichaLote(id) {
     cerrarHoja(); await recargar(); sincronizar();
     abrirEdicion('lote', { ...l, ...cambios });
   });
+
+  const bb = $('#bb-guardar');
+  if (bb) bb.onclick = accion(async () => {
+    const n = leerBigbags('#bb-cant');
+    if (!n) return avisar(`Escribe cuántos bigbags son (de 1 a ${MAX_BIGBAGS}).`);
+    // el reparto que ya tenía se respeta; el tamaño sale de la cantidad
+    const d = Mapa.disposicionBigbags(n, l.bigbags_fila);
+    await Store.actualizarLote(l.id, { bigbags: n, bigbags_fila: l.bigbags_fila ? d.porFila : null,
+                                       forma: 'rectangulo', rx: d.rx, ry: d.ry });
+    cerrarHoja(); await recargar(); sincronizar();
+  }, { ocupado: 'Guardando…' });
 
   montarPlacas('a-placa');
   const ef = $('#editar-forma');
@@ -4193,6 +4227,11 @@ function formLote() {
         <button type="button" id="fm-bigbag">Bigbag</button>
       </div>
     </div>
+    <div class="campo" id="f-bb" hidden>
+      <label for="f-bigbags">Cantidad de bigbags</label>
+      <input id="f-bigbags" type="number" inputmode="numeric" min="1" max="${MAX_BIGBAGS}" value="1">
+    </div>
+    <p class="pista" id="f-bb-pista" hidden>En el mapa se apilan de a ${Mapa.ALTO_BIGBAGS}. Cómo se reparten las columnas se ajusta después, desde «Ajustar forma».</p>
     <p id="f-error" class="aviso" hidden></p>
     <div class="acciones">
       <button id="f-cancelar">Cancelar</button>
@@ -4214,6 +4253,7 @@ function formLote() {
     material = m;
     $('#fm-granel').classList.toggle('btn-lleno', m === 'granel');
     $('#fm-bigbag').classList.toggle('btn-lleno', m === 'bigbag');
+    $('#f-bb').hidden = $('#f-bb-pista').hidden = m !== 'bigbag';
   };
   montarPlacas('f-placa');
   $('#fm-granel').onclick = () => elegirMaterial('granel');
@@ -4235,12 +4275,16 @@ function formLote() {
     if (S.lotes.some((l) => l.codigo === codigo)) {
       return falla(`El lote ${codigo} ya está registrado.`);
     }
+    const bigbags = material === 'bigbag' ? leerBigbags('#f-bigbags') : null;
+    if (material === 'bigbag' && !bigbags) return falla(`Escribe cuántos bigbags son (de 1 a ${MAX_BIGBAGS}).`);
+    const disp = bigbags ? Mapa.disposicionBigbags(bigbags) : null;
     const nuevo = await Store.crearLote({
       codigo, proveedor_id, placa,
       // el lote nace donde estás parado: para meter uno en Ye se abre el
       // plano de Ye y se le da a "Nuevo lote" allí
       plataforma_id: S.plataforma,
       material, forma: FORMA_DE[material],
+      bigbags, tam: disp ? { rx: disp.rx, ry: disp.ry } : null,
       x: c.x + (Math.random() - 0.5) * 90, y: c.y + (Math.random() - 0.5) * 70,
       usuario_id: S.perfil.id
     });

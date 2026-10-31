@@ -534,7 +534,7 @@ async function encolar(clave, tabla, modo, fila) {
 }
 
 export async function crearLote({ codigo, proveedor_id, placa, material, forma, x, y,
-                                  plataforma_id, usuario_id }) {
+                                  plataforma_id, usuario_id, bigbags, tam: tamBigbags }) {
   const cod = codigo.trim().toUpperCase();
   // Tocar "Poner en el mapa" diez veces tiene que dejar UN lote. El código
   // es único en el servidor: si ya está guardado aquí, se devuelve ese
@@ -552,7 +552,9 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
   // Ambos van un 10 % más chicos que eso (40 → 36, 46 × 34 → 41 × 31):
   // con la foto del patio de fondo se veían demasiado grandes. Los que ya
   // existían se achicaron igual con sql/achicar.sql.
-  const tam = fma === 'rectangulo' ? { rx: 41, ry: 31 } : { rx: 36, ry: 36 };
+  // Un lote en bigbags con cantidad ocupa lo que ocupan sus columnas: el
+  // tamaño lo calcula la app (Mapa.disposicionBigbags) y llega en `tam`.
+  const tam = tamBigbags || (fma === 'rectangulo' ? { rx: 41, ry: 31 } : { rx: 36, ry: 36 });
 
   const fila = {
     id: uuid(), codigo: cod, proveedor_id,
@@ -561,7 +563,11 @@ export async function crearLote({ codigo, proveedor_id, placa, material, forma, 
     material: material || 'granel', forma: fma,
     puntos: null, x, y, ...tam, rot: 0,
     estado: 'por_muestrear', estado_desde: t, fecha_recogida: null,
-    pila_id: null, ultimo_evento_en: t, creado_por: usuario_id, creado_en: t
+    pila_id: null, ultimo_evento_en: t, creado_por: usuario_id, creado_en: t,
+    // Solo los bigbags llevan cantidad. Un lote a granel NO manda la
+    // columna: si el servidor todavía no corrió la migración, un campo
+    // desconocido haría rechazar el lote entero.
+    ...(material === 'bigbag' && bigbags > 0 ? { bigbags, bigbags_fila: null } : {})
   };
   await idb.guardar('lotes', fila);
   await idb.guardar('eventos', {

@@ -555,7 +555,13 @@ function figuraPila(p, lotes) {
 // El aspecto de un lote según su forma: rectángulo es bigbag; óvalo y
 // polígono son material a granel. Lo comparte la volqueta, que deja en
 // el piso exactamente el montón que después queda en el plano.
+// Un lote de bigbags con CANTIDAD se dibuja como su grupo de columnas;
+// uno sin cantidad (los de antes) sigue siendo un solo saco.
+export const esGrupoBigbags = (l) => l.forma === 'rectangulo' && Number(l.bigbags) > 0;
+export const disposicionBigbags = Dib.disposicionBigbags;
+export const ALTO_BIGBAGS = Dib.ALTO_BIGBAGS;
 function aspectoLote(l, col) {
+  if (esGrupoBigbags(l)) return Dib.grupoBigbags(l, col);
   if (l.forma === 'rectangulo') return Dib.bigbag(l, col);
   return Dib.granel(l.forma === 'poligono' ? { ...l, puntos: listaPuntos(l) } : l, col);
 }
@@ -675,6 +681,19 @@ function manijas() {
       ${ps.map((p, i) => asa(p.x, p.y, 'vertice', { i })).join('')}
       <line x1="0" y1="${arriba}" x2="0" y2="${arriba - varilla}" class="varilla"/>
       ${asa(0, arriba - varilla, 'rotar')}
+    </g>`;
+  }
+
+  // Un grupo de bigbags no se estira: cada bigbag mide lo mismo. Lo que
+  // se ajusta es cómo se reparten las columnas, con una manija en el
+  // borde derecho que, al arrastrarla, pone más o menos columnas por fila.
+  if (seleccion.tipo === 'lote' && esGrupoBigbags(o)) {
+    return `<g ${trazo(o)} class="manijas">
+      ${cuerpo(o, 'class="halo"')}
+      <line x1="${o.rx}" y1="0" x2="${o.rx + 16 * u}" y2="0" class="varilla"/>
+      ${asa(o.rx + 16 * u, 0, 'columnas')}
+      <line x1="0" y1="${-o.ry}" x2="0" y2="${-o.ry - varilla}" class="varilla"/>
+      ${asa(0, -o.ry - varilla, 'rotar')}
     </g>`;
   }
 
@@ -948,6 +967,7 @@ function abajo(ev) {
     const l = aLocal(o, inicio);
     const desde = h === 'vertice' ? listaPuntos(o)[i]
                 : h === 'tamano'  ? { x: o.rx, y: o.ry }
+                : h === 'columnas' ? { x: o.rx, y: 0 }
                 : null;
     arrastre = {
       handle: h, i, obj: o, inicio,
@@ -1064,7 +1084,14 @@ function movimiento(ev) {
     const d = arrastre.desfase || { x: 0, y: 0 };
     const l = aLocal(o, p);
     const lx = l.x - d.x, ly = l.y - d.y;   // descontando dónde se agarró
-    if (arrastre.handle === 'rotar') {
+    if (arrastre.handle === 'columnas') {
+      // el borde derecho sigue al dedo: cuántas columnas caben hasta ahí
+      const n = Math.max(1, Math.round((2 * Math.max(lx, 0) + 4) / Dib.PASO_BIGBAG));
+      if (n !== o.bigbags_fila) {
+        const d = Dib.disposicionBigbags(o.bigbags, n);
+        o.bigbags_fila = d.porFila; o.rx = d.rx; o.ry = d.ry;
+      }
+    } else if (arrastre.handle === 'rotar') {
       o.rot = Math.round((Math.atan2(p.y - o.y, p.x - o.x) * 180) / Math.PI + arrastre.giro);
     } else if (arrastre.handle === 'vertice') {
       const ps = listaPuntos(o).slice();
