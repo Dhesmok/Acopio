@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v98';
+const VERSION = 'acopio-v99';
 const SHELL = [
   './',
   './index.html',
