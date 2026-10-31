@@ -752,6 +752,24 @@ export async function renombrarPila(id, cambios) {
 
 // `ocurrido_en` se puede dar de fuera, y solo hace falta para una cosa:
 // la pareja de apuntes de un traslado. Ver `anotarRecorrido` en app.js.
+// Un acomodo chico CORRIGE el último movimiento en vez de anotar otro
+// (ver app.js, anotarRecorrido). Los eventos no se reescriben: esto es la
+// única excepción, y el servidor solo deja tocar x/y del ÚLTIMO
+// movimiento de cada lote (sql/schema.sql, fn_corregir_movimiento).
+// Si el movimiento todavía no subió, se corrige el que está en la cola y
+// sube una sola vez, ya en su sitio.
+export async function corregirMovimiento(ev, x, y) {
+  const fila = { ...ev, x, y };
+  await idb.guardar('eventos', fila);
+  const pendiente = (await idb.todos('cola')).find((o) => o.id === `eventos:${ev.id}`);
+  if (pendiente) {
+    pendiente.fila = { ...pendiente.fila, x, y };
+    await idb.guardar('cola', pendiente);
+  } else {
+    await encolar(`eventos:${ev.id}:corregido`, 'eventos', 'actualizar', { id: ev.id, x, y });
+  }
+}
+
 export async function registrarEvento({
   lote_id, tipo, estado_nuevo, pila_id, plataforma_id, punto_id,
   fecha_recogida, x, y, nota, usuario_id, ocurrido_en
@@ -842,7 +860,10 @@ async function subir() {
     if (op.modo === 'borrar') {
       ({ error } = await sb.from(op.tabla).delete().eq('id', op.fila.id));
     } else if (op.modo === 'actualizar') {
-      ({ error } = await sb.from(op.tabla).update(op.fila).eq('id', op.fila.id));
+      // el id va en el filtro y no en lo que se cambia: en eventos solo se
+      // puede tocar x/y, y mandar `id` también pediría permiso sobre él
+      const { id, ...cambios } = op.fila;
+      ({ error } = await sb.from(op.tabla).update(cambios).eq('id', id));
     } else {
       ({ error } = await sb.from(op.tabla).upsert(op.fila, {
         onConflict: 'id', ignoreDuplicates: op.modo === 'insertar'

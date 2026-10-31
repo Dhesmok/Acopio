@@ -197,7 +197,10 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
 Mapa.editar(false);
 guardado = null; tocado = null;
 
-ok(Mapa.MANTENER_MS >= 1000 && Mapa.MANTENER_MS <= 1500,
+// 750 ms: se pidió la mitad de 1,5 s. Por debajo de medio segundo ya es
+// un toque largo cualquiera, y como soltar ya no pregunta, un roce
+// movería material en el plano.
+ok(Mapa.MANTENER_MS >= 500 && Mapa.MANTENER_MS <= 800,
    `hay que mantenerlo un rato, pero sin hacer esperar (${Mapa.MANTENER_MS} ms)`);
 ok(!!lienzo.oyentes.contextmenu?.length, 'mantener presionado el plano no abre el menú del navegador');
 let prevenido = false;
@@ -225,7 +228,13 @@ disparar('pointermove', evento(suelto.x + 150, suelto.y + 100, { figura: dedoSob
 disparar('pointerup',   evento(452, 401, { figura: dedoSobre }));
 ok(suelto.x !== 300 || suelto.y !== 300, `mantenido el tiempo, el lote se movió (${suelto.x}, ${suelto.y})`);
 ok(guardado?.[2]?.x === 300 && guardado?.[2]?.y === 300,
-   'y se pide guardarlo informando de dónde venía (la app pregunta "¿Dejar aquí?")');
+   'y se pide guardarlo informando de dónde venía');
+// Soltar ya no pregunta «¿Dejar aquí?»: la espera de mantener es la
+// protección, y un acomodo chico corrige el último movimiento en vez de
+// anotar otro (lo prueba contra la base pruebas/movimientos.mjs).
+ok(!/titulo: [^\n]*¿Dejar/.test(fuenteApp), 'soltar un lote ya no pide confirmar');
+ok(/!Mapa\.movimientoReal\(lote, ultimo\)\)\s*\{\s*await Store\.corregirMovimiento/.test(fuenteApp),
+   'si queda donde estaba su último movimiento, se corrige ese y no se anota otro');
 ok(tocado === null, 'sin abrir la ficha por el camino');
 Mapa.deshacerGeom('lote', suelto.id, guardado?.[3]);
 

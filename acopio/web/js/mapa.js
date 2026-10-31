@@ -607,21 +607,6 @@ function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, gi
   return +bajo.toFixed(1);
 }
 
-// Un nombre largo en una sola línea se sale de la figura o queda
-// diminuto. Se prueba en 1, 2 y 3 renglones y se queda el que deja la
-// letra más grande; a igualdad, el de menos renglones.
-function rotuloEnRenglones(o, texto, opciones) {
-  let mejor = null;
-  for (let n = 1; n <= 3; n++) {
-    const lineas = Dib.partirEnRenglones(texto, n);
-    if (mejor && lineas.length === mejor.lineas.length) continue;
-    const largo = lineas.reduce((a, b) => (b.length > a.length ? b : a), '');
-    const t = tamanoTexto(o, largo, { ...opciones, lineas: lineas.length * Dib.INTERLINEA });
-    if (!mejor || t > mejor.t * 1.04) mejor = { lineas, t };
-  }
-  return mejor;
-}
-
 function figuraFondo(f) {
   return `<g data-tipo="figura" data-id="${esc(f.id)}" ${trazo(f)} class="g-fondo${apagado(f.id)}">
     ${cuerpo(f, `fill="${esc(f.color)}" opacity=".85"`)}
@@ -669,15 +654,29 @@ const derecho = (giro, rot) => {
 
 // El nombre de la pila no sigue a ciegas el giro de la figura: una pila
 // larga girada deja el texto cruzando el montón de canto. Se prueba
-// derecho en pantalla y a lo largo del montón, y gana el que deja la
-// letra más grande; a casi igualdad (15 %), derecho, que se lee mejor.
+// derecho en pantalla y a lo largo del montón, en 1 a 4 renglones, y
+// gana lo que deja la letra más grande DE VERDAD: cada prueba se mide
+// sin suelo, para que una pila angosta (un triángulo, una franja) no
+// empate todo en el mínimo y se quede con un renglón que se sale por
+// los dos lados. A casi igualdad (15 %), derecho y con menos renglones.
+//
+// Techo 22: el nombre es un rótulo, no un titular; a 28-34 tapaba el
+// montón entero. Suelo 8: en una pila muy angosta, mejor chico y adentro.
+const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
-  const op = { min: 12, max: 28, paso: .68, margen: 10 };
-  const recto = derecho(-rot, rot), largo = derecho(ejeLargo(p), rot);
-  const a = { ...rotuloEnRenglones(p, texto, { ...op, giro: recto }), giro: recto };
-  const b = { ...rotuloEnRenglones(p, texto, { ...op, giro: largo }), giro: largo };
-  return b.t > a.t * 1.15 ? b : a;
+  const op = { min: 3, max: PILA_MAX, paso: .68, margen: 10 };
+  const palabras = Dib.partirEnRenglones(texto, 99).length;
+  let mejor = null;
+  for (const giro of [derecho(-rot, rot), derecho(ejeLargo(p), rot)]) {
+    for (let n = 1; n <= Math.min(4, palabras); n++) {
+      const lineas = Dib.partirEnRenglones(texto, n);
+      const largo = lineas.reduce((a, b) => (b.length > a.length ? b : a), '');
+      const t = tamanoTexto(p, largo, { ...op, lineas: lineas.length * Dib.INTERLINEA, giro });
+      if (!mejor || t > mejor.t * 1.15) mejor = { lineas, t, giro };
+    }
+  }
+  return { ...mejor, t: Math.max(PILA_MIN, mejor.t) };
 }
 
 function figuraPila(p, lotes) {
@@ -1037,9 +1036,11 @@ function cargaDe(o) {
 }
 
 // ------------------------------------------------ mantener para mover
-// Un segundo y medio: se pidió la mitad de los 3 s de la primera
-// versión. Sigue siendo bastante más que un toque largo sin querer.
-export const MANTENER_MS = 1500;
+// Tres cuartos de segundo: se pidió otra vez la mitad (3 s la primera
+// versión, 1,5 s la segunda). Ya no hay que confirmar al soltar, así que
+// esta espera es lo único que separa un roce de un traslado: sigue
+// siendo bastante más que un toque largo sin querer.
+export const MANTENER_MS = 750;
 let espera = null;
 
 function empezarAMantener(obj, ev) {

@@ -983,6 +983,40 @@ do $$ begin
 end $$;
 
 revoke update, delete on eventos from authenticated, anon;
+
+-- ------------------------------------------- corregir un movimiento
+--  Los eventos no se reescriben, con UNA excepción: un acomodo chico de
+--  un lote (sigue traslapándose con donde lo dejó el último movimiento)
+--  no anota un movimiento nuevo, corrige x/y de ese último. Así el
+--  recorrido muestra traslados y no cada empujoncito. Solo x/y (permiso
+--  por columna), solo de un 'movimiento' y solo del ÚLTIMO de su lote.
+grant update (x, y) on eventos to authenticated;
+create policy p_corregir_movimiento on eventos for update to authenticated
+  using (tipo = 'movimiento' and fn_mi_rol() in ('contratista', 'admin'))
+  with check (tipo = 'movimiento' and fn_mi_rol() in ('contratista', 'admin'));
+-- SIN security definer, a propósito: así current_user es quien hace el
+-- update. Las funciones internas (la limpieza de alimentados) corren
+-- como el dueño de la base y tocan eventos por su cuenta: a esas no se
+-- les cierra nada. Solo se vigila lo que llega desde la app.
+create or replace function fn_corregir_movimiento()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user not in ('authenticated', 'anon') then return new; end if;
+  if old.tipo <> 'movimiento' then
+    raise exception 'Solo se puede corregir un movimiento' using errcode = '42501';
+  end if;
+  if exists (select 1 from eventos e
+              where e.lote_id = old.lote_id and e.tipo = 'movimiento' and e.id <> old.id
+                and (e.ocurrido_en, e.id) > (old.ocurrido_en, old.id)) then
+    raise exception 'Solo se corrige el último movimiento de un lote' using errcode = '42501';
+  end if;
+  -- para que los demás celulares lo vuelvan a bajar: la bajada
+  -- incremental de eventos pregunta por registrado_en
+  new.registrado_en := now();
+  return new;
+end; $$;
+create trigger trg_corregir_movimiento
+  before update on eventos for each row execute function fn_corregir_movimiento();
 revoke delete on lotes from authenticated, anon;
 -- Insertar un canje a mano sería inventarse un saldo: solo fn_canjear.
 revoke insert, delete on canjes from authenticated, anon;

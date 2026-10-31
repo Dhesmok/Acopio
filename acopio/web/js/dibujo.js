@@ -566,20 +566,23 @@ export function pintado(texto, t, x, y, { volqueta = '', espaciado = .04, clase 
 // Parte un nombre en `n` renglones por sus espacios, de forma que el
 // renglón más largo sea lo más corto posible. Lo que va entre paréntesis
 // no se parte ("PILA 1" / "(ARENAS FINAS)"), y un nombre de una sola
-// palabra tampoco.
+// palabra tampoco. Con `n` mayor que las palabras, una por renglón.
 export function partirEnRenglones(texto, n) {
   const w = String(texto).match(/\([^)]*\)?|[^\s(]+/g) || [];
   if (n <= 1 || w.length < 2) return [w.join(' ')];
   const n2 = Math.min(n, w.length);
   let mejor = null;
-  const probar = (cortes) => {
-    const r = [], bordes = [0, ...cortes, w.length];
-    for (let i = 0; i + 1 < bordes.length; i++) r.push(w.slice(bordes[i], bordes[i + 1]).join(' '));
-    const largo = Math.max(...r.map((x) => x.length));
-    if (!mejor || largo < mejor.largo) mejor = { r, largo };
+  // todas las formas de cortar: los nombres de pila tienen pocas palabras
+  const probar = (desde, quedan, r) => {
+    if (quedan === 1) {
+      const todo = [...r, w.slice(desde).join(' ')];
+      const largo = Math.max(...todo.map((x) => x.length));
+      if (!mejor || largo < mejor.largo) mejor = { r: todo, largo };
+      return;
+    }
+    for (let i = desde + 1; i <= w.length - quedan + 1; i++) probar(i, quedan - 1, [...r, w.slice(desde, i).join(' ')]);
   };
-  if (n2 === 2) for (let i = 1; i < w.length; i++) probar([i]);
-  else for (let i = 1; i < w.length - 1; i++) for (let j = i + 1; j < w.length; j++) probar([i, j]);
+  probar(0, n2, []);
   return mejor.r;
 }
 
