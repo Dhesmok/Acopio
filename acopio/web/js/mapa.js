@@ -1314,7 +1314,15 @@ function cargaDe(o) {
 // esta espera es lo único que separa un roce de un traslado: sigue
 // siendo bastante más que un toque largo sin querer.
 export const MANTENER_MS = 750;
+// Un toque dura menos que esto. Si el dedo se quedó más tiempo con el aro
+// llenándose y se soltó antes de levantar el lote, se quiso mover y se
+// desistió: no se abre la ficha.
+const TOQUE_MAX_MS = 300;
 let espera = null;
+
+function holdAbortado(a) {
+  return a.conAro && performance.now() - a.desde > TOQUE_MAX_MS;
+}
 
 function empezarAMantener(obj, ev) {
   soltarEspera();
@@ -1446,14 +1454,15 @@ function abajo(ev) {
       arrastre = {
         pantalla: { x: ev.clientX, y: ev.clientY },
         vista: { ...vista }, u: unidadesPorPixel(),
-        toque: { tipo, id: obj.id }        // para abrir la ficha si no se movió
+        toque: { tipo, id: obj.id },       // para abrir la ficha si no se movió
+        desde: performance.now()
       };
       // Mantener el dedo quieto sobre un lote lo LEVANTA para moverlo,
       // sin entrar a modo edición. Tarda a propósito (MANTENER_MS): un
       // roce o un toque largo sin querer no pueden mover material en el
       // plano. Mientras se espera, un aro se va llenando alrededor del
       // lote para que se vea que algo va a pasar y cuánto falta.
-      if (tipo === 'lote' && cb.puedeMover?.()) empezarAMantener(obj, ev);
+      if (tipo === 'lote' && cb.puedeMover?.()) { arrastre.conAro = true; empezarAMantener(obj, ev); }
       return;
     }
 
@@ -1607,7 +1616,7 @@ function arriba(ev) {
     marcador(aPlano(ev));
   // Fuera de modo edición el dedo sobre una figura panea; si no llegó a
   // moverse, era un toque y lo que se quiere es ver la ficha.
-  } else if (modo === 'paneando' && arrastre?.toque && !movio) {
+  } else if (modo === 'paneando' && arrastre?.toque && !movio && !holdAbortado(arrastre)) {
     cb.alTocar?.(arrastre.toque.tipo, arrastre.toque.id);
   }
 
