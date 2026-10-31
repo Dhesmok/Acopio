@@ -829,39 +829,34 @@ ok(sinCorrer(lienzo.style.transform) && lienzo.attrs.viewBox.startsWith('400 '),
 disparar('pointerup', dedo(1, 100, 600));
 
 // ---------------------------------------------------------------------
-titulo('El pellizco apaga los códigos; el paneo no.');
+titulo('El pellizco no repinta el plano: ni al empezar, ni mientras dura.');
 
-// Desplazar y acercar no cuestan lo mismo. Al desplazar el texto solo se
-// vuelve a pintar; al acercar cambia de TAMAÑO en cada cuadro y hay que
-// recomponer cada glifo. Medido con 149 lotes y 3 pilas, en un pellizco
-// de 30 movimientos con la CPU frenada 10 veces: con los códigos
-// puestos, el 10% de los cuadros pasa de 367 ms y el peor llega a 417;
-// apagándolos, 50 y 100. A 20 veces, 783 ms contra 100.
-//
-// Y la marca la pone el GESTO, no un cronómetro: si parpadea a mitad del
-// pellizco, el remedio es peor que la enfermedad.
+// Antes el pellizco apagaba los códigos de los lotes mientras duraba,
+// porque con el viewBox cambiando en cada cuadro había que recomponer
+// cada glifo. Ahora el pellizco solo escala la imagen ya pintada, y
+// apagarlos costaba dos repintados enteros: uno justo al apoyar el
+// segundo dedo, que es el tirón que se sentía al empezar a acercar.
 Mapa.pintar(mismos);
 unoAUno();
+const encuadreQuieto = lienzo.attrs.viewBox;
 
 disparar('pointerdown', dedo(1, 400, 300));
-ok(!lienzo.clases.has('acercando'), 'un solo dedo es paneo: los códigos se quedan');
-
 disparar('pointerdown', dedo(2, 600, 300));
-ok(lienzo.clases.has('acercando'), 'con el segundo dedo empieza el pellizco y se apagan');
+ok(lienzo.clases.size === 0, 'al apoyar el segundo dedo no se le pone ninguna clase al lienzo');
 
-let siempreApagados = true;
+let quieto = true;
 for (let i = 1; i <= 20; i++) {
   disparar('pointermove', dedo(1, 400 - i * 4, 300));
   disparar('pointermove', dedo(2, 600 + i * 4, 300));
-  if (!lienzo.clases.has('acercando')) siempreApagados = false;
+  if (lienzo.clases.size || lienzo.attrs.viewBox !== encuadreQuieto) quieto = false;
 }
-ok(siempreApagados, 'y siguen apagados TODO el pellizco, sin encenderse ni una vez');
+ok(quieto, 'y en todo el pellizco (×1,8) ni clase ni viewBox: solo se escala la imagen');
+ok(/scale\(1\.8/.test(lienzo.style.transform), `la imagen va escalada (${lienzo.style.transform})`);
 
-// al levantar un dedo esto pasa a ser paneo, y el paneo no los apaga
 disparar('pointerup', dedo(2, 680, 300));
-ok(!lienzo.clases.has('acercando'), 'al quedar un dedo vuelven, porque ya es paneo');
 disparar('pointerup', dedo(1, 320, 300));
-ok(!lienzo.clases.has('acercando'), 'y al soltar del todo tampoco queda la marca puesta');
+ok(lienzo.style.transform === '' && lienzo.attrs.viewBox !== encuadreQuieto,
+   'al soltar se dibuja nítido con el encuadre nuevo');
 
 // ---------------------------------------------------------------------
 titulo('El pellizco deja quieto el punto que está entre los dos dedos.');

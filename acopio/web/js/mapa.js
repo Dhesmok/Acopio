@@ -6,7 +6,7 @@
 
 import * as Dib from './dibujo.js';
 
-let svg, capa, caja0, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
+let svg, svgGps, capa, caja0, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
 let datos = { config: {}, figuras: [], pilas: [], lotes: [] };
 let seleccion = null;
 let modo = 'ninguno', arrastre = null;
@@ -86,7 +86,7 @@ function reiniciarInteraccion() {
   pinchInicial = null;
   movio = false;
   caja = null;      // la caja guardada era la del gesto que se cortó
-  acercando(false);
+  gpsAlSoltar();
 }
 
 // Red de seguridad: si el dedo se levanta fuera del lienzo, o el
@@ -126,8 +126,12 @@ export function montar(contenedor, callbacks) {
   contenedor.innerHTML = `<div class="lienzo-capa" style="position:absolute;left:${pct(-SOBRA)};top:${
       pct(-SOBRA)};width:${pct(1 + 2 * SOBRA)};height:${pct(1 + 2 * SOBRA)};transform-origin:0 0;will-change:transform">
     <svg id="lienzo" xmlns="http://www.w3.org/2000/svg"
-      preserveAspectRatio="xMidYMid meet" touch-action="none"></svg></div>`;
+      preserveAspectRatio="xMidYMid meet" touch-action="none"></svg>
+    <svg class="lienzo-gps" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
+      preserveAspectRatio="xMidYMid meet"><g id="capa-gps" class="capa-gps"></g></svg></div>`;
   svg = contenedor.querySelector('#lienzo');
+  svgGps = contenedor.querySelector('.lienzo-gps');
+  gpsAncho = 0;          // capa nueva y vacía: se llena con el primer encuadre
   capa = contenedor.querySelector('.lienzo-capa');
   caja0 = contenedor;
   pintada = null;
@@ -318,10 +322,8 @@ export function pintar(d) {
   // guardan pero no se ven nunca.
   if (dibujo === ultimoDibujo) return;
   ultimoDibujo = dibujo;
-  // La capa del GPS va aparte y al final, encima de todo. NO entra en la
-  // comparación de arriba: el punto se mueve cada segundo, y si contara
-  // como cambio del plano se rearmarían cientos de figuras por nada.
-  svg.innerHTML = `${dibujo}<g id="capa-gps" class="capa-gps">${capaGps()}</g>`;
+  // La capa del GPS NO va aquí: ver ponerGps.
+  svg.innerHTML = dibujo;
 }
 
 // ------------------------------------------------------------------ GPS
@@ -332,14 +334,33 @@ export function pintar(d) {
 let gps = null;
 let gpsAncho = 0;                     // con qué zoom se dibujó la capa
 
+// Mientras el dedo está abajo, la posición nueva espera a que se suelte.
+// Llega cada segundo, y cada vez la tarjeta gráfica tenía que volver a
+// preparar la capa a mitad del gesto: con la CPU frenada 6 veces eran
+// tirones de 50 a 120 ms en pleno pellizco. Un punto que se queda quieto
+// el segundo o dos que dura un gesto no se nota.
+let gpsPendiente = false;
 export function pintarGps(g) {
   gps = g;
+  if (modo !== 'ninguno') { gpsPendiente = true; return; }
   ponerGps();
+}
+function gpsAlSoltar() {
+  if (gpsPendiente && modo === 'ninguno') ponerGps();
 }
 
 // Solo se toca la capa, nunca el plano.
+//
+// Y la capa ni siquiera vive dentro del plano: es otro <svg>, encima, con
+// el mismo encuadre y su propia capa en la tarjeta gráfica. Dentro del
+// plano, cualquier cambio en ella —el punto que se mueve cada segundo, y
+// sobre todo el latido del punto azul, que es una animación que no
+// para— obligaba a volver a pintar el plano ENTERO, en cada cuadro.
+// Medido con la CPU frenada 6 veces: con el GPS prendido el mapa iba a
+// la mitad de cuadros, quieto o moviéndolo.
 function ponerGps() {
-  const n = svg?.querySelector('#capa-gps');
+  gpsPendiente = false;
+  const n = svgGps?.querySelector('#capa-gps');
   if (n) n.innerHTML = capaGps();
 }
 
@@ -989,6 +1010,7 @@ function aplicarVista() {
   if (capa?.style) capa.style.transform = '';
   const v = conSobra(vista);
   svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  svgGps?.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   pintada = { ...vista };
   gpsAlZoom();
 }
@@ -1002,7 +1024,12 @@ function verVista() {
   const fuera = vista.x < p.x - p.w * SOBRA * .95 || vista.y < p.y - p.h * SOBRA * .95
     || vista.x + vista.w > p.x + p.w * (1 + SOBRA * .95)
     || vista.y + vista.h > p.y + p.h * (1 + SOBRA * .95);
-  if (fuera || k > 1.6 || k < .6) { aplicarVista(); return; }
+  // Acercando, la imagen escalada se ve algo borrosa hasta soltar, que es
+  // cuando se vuelve a dibujar nítida. Se aguanta hasta ×4 sin redibujar:
+  // cada redibujado a mitad del pellizco es un tirón, y en un gama baja
+  // eso pesa más que un rato de borroso. Alejando no hay borroso, pero sí
+  // un límite: lo que sobra dibujado alrededor (`fuera`).
+  if (fuera || k > 4) { aplicarVista(); return; }
   // Cuentas en píxeles, con el origen en la esquina de la caja visible.
   // De la caja visible a la del lienzo hay SOBRA de cada lado.
   const r = cajaLienzo();
@@ -1197,29 +1224,14 @@ function iniciarZoom() {
   const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
   pinchInicial = { d: dist(a, b), ...vista, cx, cy, ancla: aPlanoPunto(cx, cy) };
   modo = 'zoom';
-  acercando(true);
 }
 
-// Mientras dura el PELLIZCO —y solo entonces— los códigos de los lotes no
-// se dibujan.
-//
-// Desplazar y acercar no cuestan lo mismo. Al desplazar, el texto solo se
-// vuelve a pintar; al acercar cambia de TAMAÑO en cada cuadro, y hay que
-// recomponer cada glifo de cada código sin poder reaprovechar nada.
-// Medido con 149 lotes: desplazar cuesta el doble con los códigos
-// puestos, acercar cuesta siete veces más. Por eso el paneo se dejó
-// intacto —ahí una escena estable vale más que el ahorro— y el pellizco
-// no.
-//
-// La marca la pone y la quita el GESTO, nunca un cronómetro. Una versión
-// anterior lo decidía midiendo si dos cuadros caían a menos de 120 ms, y
-// en un teléfono lento un cuadro dura más que eso: la marca se caía a
-// mitad del pellizco, los códigos volvían, el cuadro tardaba todavía más
-// y se realimentaba. Con la CPU frenada 20 veces eran 33 encendidos y
-// apagados en un solo gesto.
-function acercando(si) {
-  svg?.classList[si ? 'add' : 'remove']('acercando');
-}
+// Antes, mientras duraba el pellizco, los códigos de los lotes se
+// apagaban: con el viewBox cambiando en cada cuadro, cada glifo se volvía
+// a componer a otro tamaño. Ahora el pellizco solo escala la imagen ya
+// pintada (ver verVista) y el texto no se recompone, así que apagarlos ya
+// no ahorraba nada y costaba DOS repintados enteros: uno al apoyar el
+// segundo dedo —el tirón al empezar a acercar— y otro al soltar.
 
 function abajo(ev) {
   cancelAnimationFrame(animacion);   // el dedo manda sobre cualquier vuelo
@@ -1426,7 +1438,6 @@ function arriba(ev) {
     if (punteros.size >= 2) {
       iniciarZoom();               // sigue el pellizco con los que quedan
     } else if (punteros.size === 1) {
-      acercando(false);          // queda un dedo: esto ya es paneo
       // Queda un dedo. Antes el mapa se quedaba muerto hasta levantarlo:
       // no hacía zoom (falta un dedo) ni paneaba (el modo seguía siendo
       // zoom), y parecía que el plano se hubiera trabado. Ahora ese dedo
@@ -1440,6 +1451,7 @@ function arriba(ev) {
       modo = 'ninguno';
       asentarVista();
       caja = null;                 // se soltó todo: la caja puede cambiar
+      gpsAlSoltar();
       if (repintadoPendiente) pintar(repintadoPendiente);
     }
     return;
@@ -1479,6 +1491,7 @@ function arriba(ev) {
   modo = 'ninguno';
   arrastre = null;
   if (!punteros.size) { asentarVista(); caja = null; }   // se soltó todo: la caja puede cambiar
+  gpsAlSoltar();
   if (repintadoPendiente) pintar(repintadoPendiente);
 }
 
