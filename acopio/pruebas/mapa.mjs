@@ -376,8 +376,9 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
   { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
     bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
 {
-  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+)\)">\s*<rect class="placa-codigo"[^>]*\/><text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
+  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+)\)">\s*<text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
   ok(!!m && +m[1] === -60, 'el código del grupo va derecho en pantalla');
+  ok(!lienzo.innerHTML.includes("placa-codigo"), "sin placa detrás: el filo negro del texto basta");
   ok(!!m && +m[2] === 0 && Math.abs(+m[3]) < 8, 'y en el centro de su grupo, no afuera');
   ok(lienzo.innerHTML.includes('class="piso-grupo"'), 'el grupo lleva una base que marca hasta dónde llega');
   const d = Mapa.disposicionBigbags(27, 3);
