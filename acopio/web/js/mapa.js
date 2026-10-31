@@ -589,8 +589,11 @@ const FILO = .22;   // el trazo negro del pintado, en em (ver Dib.pintado)
 //
 // `giro` (grados, en el marco de la figura) mide el texto girado: se
 // gira la figura al revés alrededor del ancla y se mide derecho.
-function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0 }) {
-  const c = anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
+//
+// `centro` (opcional, en el marco de la figura) mide el bloque puesto en
+// otro sitio que el ancla: así se busca dónde le cabe más grande.
+function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
+  const c = centro || anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
   const ps = verticesDe(o).map(([x, y]) => giro
     ? [c.x + (x - c.x) * cs - (y - c.y) * sn, c.y + (x - c.x) * sn + (y - c.y) * cs] : [x, y]);
   const em = Math.max(String(texto).length, 1) * paso + FILO;
@@ -636,14 +639,6 @@ function verticesDe(o) {
 // nombre, PINTADO sobre el material como el código de los lotes. Cuántos
 // lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
 // plano no hace falta.
-// Hacia dónde se alarga una figura: el eje principal de sus vértices,
-// en grados del marco de la figura.
-function ejeLargo(o) {
-  const ps = verticesDe(o), c = anclaTexto(o);
-  let xx = 0, yy = 0, xy = 0;
-  for (const [x, y] of ps) { xx += (x - c.x) ** 2; yy += (y - c.y) ** 2; xy += (x - c.x) * (y - c.y); }
-  return Math.atan2(2 * xy, xx - yy) / 2 * 180 / Math.PI;
-}
 // Que en PANTALLA no quede cabeza abajo ni leyéndose de abajo arriba
 // más de lo necesario: el ángulo final queda entre −90° y 90°.
 const derecho = (giro, rot) => {
@@ -652,28 +647,41 @@ const derecho = (giro, rot) => {
   return a - rot;
 };
 
-// El nombre de la pila no sigue a ciegas el giro de la figura: una pila
-// larga girada deja el texto cruzando el montón de canto. Se prueba
-// derecho en pantalla y a lo largo del montón, en 1 a 4 renglones, y
-// gana lo que deja la letra más grande DE VERDAD: cada prueba se mide
-// sin suelo, para que una pila angosta (un triángulo, una franja) no
-// empate todo en el mínimo y se quede con un renglón que se sale por
-// los dos lados. A casi igualdad (15 %), derecho y con menos renglones.
+// El nombre de la pila va SIEMPRE derecho en pantalla, aunque la pila
+// esté girada: torcido o de canto se lee mal, y un nombre largo cabe
+// mejor partido en 2, 3 o 4 renglones que girado y diminuto. Se prueban
+// los renglones y, para cada uno, varios sitios dentro del montón —en
+// un triángulo la parte ancha, no el centro de sus vértices—, y gana lo
+// que deja la letra más grande. Cada prueba se mide sin suelo, para que
+// una pila angosta no empate todo en el mínimo y se quede con un solo
+// renglón que se sale por los dos lados. A casi igualdad (8 %), menos
+// renglones y más cerca del centro.
 //
-// Techo 22: el nombre es un rótulo, no un titular; a 28-34 tapaba el
-// montón entero. Suelo 8: en una pila muy angosta, mejor chico y adentro.
+// Techo 22: el nombre es un rótulo, no un titular. Suelo 8: en una pila
+// muy angosta, mejor chico y adentro.
 const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
-  const op = { min: 3, max: PILA_MAX, paso: .68, margen: 10 };
+  const giro = derecho(-rot, rot);
+  const ps = verticesDe(p), a = anclaTexto(p);
+  const xs = ps.map((q) => q[0]), ys = ps.map((q) => q[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  // el ancla primero: a igualdad, se queda en el centro
+  const sitios = [a];
+  const N = 6;
+  for (let i = 1; i < N; i++) for (let j = 1; j < N; j++) {
+    const s = { x: x0 + (x1 - x0) * i / N, y: y0 + (y1 - y0) * j / N };
+    if (rectanguloDentro(ps, s.x, s.y, .01, .01)) sitios.push(s);
+  }
+  const op = { min: 3, max: PILA_MAX, paso: .68, margen: 6, giro };
   const palabras = Dib.partirEnRenglones(texto, 99).length;
   let mejor = null;
-  for (const giro of [derecho(-rot, rot), derecho(ejeLargo(p), rot)]) {
-    for (let n = 1; n <= Math.min(4, palabras); n++) {
-      const lineas = Dib.partirEnRenglones(texto, n);
-      const largo = lineas.reduce((a, b) => (b.length > a.length ? b : a), '');
-      const t = tamanoTexto(p, largo, { ...op, lineas: lineas.length * Dib.INTERLINEA, giro });
-      if (!mejor || t > mejor.t * 1.15) mejor = { lineas, t, giro };
+  for (let n = 1; n <= Math.min(4, palabras); n++) {
+    const lineas = Dib.partirEnRenglones(texto, n);
+    const largo = lineas.reduce((x, y) => (y.length > x.length ? y : x), '');
+    for (const centro of sitios) {
+      const t = tamanoTexto(p, largo, { ...op, lineas: lineas.length * Dib.INTERLINEA, centro });
+      if (!mejor || t > mejor.t * 1.08) mejor = { lineas, t, giro, c: centro };
     }
   }
   return { ...mejor, t: Math.max(PILA_MIN, mejor.t) };
@@ -683,8 +691,7 @@ function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   const m = Dib.montonPila(verticesDe(p), n, col);
-  const c = anclaTexto(p);
-  const { lineas, t, giro } = rotuloPila(p);
+  const { lineas, t, giro, c } = rotuloPila(p);
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
     <g class="cuerpo-lote">${m.svg}</g>

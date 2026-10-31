@@ -323,27 +323,44 @@ const diagonal = { id: 'pd', codigo: '1 (ARENAS)', tipo: 'otro', estado: 'abiert
   puntos: [[-180, -100], [-150, -110], [150, 50], [160, 100], [130, 112], [-20, 105], [-190, 20], [-187, -65]]
     .map(([px, py]) => { const g = -65 * Math.PI / 180;
       return { x: +(px * Math.cos(g) - py * Math.sin(g)).toFixed(1), y: +(px * Math.sin(g) + py * Math.cos(g)).toFixed(1) }; }) };
-Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [diagonal] });
-const rotuloDiag = lienzo.innerHTML.match(/<g class="rotulo-mapa"(?: transform="rotate\(([-\d.]+)[^"]*")?>\s*<text[^>]*font-size="([\d.]+)"/);
-const giroDiag = +(rotuloDiag?.[1] || 0), tamDiag = +(rotuloDiag?.[2] || 0);
-const enPantalla = giroDiag + 65;
-ok(Math.abs(enPantalla - 25) < 8,
-   `en una pila larga y girada el nombre va a lo largo del montón (${enPantalla.toFixed(0)}° en pantalla)`);
-ok(tamDiag >= 12 && tamDiag <= 28, `y a un tamaño con techo, no a lo que dé la caja (${tamDiag})`);
-// el bloque de texto, girado como va, entra entero en el polígono
-{
-  const pts = diagonal.puntos.map((q) => [q.x, q.y]);
-  const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length;
+// Además el nombre va DERECHO en pantalla, partido en renglones: girado
+// a lo largo del montón quedaba diminuto y de canto.
+const cajaRotulo = (pila) => {
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [pila] });
+  const m = lienzo.innerHTML.match(/<g class="rotulo-mapa"(?: transform="rotate\(([-\d.]+) [-\d.]+ [-\d.]+\)")?>\s*<text x="([-\d.]+)" y="([-\d.]+)"[^>]*font-size="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/);
+  const filas = [...(m?.[5] || '').matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((x) => x[1]);
+  const t = +(m?.[4] || 0), n = filas.length || 1;
+  // el centro del bloque, sacado de dónde arranca el primer renglón
+  return { giro: +(m?.[1] || 0), cx: +m?.[2], cy: +m?.[3] + (n - 1) * 1.1 * t / 2 - .35 * t,
+           t, filas: filas.length ? filas : [m?.[5]] };
+};
+// el bloque, girado como va, entra entero en el polígono
+const entra = (pila, r) => {
+  const pts = pila.puntos.map((q) => [q.x, q.y]);
   const dentro = (x, y) => { let d = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
       const [ax, ay] = pts[i], [bx, by] = pts[j];
       if ((ay > y) !== (by > y) && x < bx + (y - by) * (ax - bx) / (ay - by)) d = !d; }
     return d; };
-  const w = 'PILA 1 (ARENAS)'.length * .68 * tamDiag / 2, h = .45 * tamDiag, g = giroDiag * Math.PI / 180;
-  const esquinas = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([u, v]) =>
-    [cx + u * Math.cos(g) - v * Math.sin(g), cy + u * Math.sin(g) + v * Math.cos(g)]);
-  ok(esquinas.every(([x, y]) => dentro(x, y)), 'y el nombre entero queda dentro del montón, sin salirse por ningún lado');
-}
+  const largo = Math.max(...r.filas.map((f) => f.length));
+  const w = largo * .68 * r.t / 2, h = r.filas.length * 1.1 * r.t / 2 * .85, g = r.giro * Math.PI / 180;
+  return [[-w, -h], [w, -h], [w, h], [-w, h]].every(([u, v]) =>
+    dentro(r.cx + u * Math.cos(g) - v * Math.sin(g), r.cy + u * Math.sin(g) + v * Math.cos(g)));
+};
+const rd = cajaRotulo(diagonal);
+ok(Math.abs(rd.giro + 65) < .5, `en una pila girada el nombre queda derecho en pantalla (${rd.giro + 65}°)`);
+ok(rd.t >= 12 && rd.t <= 22, `a un tamaño con techo, no a lo que dé la caja (${rd.t})`);
+ok(entra(diagonal, rd), `y entero dentro del montón: ${rd.filas.join(' / ')}`);
+
+// Una pila angosta en triángulo: antes todo empataba en el mínimo y se
+// quedaba en un renglón que se salía por los dos lados.
+const triangulo = { id: 'pt', codigo: 'DEV ADN 1', tipo: 'otro', estado: 'abierta', forma: 'poligono',
+  x: 300, y: 300, rx: 70, ry: 130, rot: 0,
+  puntos: [{ x: -5, y: -130 }, { x: 20, y: -125 }, { x: 70, y: 110 }, { x: 55, y: 125 },
+           { x: -60, y: 125 }, { x: -70, y: 105 }, { x: -25, y: -125 }] };
+const rt = cajaRotulo(triangulo);
+ok(rt.filas.length >= 2, `en una pila angosta el nombre se parte en renglones: ${rt.filas.join(' / ')}`);
+ok(entra(triangulo, rt) && rt.t >= 12, `y cabe entero, a un tamaño que se lee (${rt.t})`);
 
 // Un código de lote no se sale de su óvalo, aunque el óvalo sea alargado
 // y el código esté al tope.
