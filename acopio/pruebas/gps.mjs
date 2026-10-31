@@ -285,10 +285,10 @@ ok(/if \(document\.hidden\) pararGps\(\)/.test(app), 'con la app en el bolsillo 
 titulo('A los demás se los ve en vivo, y sin prender lo propio.');
 
 const lectura = app.slice(app.indexOf('async function leerOtros'), app.indexOf('// El primer nombre basta'));
-ok(!/S\.gps\.activo \|\| document\.hidden/.test(lectura) && /if \(document\.hidden \|\| S\.pestana !== 'mapa' \|\| S\.historia\) return;/.test(lectura),
+ok(!/S\.gps\.activo \|\| document\.hidden/.test(lectura) && /if \(document\.hidden \|\| S\.pestana !== 'mapa'\) return;/.test(lectura),
    'se pregunta por los demás aunque la ubicación propia esté apagada');
 const pinta = app.slice(app.indexOf('function pintarGps()'), app.indexOf('function botonGps()'));
-ok(/if \(!t \|\| S\.historia\) return/.test(pinta) && /const yo = S\.gps\.activo && S\.gps\.yo/.test(pinta),
+ok(/if \(!t\) return/.test(pinta) && /const yo = S\.gps\.activo && S\.gps\.yo/.test(pinta),
    'los compañeros se dibujan siempre; el punto azul, solo con lo propio prendido');
 ok(/Store\.escucharUbicaciones\(\{/.test(app) && /postgres_changes', \{ event: '\*', schema: 'public', table: 'ubicaciones' \}/.test(store),
    'la app escucha los cambios de ubicaciones en vivo');

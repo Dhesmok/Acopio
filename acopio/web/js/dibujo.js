@@ -299,45 +299,85 @@ export function disposicionBigbags(n, porFila) {
 // derecha (la luz viene de arriba a la izquierda). Cuanto más alta la
 // columna, más larga su sombra. Unas muescas en la esquina dicen cuántos
 // tiene, para no tener que contarlos por los bordes.
+//
+// `cols` = [{x, y, desde, cuantos}]: en qué columna, desde qué nivel
+// (0 = el piso) y cuántos bigbags pone ESTE lote. Un lote en el piso
+// empieza en 0; uno montado encima de otro empieza donde acaba el de abajo.
+const SUBE_NIVEL = 2.6;
+function columnasBigbags(cols, col, clave, { sombra = true } = {}) {
+  const L = LADO_BIGBAG, m = L / 2, r = 3.5;
+  const sombras = [], bordes = [], cuerpos = [];
+  cols.forEach((p, k) => {
+    const tope = p.desde + p.cuantos;                   // altura total de la columna
+    const subir = (tope - 1) * SUBE_NIVEL;
+    const tx = p.x - subir, ty = p.y - subir;
+    if (sombra) {
+      const s = 4 + tope * 3;
+      sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
+    }
+    for (let i = p.desde; i < tope; i++) {
+      const x = p.x - i * SUBE_NIVEL - m, y = p.y - i * SUBE_NIVEL - m;
+      bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (tope - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
+    }
+    const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
+    const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
+    const id = `gbc${k}-${clave}`;
+    const marcas = Array.from({ length: tope }, (_, i) =>
+      `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
+    cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
+      <g clip-path="url(#${id})">
+        ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
+        ${cara([[x0, y0], [x0, y1], [cx, cy]], tono(col, .06))}
+        ${cara([[x1, y0], [x1, y1], [cx, cy]], tono(col, -.12))}
+        ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
+        <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
+      </g>
+      <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
+      <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
+      ${marcas}`);
+  });
+  return { base: (sombras.length ? `<g class="sombra-lote">${sombras.join('')}</g>` : '') + bordes.join(''),
+           cuerpo: cuerpos.join('') };
+}
+
 export function grupoBigbags(o, color) {
   const col = hexValido(color);
   return recordar(`gb|${o.bigbags}|${o.bigbags_fila || ''}|${col}`, () => {
     const d = disposicionBigbags(o.bigbags, o.bigbags_fila);
-    const L = LADO_BIGBAG, m = L / 2, r = 3.5, paso = 2.6;
-    const sombras = [], bordes = [], cuerpos = [];
-    d.pilas.forEach((p, k) => {
-      const subir = (p.alto - 1) * paso;                 // cuánto sube el de encima
-      const tx = p.x - subir, ty = p.y - subir;
-      const s = 4 + p.alto * 3;
-      sombras.push(`<rect x="${f(p.x - m + s * .6)}" y="${f(p.y - m + s * .8)}" width="${L}" height="${L}" rx="${r}" fill="#0c0c0b" opacity=".22"/>`);
-      // filo de todos los niveles, de abajo hacia arriba
-      for (let i = 0; i < p.alto; i++) {
-        const x = p.x - i * paso - m, y = p.y - i * paso - m;
-        bordes.push(`<rect class="forma" x="${f(x)}" y="${f(y)}" width="${L}" height="${L}" rx="${r}" fill="${tono(col, -.2 - (p.alto - 1 - i) * .12)}" stroke="${TINTA}" stroke-width="2.4"/>`);
-      }
-      const cx = tx, cy = ty - L * .04, x0 = tx - m, y0 = ty - m, x1 = tx + m, y1 = ty + m;
-      const cara = (pts, c) => `<polygon points="${pts.map((q) => q.map(f).join(',')).join(' ')}" fill="${c}"/>`;
-      const id = `gbc${k}-${o.bigbags}-${o.bigbags_fila || 0}`;
-      const marcas = Array.from({ length: p.alto }, (_, i) =>
-        `<rect x="${f(x1 - 4.5 - i * 3.6)}" y="${f(y1 - 5.5)}" width="2.4" height="3.6" fill="${TINTA}"/>`).join('');
-      cuerpos.push(`<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}"/></clipPath>
-        <g clip-path="url(#${id})">
-          ${cara([[x0, y0], [x1, y0], [cx, cy]], tono(col, .22))}
-          ${cara([[x0, y0], [x0, y1], [cx, cy]], tono(col, .06))}
-          ${cara([[x1, y0], [x1, y1], [cx, cy]], tono(col, -.12))}
-          ${cara([[x0, y1], [x1, y1], [cx, cy]], tono(col, -.24))}
-          <rect class="textura" x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" fill="url(#tejido)"/>
-        </g>
-        <rect x="${f(x0)}" y="${f(y0)}" width="${L}" height="${L}" rx="${r}" fill="none" stroke="${TINTA}" stroke-width="1.6"/>
-        <circle cx="${f(cx)}" cy="${f(cy)}" r="3.4" fill="${tono(col, -.4)}" stroke="${TINTA}" stroke-width="1.2"/>
-        ${marcas}`);
-    });
-    return {
-      base: `<g class="sombra-lote">${sombras.join('')}</g>${bordes.join('')}`,
-      cuerpo: cuerpos.join(''),
-      disposicion: d
-    };
+    const g = columnasBigbags(d.pilas.map((p) => ({ x: p.x, y: p.y, desde: 0, cuantos: p.alto })),
+                              col, `${o.bigbags}-${o.bigbags_fila || 0}`);
+    return { ...g, disposicion: d };
   });
+}
+
+// Un lote MONTADO sobre otro: solo sus bigbags, en los niveles que le
+// tocaron. Sin sombra propia: la sombra es la del montón de abajo.
+export function bigbagsEncima(cols, color, clave) {
+  const col = hexValido(color);
+  return recordar(`gm|${JSON.stringify(cols)}|${col}|${clave}`,
+    () => columnasBigbags(cols, col, `m${clave}`, { sombra: false }));
+}
+
+// Dónde va cada bigbag de los lotes montados unos sobre otros. `abajo` es
+// el lote que está en el piso (con su cantidad y su reparto) y `encima`
+// los que se le montaron, en el orden en que se montaron. Cada uno llena
+// las columnas de abajo, en orden, sin pasar de ALTO_BIGBAGS. El que no
+// cabe entero no se monta (devuelve null para él).
+export function repartirEncima(abajo, encima) {
+  const d = disposicionBigbags(abajo.bigbags, abajo.bigbags_fila);
+  const alto = d.pilas.map((p) => p.alto);
+  const res = new Map();
+  for (const l of encima) {
+    let resto = Math.max(1, Math.round(Number(l.bigbags)) || 1);
+    const cols = [], antes = alto.slice();
+    for (let i = 0; i < alto.length && resto > 0; i++) {
+      const c = Math.min(ALTO_BIGBAGS - alto[i], resto);
+      if (c > 0) { cols.push({ x: d.pilas[i].x, y: d.pilas[i].y, desde: alto[i], cuantos: c }); alto[i] += c; resto -= c; }
+    }
+    if (resto > 0) { alto.splice(0, alto.length, ...antes); res.set(l.id, null); continue; }
+    res.set(l.id, cols);
+  }
+  return res;
 }
 
 // ============================================================= pila
@@ -499,11 +539,40 @@ export function montonPila(ps, n, colTipo) {
 // que engorda hacia afuera y la letra no adelgaza. Sirve para el código
 // de un lote y para el nombre de una pila. `texto` y `volqueta` llegan ya
 // escapados.
+//
+// `texto` puede ser una lista de renglones: el bloque queda centrado en
+// (x, y), así que un nombre en dos o tres renglones no se corre hacia
+// abajo.
+export const INTERLINEA = 1.1;
 export function pintado(texto, t, x, y, { volqueta = '', espaciado = .04, clase = '' } = {}) {
-  return `<text x="${f(x)}" y="${f(y)}" text-anchor="middle"${clase ? ` class="${clase}"` : ''}
+  const lineas = Array.isArray(texto) ? texto : [texto];
+  const y0 = y - (lineas.length - 1) * t * INTERLINEA / 2;
+  const cuerpo = lineas.length === 1 ? lineas[0]
+    : lineas.map((l, i) => `<tspan x="${f(x)}" ${i ? `dy="${f(t * INTERLINEA)}"` : ''}>${l}</tspan>`).join('');
+  return `<text x="${f(x)}" y="${f(y0)}" text-anchor="middle"${clase ? ` class="${clase}"` : ''}
     font-size="${f(t)}" letter-spacing="${f(t * espaciado)}" fill="#fdfbf7"
-    stroke="${TINTA}" stroke-width="${f(Math.max(2, t * .22))}" stroke-linejoin="round" paint-order="stroke">${texto}${
+    stroke="${TINTA}" stroke-width="${f(Math.max(2, t * .22))}" stroke-linejoin="round" paint-order="stroke">${cuerpo}${
     volqueta ? `<tspan font-size="62%" dy="${f(-t * .38)}">${volqueta}</tspan>` : ''}</text>`;
+}
+
+// Parte un nombre en `n` renglones por sus espacios, de forma que el
+// renglón más largo sea lo más corto posible. Lo que va entre paréntesis
+// no se parte ("PILA 1" / "(ARENAS FINAS)"), y un nombre de una sola
+// palabra tampoco.
+export function partirEnRenglones(texto, n) {
+  const w = String(texto).match(/\([^)]*\)?|[^\s(]+/g) || [];
+  if (n <= 1 || w.length < 2) return [w.join(' ')];
+  const n2 = Math.min(n, w.length);
+  let mejor = null;
+  const probar = (cortes) => {
+    const r = [], bordes = [0, ...cortes, w.length];
+    for (let i = 0; i + 1 < bordes.length; i++) r.push(w.slice(bordes[i], bordes[i + 1]).join(' '));
+    const largo = Math.max(...r.map((x) => x.length));
+    if (!mejor || largo < mejor.largo) mejor = { r, largo };
+  };
+  if (n2 === 2) for (let i = 1; i < w.length; i++) probar([i]);
+  else for (let i = 1; i < w.length - 1; i++) for (let j = i + 1; j < w.length; j++) probar([i, j]);
+  return mejor.r;
 }
 
 // ======================================================== volqueta

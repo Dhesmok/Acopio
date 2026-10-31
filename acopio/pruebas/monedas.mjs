@@ -102,8 +102,7 @@ ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
    'y hay un trofeo que lleva derecho a la clasificación');
 ok(!/id="zoom-mas"|id="zoom-menos"|id="encuadrar"/.test(app),
    'el plano no lleva botones de zoom: se acerca con los dedos');
-ok(/\$\{esAdmin\(\) \? `<button class="btn-mapa" id="r-historia"/.test(app),
-   '"Otro día" solo le sale al admin');
+ok(!/id="r-historia"|Otro día/.test(app), '"Otro día" ya no existe en la app');
 
 // ---------------------------------------------------------------------
 titulo('La tienda tiene su propia entrada, y se ve.');

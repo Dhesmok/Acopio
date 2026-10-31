@@ -186,6 +186,11 @@ create table lotes (
   -- (rx, ry) lo calcula la app a partir de estos dos.
   bigbags          integer check (bigbags between 1 and 999),
   bigbags_fila     integer check (bigbags_fila between 1 and 999),
+  -- Un lote de bigbags puede ir MONTADO sobre otro: sus bigbags se apilan
+  -- sobre los del de abajo (nunca más de 3 de alto). No es una pila: los
+  -- dos siguen sueltos y con su código. Si el de abajo se borra, este
+  -- queda en el piso.
+  sobre_lote       uuid references lotes (id) on delete set null,
   -- derivados del log de eventos (protegidos por trigger)
   --
   -- La plataforma es DERIVADA, como el estado y la pila: un lote se pasa

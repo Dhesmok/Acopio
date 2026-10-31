@@ -197,7 +197,14 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
 Mapa.editar(false);
 guardado = null; tocado = null;
 
-ok(Mapa.MANTENER_MS >= 2000, `hay que mantenerlo un buen rato, no un toque largo (${Mapa.MANTENER_MS} ms)`);
+ok(Mapa.MANTENER_MS >= 1000 && Mapa.MANTENER_MS <= 1500,
+   `hay que mantenerlo un rato, pero sin hacer esperar (${Mapa.MANTENER_MS} ms)`);
+ok(!!lienzo.oyentes.contextmenu?.length, 'mantener presionado el plano no abre el menú del navegador');
+let prevenido = false;
+lienzo.oyentes.contextmenu?.forEach((fn) => fn({ preventDefault: () => { prevenido = true; } }));
+ok(prevenido, 'el menú de la imagen de fondo se cancela');
+const cssMapa = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+ok(/#lienzo, #lienzo \* \{ -webkit-touch-callout: none;/.test(cssMapa), 'ni el menú largo de iPhone');
 
 // mantener sin esperar lo suficiente y moverse = paneo de siempre
 disparar('pointerdown', evento(suelto.x, suelto.y, { figura: dedoSobre }));
@@ -230,8 +237,8 @@ ok(!relojes.some((r) => r.ms === Mapa.MANTENER_MS && r.fn), 'para quien no puede
 disparar('pointerup', evento(suelto.x, suelto.y, { figura: dedoSobre }));
 puedeMover = true;
 globalThis.setTimeout = setTimeoutReal; globalThis.clearTimeout = clearTimeoutReal;
-ok(/puedeMover: \(\) => !soloLectura\(\) && !S\.historia/.test(fuenteApp),
-   'en la app, la empresa y el patio de otro día no mueven lotes');
+ok(/puedeMover: \(\) => !soloLectura\(\)/.test(fuenteApp),
+   'en la app, la empresa (solo lectura) no mueve lotes');
 
 // ---------------------------------------------------------------------
 titulo('El rótulo se ajusta a su figura, no al revés.');
@@ -281,7 +288,21 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas:
              { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
 const anclaX = +(lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/) || [])[1];
 ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
-ok(lienzo.innerHTML.includes('>PILA SAN JUDAS<'), 'y lleva solo el nombre de la pila');
+const textoPila = (lienzo.innerHTML.match(/<text[^>]*class="txt-pila"[^>]*>([\s\S]*?)<\/text>/) || [])[1] || '';
+const renglones = [...textoPila.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((m) => m[1]);
+const leido = renglones.length ? renglones.join(' ') : textoPila;
+ok(leido === 'PILA SAN JUDAS', `y lleva solo el nombre de la pila (${leido})`);
+
+// Un nombre largo no va en una sola línea que se sale del montón: se
+// parte en dos o tres renglones si así la letra queda más grande.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [
+  { id: 'pl', codigo: '1 (ARENAS FINAS)', tipo: 'otro', estado: 'abierta', forma: 'elipse',
+    x: 300, y: 300, rx: 110, ry: 70, rot: 0 }] });
+const largoPila = (lienzo.innerHTML.match(/<text[^>]*class="txt-pila"[^>]*>([\s\S]*?)<\/text>/) || [])[1] || '';
+const filas = [...largoPila.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((m) => m[1]);
+ok(filas.length >= 2 && filas.length <= 3, `un nombre largo va en ${filas.length} renglones: ${filas.join(' / ')}`);
+ok(filas.join(' ') === 'PILA 1 (ARENAS FINAS)', 'sin perder ni cambiar ninguna palabra');
+ok(filas.includes('(ARENAS FINAS)'), 'y lo que va entre paréntesis no se parte');
 ok(!/\d+ lotes?</.test(lienzo.innerHTML), 'sin la cantidad de lotes: eso se ve al entrar a la pila');
 
 // ---------------------------------------------------------------------
@@ -937,6 +958,43 @@ disparar('pointerup', evento(grupo.x + enFila.rx + 16, grupo.y));
 ok(grupo.bigbags_fila === 9, `arrastrar la manija hasta el ancho de 9 columnas las pone en fila (${grupo.bigbags_fila})`);
 ok(grupo.rx === enFila.rx && grupo.ry === enFila.ry, 'y el tamaño del lote en el plano sigue al reparto');
 Mapa.editar(false);
+
+// ---------------------------------------------------------------------
+titulo('Bigbags sobre bigbags: se montan si caben, nunca más de 3 de alto.');
+
+const bbLote = (id, codigo, n, extra = {}) => {
+  const d = Mapa.disposicionBigbags(n);
+  return { id, codigo, estado: 'muestreado', pila_id: null, material: 'bigbag', forma: 'rectangulo',
+           x: 400, y: 300, rot: 0, bigbags: n, bigbags_fila: null, rx: d.rx, ry: d.ry, ...extra };
+};
+const abajoM = bbLote('m1', 'CRN0901', 4);          // dos columnas: 3 y 1
+const dosBb = bbLote('m2', 'CRN0902', 2);
+const seis = bbLote('m3', 'CRN0903', 6);
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [abajoM, dosBb, seis] });
+ok(Mapa.cabeEncima(dosBb, abajoM), 'sobre una columna de 1 caben 2 más (queda en 3)');
+ok(!Mapa.cabeEncima(seis, abajoM), 'pero 6 no caben: solo hay sitio para 2');
+
+const chicoArriba = { ...dosBb, sobre_lote: 'm1' };
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [abajoM, chicoArriba, seis] });
+const dibMontaje = lienzo.innerHTML;
+ok(Mapa.montadoSobre('m2') === 'm1' && Mapa.encimaDe('m1').includes('m2'), 'el de 2 queda montado sobre el de 4');
+ok(Mapa.tieneCarga('m1') && !Mapa.tieneCarga('m3'), 'y el de abajo sabe que lleva carga');
+ok(dibMontaje.includes('>CRN0901<') && dibMontaje.includes('>CRN0902<'), 'se leen los dos códigos: no es una pila');
+ok(!dibMontaje.includes('data-tipo="pila"'), 'y no se creó ninguna pila');
+ok((dibMontaje.match(/class="forma"/g) || []).length === 4 + 2 + 6, 'se dibujan los 12 bigbags, cada uno con su filo');
+ok(dibMontaje.indexOf('data-id="m2"') > dibMontaje.indexOf('data-id="m1"'),
+   'el montado se dibuja después (encima) del de abajo');
+ok(!Mapa.cabeEncima({ ...seis }, abajoM), 'con 2 ya montados, a la columna no le cabe nada más');
+
+const fuenteAppM = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
+ok(/Mapa\.esGrupoBigbags\(lote\) && Mapa\.esGrupoBigbags\(blanco\.obj\)[\s\S]{0,80}montarBigbags/.test(fuenteAppM),
+   'soltar bigbags sobre bigbags monta o deja al lado; no arma pila');
+ok(/no cabe encima[\s\S]{0,300}alLado\(/.test(fuenteAppM), 'si no cabe, queda pegado al lado');
+ok(/sobre_lote = null/.test(fuenteAppM), 'bajarlo al piso lo desmonta');
+ok(/await moverCarga\(obj\)/.test(fuenteAppM), 'mover el de abajo se lleva lo montado');
+const fuenteMigM = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');
+ok(/add column if not exists sobre_lote uuid references lotes \(id\) on delete set null/.test(fuenteMigM),
+   'la migración agrega sobre_lote sin borrar nada');
 
 const fuenteStore = await readFile(new URL('../web/js/store.js', import.meta.url), 'utf8');
 ok(/material === 'bigbag' && bigbags > 0 \? \{ bigbags, bigbags_fila: null \} : \{\}/.test(fuenteStore),
