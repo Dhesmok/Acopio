@@ -197,7 +197,10 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes:
 Mapa.editar(false);
 guardado = null; tocado = null;
 
-ok(Mapa.MANTENER_MS >= 1000 && Mapa.MANTENER_MS <= 1500,
+// 750 ms: se pidió la mitad de 1,5 s. Por debajo de medio segundo ya es
+// un toque largo cualquiera, y como soltar ya no pregunta, un roce
+// movería material en el plano.
+ok(Mapa.MANTENER_MS >= 500 && Mapa.MANTENER_MS <= 800,
    `hay que mantenerlo un rato, pero sin hacer esperar (${Mapa.MANTENER_MS} ms)`);
 ok(!!lienzo.oyentes.contextmenu?.length, 'mantener presionado el plano no abre el menú del navegador');
 let prevenido = false;
@@ -225,7 +228,13 @@ disparar('pointermove', evento(suelto.x + 150, suelto.y + 100, { figura: dedoSob
 disparar('pointerup',   evento(452, 401, { figura: dedoSobre }));
 ok(suelto.x !== 300 || suelto.y !== 300, `mantenido el tiempo, el lote se movió (${suelto.x}, ${suelto.y})`);
 ok(guardado?.[2]?.x === 300 && guardado?.[2]?.y === 300,
-   'y se pide guardarlo informando de dónde venía (la app pregunta "¿Dejar aquí?")');
+   'y se pide guardarlo informando de dónde venía');
+// Soltar ya no pregunta «¿Dejar aquí?»: la espera de mantener es la
+// protección, y un acomodo chico corrige el último movimiento en vez de
+// anotar otro (lo prueba contra la base pruebas/movimientos.mjs).
+ok(!/titulo: [^\n]*¿Dejar/.test(fuenteApp), 'soltar un lote ya no pide confirmar');
+ok(/!Mapa\.movimientoReal\(lote, ultimo\)\)\s*\{\s*await Store\.corregirMovimiento/.test(fuenteApp),
+   'si queda donde estaba su último movimiento, se corrige ese y no se anota otro');
 ok(tocado === null, 'sin abrir la ficha por el camino');
 Mapa.deshacerGeom('lote', suelto.id, guardado?.[3]);
 
@@ -314,27 +323,44 @@ const diagonal = { id: 'pd', codigo: '1 (ARENAS)', tipo: 'otro', estado: 'abiert
   puntos: [[-180, -100], [-150, -110], [150, 50], [160, 100], [130, 112], [-20, 105], [-190, 20], [-187, -65]]
     .map(([px, py]) => { const g = -65 * Math.PI / 180;
       return { x: +(px * Math.cos(g) - py * Math.sin(g)).toFixed(1), y: +(px * Math.sin(g) + py * Math.cos(g)).toFixed(1) }; }) };
-Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [diagonal] });
-const rotuloDiag = lienzo.innerHTML.match(/<g class="rotulo-mapa"(?: transform="rotate\(([-\d.]+)[^"]*")?>\s*<text[^>]*font-size="([\d.]+)"/);
-const giroDiag = +(rotuloDiag?.[1] || 0), tamDiag = +(rotuloDiag?.[2] || 0);
-const enPantalla = giroDiag + 65;
-ok(Math.abs(enPantalla - 25) < 8,
-   `en una pila larga y girada el nombre va a lo largo del montón (${enPantalla.toFixed(0)}° en pantalla)`);
-ok(tamDiag >= 12 && tamDiag <= 28, `y a un tamaño con techo, no a lo que dé la caja (${tamDiag})`);
-// el bloque de texto, girado como va, entra entero en el polígono
-{
-  const pts = diagonal.puntos.map((q) => [q.x, q.y]);
-  const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length;
+// Además el nombre va DERECHO en pantalla, partido en renglones: girado
+// a lo largo del montón quedaba diminuto y de canto.
+const cajaRotulo = (pila) => {
+  Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [pila] });
+  const m = lienzo.innerHTML.match(/<g class="rotulo-mapa"(?: transform="rotate\(([-\d.]+) [-\d.]+ [-\d.]+\)")?>\s*<text x="([-\d.]+)" y="([-\d.]+)"[^>]*font-size="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/);
+  const filas = [...(m?.[5] || '').matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((x) => x[1]);
+  const t = +(m?.[4] || 0), n = filas.length || 1;
+  // el centro del bloque, sacado de dónde arranca el primer renglón
+  return { giro: +(m?.[1] || 0), cx: +m?.[2], cy: +m?.[3] + (n - 1) * 1.1 * t / 2 - .35 * t,
+           t, filas: filas.length ? filas : [m?.[5]] };
+};
+// el bloque, girado como va, entra entero en el polígono
+const entra = (pila, r) => {
+  const pts = pila.puntos.map((q) => [q.x, q.y]);
   const dentro = (x, y) => { let d = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
       const [ax, ay] = pts[i], [bx, by] = pts[j];
       if ((ay > y) !== (by > y) && x < bx + (y - by) * (ax - bx) / (ay - by)) d = !d; }
     return d; };
-  const w = 'PILA 1 (ARENAS)'.length * .68 * tamDiag / 2, h = .45 * tamDiag, g = giroDiag * Math.PI / 180;
-  const esquinas = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([u, v]) =>
-    [cx + u * Math.cos(g) - v * Math.sin(g), cy + u * Math.sin(g) + v * Math.cos(g)]);
-  ok(esquinas.every(([x, y]) => dentro(x, y)), 'y el nombre entero queda dentro del montón, sin salirse por ningún lado');
-}
+  const largo = Math.max(...r.filas.map((f) => f.length));
+  const w = largo * .68 * r.t / 2, h = r.filas.length * 1.1 * r.t / 2 * .85, g = r.giro * Math.PI / 180;
+  return [[-w, -h], [w, -h], [w, h], [-w, h]].every(([u, v]) =>
+    dentro(r.cx + u * Math.cos(g) - v * Math.sin(g), r.cy + u * Math.sin(g) + v * Math.cos(g)));
+};
+const rd = cajaRotulo(diagonal);
+ok(Math.abs(rd.giro + 65) < .5, `en una pila girada el nombre queda derecho en pantalla (${rd.giro + 65}°)`);
+ok(rd.t >= 12 && rd.t <= 22, `a un tamaño con techo, no a lo que dé la caja (${rd.t})`);
+ok(entra(diagonal, rd), `y entero dentro del montón: ${rd.filas.join(' / ')}`);
+
+// Una pila angosta en triángulo: antes todo empataba en el mínimo y se
+// quedaba en un renglón que se salía por los dos lados.
+const triangulo = { id: 'pt', codigo: 'DEV ADN 1', tipo: 'otro', estado: 'abierta', forma: 'poligono',
+  x: 300, y: 300, rx: 70, ry: 130, rot: 0,
+  puntos: [{ x: -5, y: -130 }, { x: 20, y: -125 }, { x: 70, y: 110 }, { x: 55, y: 125 },
+           { x: -60, y: 125 }, { x: -70, y: 105 }, { x: -25, y: -125 }] };
+const rt = cajaRotulo(triangulo);
+ok(rt.filas.length >= 2, `en una pila angosta el nombre se parte en renglones: ${rt.filas.join(' / ')}`);
+ok(entra(triangulo, rt) && rt.t >= 12, `y cabe entero, a un tamaño que se lee (${rt.t})`);
 
 // Un código de lote no se sale de su óvalo, aunque el óvalo sea alargado
 // y el código esté al tope.
@@ -343,21 +369,32 @@ ok(tamDiag >= 12 && tamDiag <= 28, `y a un tamaño con techo, no a lo que dé la
   ok(t * (5 * .6 + .22) / 2 < 70 - 4, `"PG303" cabe a lo ancho de su óvalo (${t})`);
 }
 
-// Un grupo de bigbags no lleva el código encima de los sacos: va debajo
-// del grupo y derecho en pantalla, aunque el grupo esté girado.
+// El código de un grupo de bigbags va ADENTRO de su grupo, centrado y
+// derecho en pantalla aunque el grupo esté girado. Debajo del grupo no
+// sirvió: con varios grupos pegados no se sabía de quién era cada código.
 Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
   { id: 'gb', codigo: 'PG244', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
     bigbags: 27, bigbags_fila: 3, x: 400, y: 400, rx: 99, ry: 99, rot: 60 }] });
 {
-  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+) ([-\d.]+) ([-\d.]+)\)">\s*<text[^>]*>PG244</);
+  const m = lienzo.innerHTML.match(/<g transform="rotate\(([-\d.]+)\)">\s*<rect class="placa-codigo"[^>]*\/><text x="([-\d.]+)" y="([-\d.]+)"[^>]*>PG244</);
   ok(!!m && +m[1] === -60, 'el código del grupo va derecho en pantalla');
-  // de vuelta a pantalla: debajo del grupo, no encima de él
-  const x = +m?.[2], y = +m?.[3], g = 60 * Math.PI / 180;
-  const ys = x * Math.sin(g) + y * Math.cos(g), xs = x * Math.cos(g) - y * Math.sin(g);
+  ok(!!m && +m[2] === 0 && Math.abs(+m[3]) < 8, 'y en el centro de su grupo, no afuera');
+  ok(lienzo.innerHTML.includes('class="piso-grupo"'), 'el grupo lleva una base que marca hasta dónde llega');
   const d = Mapa.disposicionBigbags(27, 3);
-  ok(Math.abs(xs) < .5 && ys > d.rx * Math.sin(g) + d.ry * Math.cos(g),
-     `y justo debajo del grupo, fuera de los sacos (${ys.toFixed(0)} px bajo el centro)`);
   ok(d.rx < 30, `los bigbags van al 60 %: 3×3 columnas ocupan ${(2 * d.rx).toFixed(0)} de ancho`);
+}
+
+// Con un lote montado, los dos códigos van sobre el grupo, uno por
+// renglón: arriba el montado, abajo el del piso.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], pilas: [], lotes: [
+  { id: 'm1', codigo: 'SM203', estado: 'muestreado', pila_id: null, forma: 'rectangulo',
+    bigbags: 4, bigbags_fila: 2, x: 400, y: 400, rx: 20, ry: 20, rot: 0 },
+  { id: 'm2', codigo: 'SM204', estado: 'muestreado', pila_id: null, forma: 'rectangulo', sobre_lote: 'm1',
+    bigbags: 2, bigbags_fila: 1, x: 400, y: 400, rx: 20, ry: 20, rot: 0 }] });
+{
+  const y = (c) => +(lienzo.innerHTML.match(new RegExp(`<text x="0" y="([-\\d.]+)"[^>]*>${c}<`)) || [])[1];
+  ok(y('SM204') < y('SM203') && y('SM203') - y('SM204') < 20,
+     `el montado arriba y el del piso abajo, pegados (${y('SM204')} / ${y('SM203')})`);
 }
 
 // ---------------------------------------------------------------------

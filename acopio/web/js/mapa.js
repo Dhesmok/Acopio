@@ -589,8 +589,11 @@ const FILO = .22;   // el trazo negro del pintado, en em (ver Dib.pintado)
 //
 // `giro` (grados, en el marco de la figura) mide el texto girado: se
 // gira la figura al revés alrededor del ancla y se mide derecho.
-function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0 }) {
-  const c = anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
+//
+// `centro` (opcional, en el marco de la figura) mide el bloque puesto en
+// otro sitio que el ancla: así se busca dónde le cabe más grande.
+function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
+  const c = centro || anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
   const ps = verticesDe(o).map(([x, y]) => giro
     ? [c.x + (x - c.x) * cs - (y - c.y) * sn, c.y + (x - c.x) * sn + (y - c.y) * cs] : [x, y]);
   const em = Math.max(String(texto).length, 1) * paso + FILO;
@@ -605,21 +608,6 @@ function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, gi
     if (cabe(m)) bajo = m; else alto2 = m;
   }
   return +bajo.toFixed(1);
-}
-
-// Un nombre largo en una sola línea se sale de la figura o queda
-// diminuto. Se prueba en 1, 2 y 3 renglones y se queda el que deja la
-// letra más grande; a igualdad, el de menos renglones.
-function rotuloEnRenglones(o, texto, opciones) {
-  let mejor = null;
-  for (let n = 1; n <= 3; n++) {
-    const lineas = Dib.partirEnRenglones(texto, n);
-    if (mejor && lineas.length === mejor.lineas.length) continue;
-    const largo = lineas.reduce((a, b) => (b.length > a.length ? b : a), '');
-    const t = tamanoTexto(o, largo, { ...opciones, lineas: lineas.length * Dib.INTERLINEA });
-    if (!mejor || t > mejor.t * 1.04) mejor = { lineas, t };
-  }
-  return mejor;
 }
 
 function figuraFondo(f) {
@@ -651,14 +639,6 @@ function verticesDe(o) {
 // nombre, PINTADO sobre el material como el código de los lotes. Cuántos
 // lotes tiene y de qué estados se ve al entrar a ella, en su ficha: en el
 // plano no hace falta.
-// Hacia dónde se alarga una figura: el eje principal de sus vértices,
-// en grados del marco de la figura.
-function ejeLargo(o) {
-  const ps = verticesDe(o), c = anclaTexto(o);
-  let xx = 0, yy = 0, xy = 0;
-  for (const [x, y] of ps) { xx += (x - c.x) ** 2; yy += (y - c.y) ** 2; xy += (x - c.x) * (y - c.y); }
-  return Math.atan2(2 * xy, xx - yy) / 2 * 180 / Math.PI;
-}
 // Que en PANTALLA no quede cabeza abajo ni leyéndose de abajo arriba
 // más de lo necesario: el ángulo final queda entre −90° y 90°.
 const derecho = (giro, rot) => {
@@ -667,25 +647,51 @@ const derecho = (giro, rot) => {
   return a - rot;
 };
 
-// El nombre de la pila no sigue a ciegas el giro de la figura: una pila
-// larga girada deja el texto cruzando el montón de canto. Se prueba
-// derecho en pantalla y a lo largo del montón, y gana el que deja la
-// letra más grande; a casi igualdad (15 %), derecho, que se lee mejor.
+// El nombre de la pila va SIEMPRE derecho en pantalla, aunque la pila
+// esté girada: torcido o de canto se lee mal, y un nombre largo cabe
+// mejor partido en 2, 3 o 4 renglones que girado y diminuto. Se prueban
+// los renglones y, para cada uno, varios sitios dentro del montón —en
+// un triángulo la parte ancha, no el centro de sus vértices—, y gana lo
+// que deja la letra más grande. Cada prueba se mide sin suelo, para que
+// una pila angosta no empate todo en el mínimo y se quede con un solo
+// renglón que se sale por los dos lados. A casi igualdad (8 %), menos
+// renglones y más cerca del centro.
+//
+// Techo 22: el nombre es un rótulo, no un titular. Suelo 8: en una pila
+// muy angosta, mejor chico y adentro.
+const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
-  const op = { min: 12, max: 28, paso: .68, margen: 10 };
-  const recto = derecho(-rot, rot), largo = derecho(ejeLargo(p), rot);
-  const a = { ...rotuloEnRenglones(p, texto, { ...op, giro: recto }), giro: recto };
-  const b = { ...rotuloEnRenglones(p, texto, { ...op, giro: largo }), giro: largo };
-  return b.t > a.t * 1.15 ? b : a;
+  const giro = derecho(-rot, rot);
+  const ps = verticesDe(p), a = anclaTexto(p);
+  const xs = ps.map((q) => q[0]), ys = ps.map((q) => q[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  // el ancla primero: a igualdad, se queda en el centro
+  const sitios = [a];
+  const N = 6;
+  for (let i = 1; i < N; i++) for (let j = 1; j < N; j++) {
+    const s = { x: x0 + (x1 - x0) * i / N, y: y0 + (y1 - y0) * j / N };
+    if (rectanguloDentro(ps, s.x, s.y, .01, .01)) sitios.push(s);
+  }
+  const op = { min: 3, max: PILA_MAX, paso: .68, margen: 6, giro };
+  const palabras = Dib.partirEnRenglones(texto, 99).length;
+  let mejor = null;
+  for (let n = 1; n <= Math.min(4, palabras); n++) {
+    const lineas = Dib.partirEnRenglones(texto, n);
+    const largo = lineas.reduce((x, y) => (y.length > x.length ? y : x), '');
+    for (const centro of sitios) {
+      const t = tamanoTexto(p, largo, { ...op, lineas: lineas.length * Dib.INTERLINEA, centro });
+      if (!mejor || t > mejor.t * 1.08) mejor = { lineas, t, giro, c: centro };
+    }
+  }
+  return { ...mejor, t: Math.max(PILA_MIN, mejor.t) };
 }
 
 function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   const m = Dib.montonPila(verticesDe(p), n, col);
-  const c = anclaTexto(p);
-  const { lineas, t, giro } = rotuloPila(p);
+  const { lineas, t, giro, c } = rotuloPila(p);
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
     <g class="cuerpo-lote">${m.svg}</g>
@@ -754,24 +760,33 @@ function figuraLote(l, capa) {
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
   //
-  // Un grupo de bigbags NO lleva el código encima: los sacos son
-  // pequeños y dibujados, y un código encima no deja ver ni lo uno ni lo
-  // otro. Va FUERA del grupo, y DERECHO en pantalla aunque el grupo esté
-  // girado: el del piso justo debajo, y los montados encima justo arriba,
-  // uno por renglón, el último montado más arriba. Así se leen TODOS los
-  // códigos, también los de un grupo de una sola fila.
+  // Un grupo de bigbags lleva el código ADENTRO, centrado y derecho en
+  // pantalla aunque el grupo esté girado. Probamos a ponerlo debajo del
+  // grupo para no tapar los sacos, pero con varios grupos pegados ya no
+  // se sabía de quién era cada código: el código tiene que estar sobre
+  // SU grupo. Para que se lea sobre los sacos dibujados lleva una
+  // placa oscura detrás.
+  //
+  // Con lotes montados, todos los códigos del montaje van en un solo
+  // bloque centrado, uno por renglón: arriba el último montado y abajo
+  // el del piso, como quedan los bigbags.
   const piso = ap?.abajo || l;
   if (esGrupoBigbags(piso)) {
-    const rot = piso.rot || 0, g = rot * Math.PI / 180;
-    const cs = Math.abs(Math.cos(g)), sn = Math.abs(Math.sin(g));
-    // lo que ocupa el grupo en pantalla, ya girado
-    const ancho = piso.rx * cs + piso.ry * sn, alto = piso.rx * sn + piso.ry * cs;
-    const t = Math.max(11, Math.min(16, +((2 * ancho) / ((base + volqueta).length * .6 + FILO)).toFixed(1)));
-    const yp = ap?.abajo ? -alto - t * (.55 + 1.2 * ap.k) : alto + t * .75;
-    // de pantalla al marco del lote: girar (0, yp) al revés
-    const x = +(yp * Math.sin(g)).toFixed(1), y = +(yp * Math.cos(g)).toFixed(1);
-    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${-rot} ${x} ${y})">${
-      Dib.pintado(esc(base), t, x, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
+    const encima = [...apilado].filter(([, v]) => v.abajo?.id === piso.id)
+      .sort((x, y) => y[1].k - x[1].k).map(([id]) => datos.lotes.find((x) => x.id === id)).filter(Boolean);
+    const montaje = [...encima, piso];
+    const codigos = montaje.map((x) => { const p = partesCodigo(x.codigo); return p.base + p.volqueta; });
+    const largo = codigos.reduce((m, x) => (x.length > m.length ? x : m), '');
+    const giro = derecho(-(piso.rot || 0), piso.rot || 0);
+    const n = montaje.length;
+    const t = tamanoTexto(piso, largo, { min: 9, max: 18, lineas: n * Dib.INTERLINEA, giro, margen: 2 });
+    const i = montaje.findIndex((x) => x.id === l.id);
+    const y = (i - (n - 1) / 2) * t * Dib.INTERLINEA;
+    const w = (base + volqueta).length * .6 * t + t * .7, h = t * 1.05;
+    return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${+giro.toFixed(1)})">
+      <rect class="placa-codigo" x="${+(-w / 2).toFixed(1)}" y="${+(y - h / 2).toFixed(1)}" width="${+w.toFixed(1)}" height="${+h.toFixed(1)}"
+        rx="${+(h * .25).toFixed(1)}" fill="#14171a" opacity=".62"/>${
+      Dib.pintado(esc(base), t, 0, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
   }
   const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
   // lleva lotes montados pero ya no es grupo (le cambiaron el material)
@@ -1028,9 +1043,11 @@ function cargaDe(o) {
 }
 
 // ------------------------------------------------ mantener para mover
-// Un segundo y medio: se pidió la mitad de los 3 s de la primera
-// versión. Sigue siendo bastante más que un toque largo sin querer.
-export const MANTENER_MS = 1500;
+// Tres cuartos de segundo: se pidió otra vez la mitad (3 s la primera
+// versión, 1,5 s la segunda). Ya no hay que confirmar al soltar, así que
+// esta espera es lo único que separa un roce de un traslado: sigue
+// siendo bastante más que un toque largo sin querer.
+export const MANTENER_MS = 750;
 let espera = null;
 
 function empezarAMantener(obj, ev) {

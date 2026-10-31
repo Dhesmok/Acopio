@@ -990,19 +990,10 @@ function montarMapa() {
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
     alTocarVacio: () => { if (S.edicion) barraEdicion(); },
     alGuardarGeom: gesto(async (tipo, obj, origen, antes) => {
-      // `origen` solo viene cuando la figura se ARRASTRÓ. Ajustar el
-      // tamaño, el giro o un vértice no pregunta: para eso hubo que
-      // agarrar una manija concreta. Todo arrastre sí pregunta, por corto
-      // que sea: la posición en el plano es la ubicación real en el
-      // patio, y cambiarla sin querer deja el material mal ubicado.
-      if (origen) {
-        const ok = await confirmar({
-          titulo: tipo === 'figura' ? '¿Dejar la figura aquí?' : `¿Dejar ${obj.codigo} aquí?`,
-          detalle: `${nombreDeFigura(tipo, obj)} cambia de ubicación en el patio.`,
-          aceptar: 'Dejar aquí'
-        });
-        if (!ok) return Mapa.deshacerGeom(tipo, obj.id, antes);
-      }
+      // `origen` solo viene cuando la figura se ARRASTRÓ. Ya no se
+      // pregunta «¿Dejar aquí?»: la protección contra un roce es tener
+      // que mantener el dedo antes de que el lote se levante, y un
+      // acomodo chico ya no ensucia el recorrido (ver anotarRecorrido).
       const tabla = tipo === 'lote' ? 'lotes' : tipo === 'pila' ? 'pilas' : 'mapa_figuras';
       // un lote montado que se suelta en el piso se BAJA de donde estaba
       if (tipo === 'lote' && origen && obj.sobre_lote) obj.sobre_lote = null;
@@ -2840,15 +2831,6 @@ function barraForma(tipo, obj) {
   };
 }
 
-// Abre la frase, así que va en mayúscula: escrito en medio obligaba a
-// contraer "de el" en "del" según el tipo, y salía "de el lote PG1042".
-// El título usa el código, que no tiene género, para no tener que
-// concordar "dejarlo" con "dejarla" según sea lote o pila.
-const nombreDeFigura = (tipo, o) =>
-  tipo === 'lote' ? `El lote ${o.codigo}`
-  : tipo === 'pila' ? `La pila ${o.codigo}`
-  : 'La figura del fondo';
-
 // Soltar un lote sobre otro arma una pila; sobre una pila, lo mete.
 // Las dos cosas escriben un evento que NO se puede borrar, así que las
 // dos preguntan. Si se cancela, el lote vuelve a donde estaba.
@@ -2966,19 +2948,27 @@ async function manejarSoltar(lote, blanco, antes) {
   fichaPila(pila.id);
 }
 
-// Un acomodo de medio metro no es un traslado: solo cuenta si la figura
-// dejó de traslaparse con donde estaba.
+// Un acomodo de medio metro no es un traslado. Se compara con el ÚLTIMO
+// movimiento anotado, no con dónde arrancó este arrastre: si la figura
+// sigue traslapándose con ese punto, se CORRIGE ese movimiento (queda
+// donde se dejó ahora) en vez de anotar uno nuevo. Así el recorrido
+// muestra traslados y no cada empujoncito, y varios empujones seguidos
+// que terminan lejos sí cuentan como traslado.
 async function anotarRecorrido(lote, origen) {
-  if (!Mapa.movimientoReal(lote, origen)) return;
   const previos = (await Store.historial(lote.id)).filter((e) => e.tipo === 'movimiento');
+  const ultimo = previos[0];
+  if (ultimo && ultimo.x != null && !Mapa.movimientoReal(lote, ultimo)) {
+    await Store.corregirMovimiento(ultimo, lote.x, lote.y);
+    return;
+  }
+  if (!ultimo && !Mapa.movimientoReal(lote, origen)) return;
   if (!previos.length) {
     // De dónde SALIÓ va fechado un milisegundo antes que la llegada, y no
     // "ahora" como todo lo demás. Es lo que pasó —estaba ahí antes de
     // llegar— y hace falta: la hora de un evento se mide en milisegundos
     // y las dos escrituras caben en uno, así que empataban. Al releerlas,
     // IndexedDB las devuelve en orden de clave —un uuid al azar—, y la
-    // pareja venía al revés la mitad de las veces: mirar el pasado
-    // dibujaba el lote en el sitio al que iba, no en el que dejaba.
+    // pareja venía al revés la mitad de las veces.
     await Store.registrarEvento({
       lote_id: lote.id, tipo: 'movimiento', x: origen.x, y: origen.y, usuario_id: S.perfil.id,
       ocurrido_en: new Date(Date.now() - 1).toISOString()
