@@ -1040,7 +1040,7 @@ titulo('La escena de los obreros no se la lleva un dedo.');
 // sin que nadie lo hubiera pedido. Ahora la capa deja pasar el dedo al
 // plano, como si no estuviera.
 const montaje = fuenteApp.slice(fuenteApp.indexOf('function animarMuestreo(lote)'),
-                                fuenteApp.indexOf('function barraEdicion()'));
+                                fuenteApp.indexOf('function barraForma('));
 ok(!/onpointerdown|pointerEvents\s*=\s*'auto'/.test(montaje),
    'ni se salta tocando ni atrapa el dedo');
 ok(/\.capa-obreros \{[^}]*pointer-events: none/.test(css),

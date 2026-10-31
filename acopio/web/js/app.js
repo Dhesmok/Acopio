@@ -965,8 +965,6 @@ function montarMapa() {
                 ${ICO.filtro}<span>Filtrar</span></button>
               <button class="btn-mapa" id="r-gps" aria-label="Mi ubicación en el plano"
                 ${S.gps.activo ? 'aria-pressed="true"' : ''}>${ICO.gps}<span>Ubicación</span></button>
-              ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
-                ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
@@ -980,16 +978,17 @@ function montarMapa() {
 
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
-    // Mantener presionado un lote lo levanta para moverlo sin entrar a
-    // "Mover y editar". Quien solo mira (empresa) no mueve nada.
+    // Mantener presionado un lote o una pila lo levanta para moverlo;
+    // soltarlo sin arrastrar abre el ajuste de su forma. Quien solo mira
+    // (empresa) no mueve nada.
     puedeMover: () => !soloLectura(),
+    alMantenerQuieto: (tipo, obj) => { if (!soloLectura()) abrirEdicion(tipo, obj); },
     alTocar: gesto((tipo, id) => {
       if (tipo === 'lote') return fichaLote(id);
       if (tipo === 'pila') return fichaPila(id);
       if (esAdmin()) return fichaFigura(id);
     }),
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
-    alTocarVacio: () => { if (S.edicion) barraEdicion(); },
     alGuardarGeom: gesto(async (tipo, obj, origen, antes) => {
       // `origen` solo viene cuando la figura se ARRASTRÓ. Ya no se
       // pregunta «¿Dejar aquí?»: la protección contra un roce es tener
@@ -1032,12 +1031,12 @@ function montarMapa() {
   $('#r-filtrar').onclick = panelFiltro;
   $('#r-gps').onclick = gesto(() => (S.gps.activo ? apagarGps() : prenderGps()));
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
-  if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
-  if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
 
-  Mapa.editar(S.edicion);
-  if (S.edicion) barraEdicion();
+  if (S.edicion) {
+    Mapa.editarSolo(S.edicion.tipo, S.edicion.id);
+    barraForma(S.edicion.tipo, S.edicion.obj);
+  } else Mapa.editar(false);
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
 
@@ -1052,7 +1051,7 @@ function montarMapa() {
 // que la saca lleva entonces una marca, para que no quede nada puesto
 // sin que se sepa.
 const herramientaPuesta = () =>
-  S.buscarMapa || hayFiltroMapa() || S.gps.activo || S.edicion;
+  S.buscarMapa || hayFiltroMapa() || S.gps.activo;
 
 // La marca solo se ve con la barra escondida (styles.css); aquí se dice
 // si hay algo puesto, y se llama también al quitar el filtro desde su
@@ -2058,11 +2057,11 @@ function actualizarChipFiltro() {
   };
 }
 
-// Lleva al mapa, activa el modo edición y selecciona la figura pedida
+// Lleva al mapa y deja ajustar SOLO esa figura; las demás no se tocan.
 function abrirEdicion(tipo, obj) {
-  S.edicion = true;
+  S.edicion = { tipo, id: obj.id, obj };
   irAlMapa();
-  Mapa.seleccionar(tipo, obj.id);
+  Mapa.editarSolo(tipo, obj.id);
   barraForma(tipo, obj);
 }
 
@@ -2805,15 +2804,6 @@ function animarMuestreo(lote) {
   }, DURACION_OBREROS));
 }
 
-function barraEdicion() {
-  $('#barra-forma').innerHTML = `
-    <div class="barra-modo">
-      <span>Modo edición · arrastra para mover; toca una figura para ver sus manijas de tamaño y giro</span>
-      <button class="pastilla" id="salir-edicion">Salir</button>
-    </div>`;
-  $('#salir-edicion').onclick = () => { S.edicion = false; montarMapa(); };
-}
-
 function barraForma(tipo, obj) {
   const nombre = tipo === 'lote' ? obj.codigo
     : tipo === 'pila' ? `Pila ${obj.codigo}` : (obj.etiqueta || 'Figura');
@@ -2828,8 +2818,9 @@ function barraForma(tipo, obj) {
       <button class="pastilla" id="forma-listo">Listo</button>
     </div>`;
   $('#forma-listo').onclick = () => {
-    Mapa.limpiarSeleccion();
-    if (S.edicion) barraEdicion(); else $('#barra-forma').innerHTML = '';
+    S.edicion = false;
+    Mapa.editar(false);
+    $('#barra-forma').innerHTML = '';
   };
 }
 
