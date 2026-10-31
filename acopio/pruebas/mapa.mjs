@@ -237,8 +237,8 @@ ok(!relojes.some((r) => r.ms === Mapa.MANTENER_MS && r.fn), 'para quien no puede
 disparar('pointerup', evento(suelto.x, suelto.y, { figura: dedoSobre }));
 puedeMover = true;
 globalThis.setTimeout = setTimeoutReal; globalThis.clearTimeout = clearTimeoutReal;
-ok(/puedeMover: \(\) => !soloLectura\(\) && !S\.historia/.test(fuenteApp),
-   'en la app, la empresa y el patio de otro día no mueven lotes');
+ok(/puedeMover: \(\) => !soloLectura\(\)/.test(fuenteApp),
+   'en la app, la empresa (solo lectura) no mueve lotes');
 
 // ---------------------------------------------------------------------
 titulo('El rótulo se ajusta a su figura, no al revés.');
@@ -288,7 +288,21 @@ Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas:
              { x: 120, y: 40 }, { x: 0, y: 110 }] }] });
 const anclaX = +(lienzo.innerHTML.match(/<text x="([-\d.]+)"[^>]*class="txt-pila"/) || [])[1];
 ok(Math.abs(anclaX - (-4)) < 0.5, `se ancla en el centro de los vértices, x=${anclaX} (no en 0)`);
-ok(lienzo.innerHTML.includes('>PILA SAN JUDAS<'), 'y lleva solo el nombre de la pila');
+const textoPila = (lienzo.innerHTML.match(/<text[^>]*class="txt-pila"[^>]*>([\s\S]*?)<\/text>/) || [])[1] || '';
+const renglones = [...textoPila.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((m) => m[1]);
+const leido = renglones.length ? renglones.join(' ') : textoPila;
+ok(leido === 'PILA SAN JUDAS', `y lleva solo el nombre de la pila (${leido})`);
+
+// Un nombre largo no va en una sola línea que se sale del montón: se
+// parte en dos o tres renglones si así la letra queda más grande.
+Mapa.pintar({ config: { ancho: 1000, alto: 700 }, figuras: [], lotes: [], pilas: [
+  { id: 'pl', codigo: '1 (ARENAS FINAS)', tipo: 'otro', estado: 'abierta', forma: 'elipse',
+    x: 300, y: 300, rx: 110, ry: 70, rot: 0 }] });
+const largoPila = (lienzo.innerHTML.match(/<text[^>]*class="txt-pila"[^>]*>([\s\S]*?)<\/text>/) || [])[1] || '';
+const filas = [...largoPila.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((m) => m[1]);
+ok(filas.length >= 2 && filas.length <= 3, `un nombre largo va en ${filas.length} renglones: ${filas.join(' / ')}`);
+ok(filas.join(' ') === 'PILA 1 (ARENAS FINAS)', 'sin perder ni cambiar ninguna palabra');
+ok(filas.includes('(ARENAS FINAS)'), 'y lo que va entre paréntesis no se parte');
 ok(!/\d+ lotes?</.test(lienzo.innerHTML), 'sin la cantidad de lotes: eso se ve al entrar a la pila');
 
 // ---------------------------------------------------------------------

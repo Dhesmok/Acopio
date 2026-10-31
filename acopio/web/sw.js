@@ -2,7 +2,7 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v89';
+const VERSION = 'acopio-v90';
 const SHELL = [
   './',
   './index.html',
@@ -11,7 +11,6 @@ const SHELL = [
   './js/mapa.js',
   './js/dibujo.js',
   './js/store.js',
-  './js/historia.js',
   './js/gps.js',
   // la ventana de calibrar el GPS desde la oficina (solo del admin)
   './calibrar.html',

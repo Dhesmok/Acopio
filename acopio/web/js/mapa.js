@@ -580,6 +580,21 @@ function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6 }) {
   return +t.toFixed(1);
 }
 
+// Un nombre largo en una sola línea se sale de la figura o queda
+// diminuto. Se prueba en 1, 2 y 3 renglones y se queda el que deja la
+// letra más grande; a igualdad, el de menos renglones.
+function rotuloEnRenglones(o, texto, opciones) {
+  let mejor = null;
+  for (let n = 1; n <= 3; n++) {
+    const lineas = Dib.partirEnRenglones(texto, n);
+    if (mejor && lineas.length === mejor.lineas.length) continue;
+    const largo = lineas.reduce((a, b) => (b.length > a.length ? b : a), '');
+    const t = tamanoTexto(o, largo, { ...opciones, lineas: lineas.length * Dib.INTERLINEA });
+    if (!mejor || t > mejor.t * 1.04) mejor = { lineas, t };
+  }
+  return mejor;
+}
+
 function figuraFondo(f) {
   return `<g data-tipo="figura" data-id="${esc(f.id)}" ${trazo(f)} class="g-fondo${apagado(f.id)}">
     ${cuerpo(f, `fill="${esc(f.color)}" opacity=".85"`)}
@@ -613,12 +628,12 @@ function figuraPila(p, lotes) {
   const n = lotes.filter((l) => l.pila_id === p.id).length;
   const col = paleta()[`pila_${p.tipo}`] || '#14171a';
   const m = Dib.montonPila(verticesDe(p), n, col);
-  const rotulo = `PILA ${p.codigo}`, c = anclaTexto(p);
-  const t = tamanoTexto(p, rotulo, { min: 12, max: 34, paso: .66 });
+  const c = anclaTexto(p);
+  const { lineas, t } = rotuloEnRenglones(p, `PILA ${p.codigo}`, { min: 12, max: 34, paso: .66 });
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
     <g class="cuerpo-lote">${m.svg}</g>
-    <g class="rotulo-mapa">${Dib.pintado(esc(rotulo), t, c.x, c.y + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
+    <g class="rotulo-mapa">${Dib.pintado(lineas.map(esc), t, c.x, c.y + t * .35, { espaciado: .08, clase: 'txt-pila' })}</g>
   </g>`;
 }
 

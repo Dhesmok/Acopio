@@ -539,11 +539,40 @@ export function montonPila(ps, n, colTipo) {
 // que engorda hacia afuera y la letra no adelgaza. Sirve para el código
 // de un lote y para el nombre de una pila. `texto` y `volqueta` llegan ya
 // escapados.
+//
+// `texto` puede ser una lista de renglones: el bloque queda centrado en
+// (x, y), así que un nombre en dos o tres renglones no se corre hacia
+// abajo.
+export const INTERLINEA = 1.1;
 export function pintado(texto, t, x, y, { volqueta = '', espaciado = .04, clase = '' } = {}) {
-  return `<text x="${f(x)}" y="${f(y)}" text-anchor="middle"${clase ? ` class="${clase}"` : ''}
+  const lineas = Array.isArray(texto) ? texto : [texto];
+  const y0 = y - (lineas.length - 1) * t * INTERLINEA / 2;
+  const cuerpo = lineas.length === 1 ? lineas[0]
+    : lineas.map((l, i) => `<tspan x="${f(x)}" ${i ? `dy="${f(t * INTERLINEA)}"` : ''}>${l}</tspan>`).join('');
+  return `<text x="${f(x)}" y="${f(y0)}" text-anchor="middle"${clase ? ` class="${clase}"` : ''}
     font-size="${f(t)}" letter-spacing="${f(t * espaciado)}" fill="#fdfbf7"
-    stroke="${TINTA}" stroke-width="${f(Math.max(2, t * .22))}" stroke-linejoin="round" paint-order="stroke">${texto}${
+    stroke="${TINTA}" stroke-width="${f(Math.max(2, t * .22))}" stroke-linejoin="round" paint-order="stroke">${cuerpo}${
     volqueta ? `<tspan font-size="62%" dy="${f(-t * .38)}">${volqueta}</tspan>` : ''}</text>`;
+}
+
+// Parte un nombre en `n` renglones por sus espacios, de forma que el
+// renglón más largo sea lo más corto posible. Lo que va entre paréntesis
+// no se parte ("PILA 1" / "(ARENAS FINAS)"), y un nombre de una sola
+// palabra tampoco.
+export function partirEnRenglones(texto, n) {
+  const w = String(texto).match(/\([^)]*\)?|[^\s(]+/g) || [];
+  if (n <= 1 || w.length < 2) return [w.join(' ')];
+  const n2 = Math.min(n, w.length);
+  let mejor = null;
+  const probar = (cortes) => {
+    const r = [], bordes = [0, ...cortes, w.length];
+    for (let i = 0; i + 1 < bordes.length; i++) r.push(w.slice(bordes[i], bordes[i + 1]).join(' '));
+    const largo = Math.max(...r.map((x) => x.length));
+    if (!mejor || largo < mejor.largo) mejor = { r, largo };
+  };
+  if (n2 === 2) for (let i = 1; i < w.length; i++) probar([i]);
+  else for (let i = 1; i < w.length - 1; i++) for (let j = i + 1; j < w.length; j++) probar([i, j]);
+  return mejor.r;
 }
 
 // ======================================================== volqueta

@@ -6,7 +6,6 @@ import { sb } from './store.js';
 import * as Mapa from './mapa.js';
 import * as Dibujo from './dibujo.js';
 import * as Gps from './gps.js';
-import { planoEn, desde, indexar } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
 
 const $ = (s) => document.querySelector(s);
@@ -91,8 +90,6 @@ const S = { perfil: null, pestana: 'mapa', filtro: 'todos', busqueda: '', edicio
             // ver el patio la quiere escondida también mañana.
             herramientas: localStorage.getItem('acopio-herramientas') !== '0',
             recorrido: null,
-            // mirar el patio de otro día: solo se mira, no se toca nada
-            historia: null,
             // Encargos del admin. `avisadas` recuerda cuáles ya hicieron
             // vibrar el celular, para no repetir el aviso en cada vuelta.
             // Se guarda en el celular: si viviera solo en memoria, cada vez
@@ -840,7 +837,6 @@ function pantallaPrincipal() {
     <div id="flotantes">
       <div id="barra-recorrido"></div>
       <div id="barra-forma"></div>
-      <div id="barra-historia"></div>
       <div id="barra-gps"></div>
       <!-- La pastilla del GPS va abajo a la izquierda, en el mismo renglón
            que "Nuevo lote": arriba, debajo de las herramientas, se sumaba
@@ -926,7 +922,7 @@ function pintarSync() {
 
 // ------------------------------------------------------------------ mapa
 const limpiarBarrasMapa = () => {
-  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-historia', '#barra-gps', '#boton-nuevo',
+  for (const id of ['#barra-forma', '#barra-recorrido', '#barra-gps', '#boton-nuevo',
                     '#chip-gps-caja']) {
     const n = $(id); if (n) n.innerHTML = '';
   }
@@ -938,13 +934,13 @@ function montarMapa() {
 
   // Una calibración es de UNA plataforma: si se cambió de plano a mitad,
   // los puntos marcados serían de otro dibujo.
-  if (S.calibrando && (S.calibrando.plat !== S.plataforma || S.historia)) soltarCalibracion();
+  if (S.calibrando && S.calibrando.plat !== S.plataforma) soltarCalibracion();
 
   limpiarBarrasMapa();
-  // Mirando otro día no se registran lotes: el botón ni aparece. Calibrando
-  // tampoco: no es momento de registrar nada, y taparía la barra.
+  // Calibrando no se registran lotes: no es momento, y el botón taparía la
+  // barra.
   const nb = $('#boton-nuevo');
-  if (nb && !soloLectura() && !S.historia && !S.calibrando) nb.innerHTML =
+  if (nb && !soloLectura() && !S.calibrando) nb.innerHTML =
     `<button class="btn-mapa btn-mapa-primario" id="nuevo" aria-label="Nuevo lote" title="Nuevo lote">${ICO.mas}</button>`;
   const rec = $('#barra-recorrido');
   if (rec && S.recorrido) rec.innerHTML = `<div class="barra-modo">
@@ -971,8 +967,6 @@ function montarMapa() {
                 ${S.gps.activo ? 'aria-pressed="true"' : ''}>${ICO.gps}<span>Ubicación</span></button>
               ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
                 ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
-              ${esAdmin() ? `<button class="btn-mapa" id="r-historia" aria-label="Ver el patio de otro día"
-                ${S.historia ? 'aria-pressed="true"' : ''}>${ICO.reloj}<span>Otro día</span></button>` : ''}
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
@@ -986,13 +980,9 @@ function montarMapa() {
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
     // Mantener presionado un lote lo levanta para moverlo sin entrar a
-    // "Mover y editar". Quien solo mira (empresa) no mueve nada, y en el
-    // patio de otro día tampoco: ese plano es historia, no se edita.
-    puedeMover: () => !soloLectura() && !S.historia,
+    // "Mover y editar". Quien solo mira (empresa) no mueve nada.
+    puedeMover: () => !soloLectura(),
     alTocar: gesto((tipo, id) => {
-      // La ficha cuenta cómo está el lote HOY. Abrirla desde el patio de
-      // otro día mezclaría las dos cosas, así que en ese modo no se abre.
-      if (S.historia) return;
       if (tipo === 'lote') return fichaLote(id);
       if (tipo === 'pila') return fichaPila(id);
       if (esAdmin()) return fichaFigura(id);
@@ -1048,20 +1038,13 @@ function montarMapa() {
   pintarBuscadorMapa();
   $('#r-filtrar').onclick = panelFiltro;
   $('#r-gps').onclick = gesto(() => (S.gps.activo ? apagarGps() : prenderGps()));
-  if ($('#r-historia')) $('#r-historia').onclick = accion(alternarHistoria, { ocupado: 'Leyendo…' });
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
   if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
   if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
 
-  // Mirando otro día no se edita nada: ni mover, ni ajustar, ni soltar
-  // un lote sobre una pila. El botón de editar se apaga para que no
-  // parezca disponible.
-  Mapa.editar(S.historia ? false : S.edicion);
-  if (S.historia) {
-    $('#r-editar')?.setAttribute('disabled', '');
-    barraHistoria();                       // deja la barra puesta y pinta
-  } else if (S.edicion) barraEdicion();
+  Mapa.editar(S.edicion);
+  if (S.edicion) barraEdicion();
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
 
@@ -1072,11 +1055,11 @@ function montarMapa() {
 }
 
 // Si alguna herramienta está haciendo algo —buscar, filtrar, el GPS,
-// editar, mirar otro día— con la barra escondida no se vería. El botón
+// editar— con la barra escondida no se vería. El botón
 // que la saca lleva entonces una marca, para que no quede nada puesto
 // sin que se sepa.
 const herramientaPuesta = () =>
-  S.buscarMapa || hayFiltroMapa() || S.gps.activo || S.edicion || !!S.historia;
+  S.buscarMapa || hayFiltroMapa() || S.gps.activo || S.edicion;
 
 // La marca solo se ve con la barra escondida (styles.css); aquí se dice
 // si hay algo puesto, y se llama también al quitar el filtro desde su
@@ -1272,7 +1255,7 @@ function pintarPlataformas() {
 
   for (const b of m.querySelectorAll('.patio')) b.onclick = () => {
     irAPlataforma(b.dataset.id);
-    S.recorrido = null; S.historia = null;
+    S.recorrido = null;
     irAlMapa();
     Mapa.encuadrar();
   };
@@ -2056,162 +2039,6 @@ async function hojaNuevaTarea() {
   }, { ocupado: 'Enviando…' });
 }
 
-// ------------------------------------------------------- otro día
-// Mirar el patio como estaba. SOLO MIRAR: no se guarda nada, no se
-// sincroniza nada y no se puede arrastrar ni editar. Es la misma
-// pregunta que se hace alguien delante del plano —"¿esto dónde estaba el
-// martes?"— y hasta ahora había que ir lote por lote leyendo historiales.
-//
-// Se rehace a partir de los eventos, que no se borran nunca. Lo hace
-// `historia.js`, que no toca la pantalla: aquí solo se le pide el patio
-// de un instante y se le pasa al plano.
-async function alternarHistoria() {
-  if (S.historia) return salirDeHistoria();
-  // Primero se baja la historia que falte. Sin esto se rehacía el patio
-  // con la ventana corta que deja la sincronización —unos días— y de casi
-  // ningún lote había un solo evento: salían todos "por muestrear" y sin
-  // pila. Se trae de a tramos y se queda guardada, así que la segunda vez
-  // no baja nada.
-  const traido = await Store.ahondarHistoria();
-  const eventos = await Store.eventos();
-  const primero = desde(eventos);
-  if (!primero) return avisar('Todavía no hay movimientos guardados para poder mirar atrás.');
-  // La lista suelta no se guarda: con el índice basta, y son decenas de
-  // miles de filas que no hace falta tener dos veces en memoria.
-  S.historia = {
-    primero, indice: indexar(eventos),
-    entera: !!traido.entera, sinSenal: !!traido.sinSenal,
-    dia: null, dias: 0, aproximados: 0
-  };
-  S.edicion = false;
-  montarMapa();
-}
-
-function salirDeHistoria() {
-  if (pintadoPedido) { cancelAnimationFrame(pintadoPedido); pintadoPedido = 0; }
-  S.historia = null;
-  montarMapa();
-  refrescarMapa();
-}
-
-// El deslizador va en DÍAS, no en minutos. En minutos, un patio con
-// medio año de historia son doscientos sesenta mil pasos repartidos en
-// tres centímetros de pantalla: cada píxel saltaba medio día y era
-// imposible parar en el martes. En días, medio año son ciento ochenta
-// pasos y el dedo cae donde apunta.
-const A_MEDIANOCHE = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
-const DIA = 86_400_000;
-const diasEntre = (a, b) => Math.round((A_MEDIANOCHE(b) - A_MEDIANOCHE(a)) / DIA);
-
-// "mié 15 jul". Se compone a mano porque `toLocaleDateString` suelta
-// "Mié, 15 De Jul": la preposición en mayúscula y comas de más.
-const momento = (d) => d
-  .toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
-  .replace(/,/g, '').replace(/\./g, '');
-
-// El patio de un día pasado se enseña COMO QUEDÓ AL CERRAR ESE DÍA, que
-// es la respuesta a "¿cómo estaba el martes?". El de hoy, ahora mismo.
-function instanteDelDia(h, i) {
-  if (i >= h.dias) return new Date().toISOString();
-  const f = A_MEDIANOCHE(new Date(h.primero));
-  f.setDate(f.getDate() + i);
-  f.setHours(23, 59, 59, 999);
-  return f.toISOString();
-}
-
-function barraHistoria() {
-  const caja = $('#barra-historia');
-  if (!caja || !S.historia) return;
-  const h = S.historia;
-  h.dias = Math.max(0, diasEntre(new Date(h.primero), new Date()));
-  if (h.dia == null) h.dia = h.dias;                      // se entra por hoy
-
-  const alcance = new Date(h.primero).toLocaleDateString('es-CO');
-  caja.innerHTML = `<div class="barra-modo barra-historia">
-    <div class="fila-historia">
-      <strong id="h-etiqueta"></strong>
-      <button class="pastilla" id="h-salir">Volver a hoy</button>
-    </div>
-    <div class="fila-historia">
-      <button class="ctrl ctrl-historia" id="h-atras" aria-label="Un día atrás">‹</button>
-      <input type="range" id="h-cuando" min="0" max="${h.dias}" value="${h.dia}" step="1"
-        aria-label="Qué día mirar">
-      <button class="ctrl ctrl-historia" id="h-alante" aria-label="Un día adelante">›</button>
-    </div>
-    <span class="pista" id="h-detalle"></span>
-    <span class="pista">Solo se mira. Se llega hasta el ${esc(alcance)}${
-      h.entera ? ', que es el principio de todo.'
-               : h.sinSenal ? '; sin señal no se pudo traer más.'
-                            : '. Al volver a abrirlo se trae otro tramo.'}</span>
-  </div>`;
-
-  const campo = $('#h-cuando');
-  // El deslizador NO se vuelve a dibujar al moverlo. Antes cada tirón
-  // rehacía esta barra entera, y con ella el propio <input> que el dedo
-  // estaba arrastrando: el navegador perdía el elemento a medio gesto y
-  // el arrastre se cortaba solo. Solo cambian los dos textos.
-  campo.oninput = () => { h.dia = Number(campo.value); rotularHistoria(); pedirPintado(); };
-  const mover = (paso) => () => {
-    campo.value = String(Math.min(Math.max(h.dia + paso, 0), h.dias));
-    campo.dispatchEvent(new Event('input'));
-  };
-  $('#h-atras').onclick = mover(-1);
-  $('#h-alante').onclick = mover(1);
-  $('#h-salir').onclick = salirDeHistoria;
-
-  rotularHistoria();
-  pintarHistoria();
-}
-
-// Los dos textos que cambian al mover el deslizador.
-function rotularHistoria() {
-  const h = S.historia;
-  if (!h) return;
-  const hoy = h.dia >= h.dias;
-  const fecha = A_MEDIANOCHE(new Date(h.primero));
-  fecha.setDate(fecha.getDate() + h.dia);
-  const et = $('#h-etiqueta');
-  if (et) et.textContent = hoy ? 'Ahora mismo' : momento(fecha);
-  const de = $('#h-detalle');
-  if (!de) return;
-  const faltan = h.aproximados
-    ? ` · ${h.aproximados} sin historia completa` : '';
-  de.textContent = hoy ? 'El patio tal como está ahora'
-                       : `Como quedó al final del día${faltan}`;
-}
-
-// Pintar el plano entero cuesta; el dedo manda muchos más tirones que
-// cuadros puede dibujar la pantalla. Se guarda el último y se pinta una
-// vez por cuadro, así el deslizador nunca se queda atrás del dedo.
-let pintadoPedido = 0;
-function pedirPintado() {
-  if (pintadoPedido) return;
-  pintadoPedido = requestAnimationFrame(() => { pintadoPedido = 0; pintarHistoria(); });
-}
-
-function pintarHistoria() {
-  const h = S.historia;
-  if (!h || !document.querySelector('#lienzo')) return;
-  const t = instanteDelDia(h, h.dia);
-  // Mirar atrás se hace SOBRE LA PLATAFORMA que se está viendo: rehacer
-  // las cinco a la vez no diría nada, y el plano es el de esta.
-  // Se rehacen TODOS y se filtra DESPUÉS: un lote que entonces estaba en
-  // Topsoil y hoy está en Ye tiene que salir en el Topsoil de entonces.
-  // Filtrar antes lo escondería justo del día en que sí estaba ahí.
-  const rehecho = planoEn(t, { lotes: S.lotes, pilas: S.pilas, indice: h.indice });
-  // Se filtra con la misma regla que el plano de hoy —`enEstaPlataforma`—
-  // y no comparando a pelo: si todavía no han llegado las plataformas,
-  // esa regla deja pasar todo. Comparando a pelo no pasaba NI UN lote y
-  // "otro día" salía en blanco, como si no hubiera historia.
-  const lotes = rehecho.lotes.filter(enEstaPlataforma);
-  const suyas = new Set(lotes.map((l) => l.pila_id).filter(Boolean));
-  const pilas = rehecho.pilas.filter((p) => suyas.has(p.id));
-  const aproximados = lotes.filter((l) => l._aprox).length;
-  if (aproximados !== h.aproximados) { h.aproximados = aproximados; rotularHistoria(); }
-  Mapa.pintar({ config: { ...S.config, ...(plataformaActual() || {}) },
-                figuras: misFiguras(), pilas, lotes });
-}
-
 // El filtro activo se ve sobre el mapa y se quita de un toque, sin
 // tener que volver a entrar al panel para desactivarlo.
 function actualizarChipFiltro() {
@@ -2513,7 +2340,7 @@ function pintarOtrasPlataformas(aqui) {
       <b>${o.cuantos}</b></button>`).join('')}`;
   for (const b of caja.querySelectorAll('button')) b.onclick = () => {
     irAPlataforma(b.dataset.plat);
-    S.recorrido = null; S.historia = null;
+    S.recorrido = null;
     irAlMapa();               // remonta el plano; la búsqueda sigue puesta
     Mapa.encuadrar();
     enfocarBusqueda();        // y va hasta lo que se estaba buscando
@@ -2531,10 +2358,6 @@ function enfocarBusqueda() {
 
 function refrescarMapa() {
   if (S.pestana !== 'mapa' || !document.querySelector('#lienzo-caja')) return;
-  // La sincronización sigue corriendo cada 20 segundos mientras se mira
-  // otro día. Si repintara el patio de hoy encima, el plano daría un
-  // salto al presente sin que nadie lo pidiera.
-  if (S.historia) return pintarHistoria();
   Mapa.pintar({
     config: { ...S.config, ...(plataformaActual() || {}) },
     figuras: misFiguras(), pilas: misPilas(), lotes: misLotes(),
@@ -2942,7 +2765,7 @@ function encuadrarPara(lote) {
 function animarMuestreo(lote) {
   const caja = document.querySelector('.mapa-caja');
   const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!caja || sinMovimiento || S.pestana !== 'mapa' || S.historia) return Promise.resolve();
+  if (!caja || sinMovimiento || S.pestana !== 'mapa') return Promise.resolve();
 
   // Muestrear dos lotes seguidos no puede dejar dos cuadrillas encimadas.
   for (const vieja of caja.querySelectorAll('.capa-obreros')) vieja.remove();
@@ -2979,8 +2802,7 @@ function animarMuestreo(lote) {
       relojes.push(ruidoEn(ruido, vuelta + Math.round(VUELTA_OBREROS * pct / 100)));
   }
 
-  // Si mientras tanto se cambia de pestaña, de plataforma o se entra a
-  // mirar otro día, el plano se rearma entero y se lleva la capa por
+  // Si mientras tanto se cambia de pestaña o de plataforma, el plano se rearma entero y se lleva la capa por
   // delante. No hace falta vigilarlo: cuando salte este reloj, quitar un
   // nodo que ya no está en la página no hace nada.
   return new Promise((listo) => setTimeout(() => {
@@ -4597,7 +4419,7 @@ async function compartirSiToca(l) {
 }
 
 async function leerOtros({ yaMismo = false } = {}) {
-  if (document.hidden || S.pestana !== 'mapa' || S.historia) return;
+  if (document.hidden || S.pestana !== 'mapa') return;
   const espera = S.gps.enVivo || (!S.gps.otros.length && !S.gps.activo)
     ? SIN_NADIE_CADA_MS : CADA_LECTURA_AJENA_MS;
   // el segundo de holgura es para que el reloj de 15 s no caiga justo antes
@@ -4635,7 +4457,7 @@ function pintarGps() {
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
   const marcas = marcasCalibracion();
-  if (!t || S.historia) return Mapa.pintarGps(marcas.length ? { marcas } : null);
+  if (!t) return Mapa.pintarGps(marcas.length ? { marcas } : null);
   const enPlano = (lat, lon) => {
     const pt = t.aPlano(lat, lon);
     return Gps.dentroDelPlano(plat, t, pt, MARGEN_PLANO_M) ? pt : null;
@@ -4665,7 +4487,7 @@ function chipGps() {
   if (!caja) return;
   const g = S.gps;
   // Vive fuera del mapa, con los botones flotantes: en la lista no pinta nada.
-  if (S.pestana !== 'mapa' || S.historia || S.calibrando) { caja.innerHTML = ''; return; }
+  if (S.pestana !== 'mapa' || S.calibrando) { caja.innerHTML = ''; return; }
   const plat = plataformaActual();
   const t = Gps.transformacion(plat?.geo);
   // Los demás: cuántos en este plano, y si no hay ninguno, en cuál hay.
@@ -4682,7 +4504,7 @@ function chipGps() {
   const [otraPlat, enOtra] = [...porPlat.entries()].sort((a, b) => b[1] - a[1])[0] || [];
   const irA = (p) => () => {          // el mismo camino que el selector de plataformas
     irAPlataforma(p.id);
-    S.recorrido = null; S.historia = null;
+    S.recorrido = null;
     irAlMapa();
     Mapa.encuadrar();
     centrarEnMi({ avisar: false });
@@ -4799,7 +4621,6 @@ function empezarCalibracion() {
   if (!esAdmin()) return;
   const plat = plataformaActual();
   if (!plat) return avisar('Todavía no hay plataformas cargadas. Sincroniza y vuelve a intentarlo.');
-  if (S.historia) return avisar('Vuelve a hoy para calibrar el GPS.');
   cerrarHoja();
   S.edicion = false;              // en edición un toque agarra figuras, no marca
   // Se arranca de los puntos que ya tenga: así se puede afinar una

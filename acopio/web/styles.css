@@ -1266,43 +1266,6 @@ button:focus:not(:focus-visible) { outline: none; }
 .atenuado { opacity: .18; }
 .filtros-hoja { flex-wrap: wrap; overflow: visible; gap: 7px; }
 
-/* --- mirar el patio de otro día -----------------------------------
-   La barra se apoya abajo, donde cae el pulgar, y ocupa lo justo: lo
-   que importa es el plano que hay encima. El deslizador va ancho a
-   propósito, porque con el dedo hay que poder afinar el día. */
-.barra-historia { flex-direction: column; align-items: stretch; gap: 8px; }
-.fila-historia { display: flex; align-items: center; gap: 10px; }
-.barra-historia strong {
-  font-family: var(--mono); font-size: 15px; letter-spacing: -.02em;
-  flex: 1; white-space: nowrap;
-}
-.barra-historia .pista { margin: 0; font-size: 11.5px; line-height: 1.35; }
-.ctrl-historia {
-  width: 38px; height: 38px; flex: none; font-size: 22px; font-weight: 700;
-  line-height: 1; border-radius: 0;
-}
-/* El carril y el tirador, con el mismo filo negro que todo lo demás */
-#h-cuando {
-  flex: 1; min-width: 0; height: 38px; margin: 0;
-  -webkit-appearance: none; appearance: none; background: none; cursor: pointer;
-}
-#h-cuando::-webkit-slider-runnable-track {
-  height: 10px; background: var(--superficie); border: 2px solid var(--tinta);
-}
-#h-cuando::-moz-range-track {
-  height: 10px; background: var(--superficie); border: 2px solid var(--tinta);
-}
-#h-cuando::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 26px; height: 30px; margin-top: -12px;
-  background: var(--acento); border: 2px solid var(--tinta); border-radius: 0;
-}
-#h-cuando::-moz-range-thumb {
-  width: 26px; height: 30px;
-  background: var(--acento); border: 2px solid var(--tinta); border-radius: 0;
-}
-#h-cuando:focus-visible { outline: 3px solid var(--acento); outline-offset: 3px; }
-
 /* --- resumen del informe: la cifra manda, el rótulo acompaña ------ */
 .resumen {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
