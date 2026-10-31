@@ -927,6 +927,7 @@ button:focus:not(:focus-visible) { outline: none; }
   pointer-events: auto;
 }
 
+.ctrl-der { position: absolute; top: 12px; right: 12px; box-shadow: 3px 3px 0 var(--tinta); }
 .ctrl-esquina { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
 /* Vidrio de verdad: además de desenfocar, satura un poco lo que hay
@@ -2319,3 +2320,64 @@ h3.con-ico .ico { width: 17px; height: 17px; color: var(--vencida); }
 .ley-fila b { display: block; font-size: 15px; }
 .ley-fila small { display: block; color: var(--apagado); font-size: 12.5px; line-height: 1.35; }
 .ley-nota { font-size: 12.5px; color: var(--apagado); margin: 8px 2px 0; line-height: 1.4; }
+
+/* --- ficha del lote: datos clave, accesos y plegables ------------- */
+.datos-lote { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; margin-top: 14px; }
+.dato {
+  min-width: 0; text-align: left; font: inherit; color: var(--tinta);
+  border: 2px solid var(--tinta); background: var(--superficie); padding: 8px 10px;
+}
+.dato small {
+  display: block; font-size: 10px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--tinta-3);
+}
+.dato b {
+  display: block; font-family: var(--mono); font-size: 28px; font-weight: 800;
+  letter-spacing: -.04em; line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.dato b.dato-texto {
+  font-family: var(--sans); font-size: 15px; letter-spacing: 0; line-height: 1.9;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dato-clave { background: var(--amarillo); cursor: pointer; box-shadow: 3px 3px 0 var(--tinta); }
+button.dato-clave:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--tinta); }
+.dato-clave small { color: var(--tinta); }
+.dato-edit { font-size: 12px; font-weight: 700; text-decoration: underline; }
+
+.bb-editor { margin-top: 10px; display: grid; gap: 8px; }
+.contador { display: flex; border: 2px solid var(--tinta); background: var(--superficie); }
+.contador button {
+  width: 58px; flex: none; font: 800 26px var(--mono); border: 0;
+  background: var(--superficie); color: var(--tinta); cursor: pointer;
+}
+.contador button:active { background: var(--piso-hondo); }
+.contador button:first-child { border-right: 2px solid var(--tinta); }
+.contador button:last-child { border-left: 2px solid var(--tinta); }
+.contador input {
+  flex: 1; min-width: 0; border: 0; text-align: center; background: transparent;
+  font: 800 30px var(--mono); color: var(--tinta); padding: 6px 0;
+  -moz-appearance: textfield;
+}
+.contador input::-webkit-inner-spin-button, .contador input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.accesos-lote { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; margin-top: 12px; }
+.acceso {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  border: 2px solid var(--tinta); background: var(--superficie); color: var(--tinta);
+  padding: 10px 4px 8px; font: 700 12px/1.15 var(--sans); cursor: pointer; text-align: center;
+}
+.acceso .ico { width: 22px; height: 22px; }
+.acceso:active { transform: translate(2px, 2px); background: var(--piso-hondo); }
+
+.plegables { display: grid; gap: 8px; margin-top: 18px; }
+.plegable { border: 2px solid var(--tinta); background: var(--superficie); }
+.plegable > summary {
+  list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  padding: 12px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+}
+.plegable > summary::-webkit-details-marker { display: none; }
+.plegable > summary::after { content: '+'; font: 800 18px/1 var(--mono); }
+.plegable[open] > summary::after { content: '−'; }
+.plegable[open] > summary { border-bottom: 2px solid var(--linea-suave); }
+.plegable > :not(summary) { margin: 10px 12px; }
+.plegable > .acciones + .acciones { margin-top: 0; }
