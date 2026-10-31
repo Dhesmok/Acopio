@@ -629,7 +629,34 @@ const FILO = .22;   // el trazo negro del pintado, en em (ver Dib.pintado)
 //
 // `centro` (opcional, en el marco de la figura) mide el bloque puesto en
 // otro sitio que el ancla: así se busca dónde le cabe más grande.
-function tamanoTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
+//
+// El resultado se RECUERDA: depende solo de la forma, del texto y de las
+// opciones, y el plano se vuelve a armar en cada sincronización, cada
+// búsqueda y cada cambio de estado. Medido con la CPU frenada 6 veces,
+// esta búsqueda (doce tanteos por rótulo, contra los 28 lados del óvalo)
+// era casi todo lo que costaba armar el plano: ~270 ms por repintado con
+// 150 lotes, aunque no hubiera cambiado nada.
+const medidas = new Map();
+function recordarMedida(clave, calcular) {
+  let v = medidas.get(clave);
+  if (v === undefined) {
+    if (medidas.size > 4000) medidas.clear();
+    v = calcular();
+    medidas.set(clave, v);
+  }
+  return v;
+}
+// lo que define la forma de una figura en su propio marco
+const firmaForma = (o) => o.forma === 'poligono'
+  ? 'p' + listaPuntos(o).map((q) => `${q.x},${q.y}`).join(';')
+  : `${o.forma === 'rectangulo' ? 'r' : 'e'}${o.rx},${o.ry}`;
+function tamanoTexto(o, texto, op) {
+  const c = op.centro;
+  return recordarMedida(`t|${firmaForma(o)}|${texto}|${op.min}|${op.max}|${op.lineas ?? 1}|${
+    op.paso ?? .6}|${op.margen ?? 5}|${op.giro ?? 0}|${c ? `${c.x},${c.y}` : ''}`,
+    () => medirTexto(o, texto, op));
+}
+function medirTexto(o, texto, { min, max, lineas = 1, paso = .6, margen = 5, giro = 0, centro = null }) {
   const c = centro || anclaTexto(o), g = -giro * Math.PI / 180, cs = Math.cos(g), sn = Math.sin(g);
   const ps = verticesDe(o).map(([x, y]) => giro
     ? [c.x + (x - c.x) * cs - (y - c.y) * sn, c.y + (x - c.x) * sn + (y - c.y) * cs] : [x, y]);
@@ -698,6 +725,9 @@ const derecho = (giro, rot) => {
 // muy angosta, mejor chico y adentro.
 const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
+  return recordarMedida(`r|${firmaForma(p)}|${p.rot || 0}|${p.codigo}`, () => calcularRotuloPila(p));
+}
+function calcularRotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
   const giro = derecho(-rot, rot);
   const ps = verticesDe(p), a = anclaTexto(p);
