@@ -4,6 +4,7 @@
 import * as Store from './store.js';
 import { sb } from './store.js';
 import * as Mapa from './mapa.js';
+import * as Dibujo from './dibujo.js';
 import * as Gps from './gps.js';
 import { planoEn, desde, indexar } from './historia.js';
 import { DIAS_RECOGIDA_SUGERIDOS, DOMINIO_USUARIOS, PROVEEDOR_POR_DEFECTO } from './config.js';
@@ -977,6 +978,10 @@ function montarMapa() {
 
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
+    // Mantener presionado un lote lo levanta para moverlo sin entrar a
+    // "Mover y editar". Quien solo mira (empresa) no mueve nada, y en el
+    // patio de otro día tampoco: ese plano es historia, no se edita.
+    puedeMover: () => !soloLectura() && !S.historia,
     alTocar: gesto((tipo, id) => {
       // La ficha cuenta cómo está el lote HOY. Abrirla desde el patio de
       // otro día mezclaría las dos cosas, así que en ese modo no se abre.
@@ -2528,9 +2533,17 @@ function refrescarMapa() {
 // se redibuja entero en cada sincronización y una animación metida dentro
 // del SVG se cortaría a media descarga.
 //
+// La volqueta se ve DESDE ARRIBA, como el plano: antes era un dibujo de
+// perfil encima de un mapa cenital y se notaba pegado. Entra en reversa,
+// levanta el volco (visto desde arriba se acorta hacia atrás y asoma el
+// pistón), abre la compuerta, el material cae y forma el montón, y se va.
+// El montón que deja es EXACTAMENTE el dibujo del lote (Mapa.dibujoLote):
+// cuando el lote de verdad entra por debajo, no hay salto.
+//
 // Se puede saltar tocando la pantalla, y con `prefers-reduced-motion` no
 // se reproduce: quien no quiera espectáculo no lo tiene.
-const DURACION_VOLQUETA = 1700;   // ms; el lote real aparece a los 1080
+const DURACION_VOLQUETA = 2200;   // ms; el lote real aparece a los 1500
+const LOTE_APARECE = 1500;
 
 function animarLlegada(lote) {
   // El sonido va lo primero: se oye aunque la escena no se dibuje —por
@@ -2541,39 +2554,73 @@ function animarLlegada(lote) {
   const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Si no hay escena, el lote tiene que aparecer YA. Dejar `naciendo`
   // puesto lo escondería para siempre.
-  if (!caja || sinMovimiento || S.pestana !== 'mapa') {
+  if (!caja || sinMovimiento || S.pestana !== 'mapa' || !Element.prototype.animate) {
     S.naciendo = null; refrescarMapa();
     return Promise.resolve();
   }
 
   const v = Mapa.obtenerVista();
-  const r = Math.max(lote.rx || 40, lote.ry || 40);
-  const s = r / 40;                       // la volqueta crece con el lote
+  const rx = lote.rx || 40, ry = lote.ry || 40;
+  const s = Math.max(rx, ry) / 46;          // la volqueta crece con el lote
   const col = paletaActual()[lote.estado] || '#d99a06';
+  // La cola del volco queda sobre el borde derecho del montón: de ahí cae
+  // el material. Entra y sale por fuera del encuadre, sea cual sea el
+  // zoom: con una distancia fija, un lote pegado al borde haría que la
+  // volqueta apareciera de la nada en mitad del patio.
+  const cola = { x: lote.x + rx * .82, y: lote.y };
+  const fuera = (v.x + v.w - cola.x) / s + 40;
 
-  // Entra y sale por fuera del encuadre, sea cual sea el zoom y esté el
-  // lote donde esté: con una distancia fija, un lote pegado al borde
-  // haría que la volqueta apareciera de la nada en mitad del patio. Se
-  // mide desde el lote hasta cada borde, más el largo de la volqueta, y
-  // en unidades del grupo —que va escalado—, no de pantalla.
-  const largo = 200;
-  const entra = (lote.x - v.x) / s + largo;
-  const sale = (v.x + v.w - lote.x) / s + largo;
+  const piedras = Dibujo.terrones(col);
+  const polvo = Array.from({ length: 9 }, (_, i) => {
+    const a = (i / 9) * Math.PI * 2;
+    return `<circle class="vq-polvo" cx="${(lote.x + Math.cos(a) * rx * .9).toFixed(1)}"
+      cy="${(lote.y + Math.sin(a) * ry * .9).toFixed(1)}" r="${(8 + (i % 3) * 2) * s}"
+      fill="#e9e5dc" stroke="#14171a" stroke-width="${1.8 * s}" opacity="0"/>`;
+  }).join('');
 
   const capa = document.createElement('div');
   capa.className = 'capa-volqueta';
-  capa.style.setProperty('--entra', `${Math.round(entra)}px`);
-  capa.style.setProperty('--sale', `${Math.round(sale)}px`);
   capa.innerHTML = `
     <svg viewBox="${v.x} ${v.y} ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet">
-      <g transform="translate(${lote.x} ${lote.y}) scale(${s})">
-        ${polvo()}
-        ${terrones(col)}
-        ${monton(col)}
-        <g transform="translate(54 0)"><g class="vq-camion">${volqueta()}</g></g>
+      <defs>${Dibujo.DEFS}</defs>
+      <g class="vq-monton" style="transform-origin:${cola.x}px ${cola.y}px" opacity="0">${Mapa.dibujoLote(lote)}</g>
+      ${polvo}
+      <g transform="translate(${cola.x} ${cola.y}) scale(${s})">
+        ${piedras.map((t) => `<g transform="translate(0 ${t.y.toFixed(1)})"><path class="vq-terron" d="${t.d}"
+          fill="${t.relleno}" stroke="#14171a" stroke-width="1.2" opacity="0"
+          data-dx="${(-12 - t.kx * rx * 1.1 / s).toFixed(1)}" data-dy="${t.dy.toFixed(1)}"/></g>`).join('')}
+        <g class="vq-mov"><g class="vq-vibra">${Dibujo.volquetaPlanta(col)}</g></g>
       </g>
     </svg>`;
   caja.appendChild(capa);
+
+  const a = (sel, kf, o) => capa.querySelectorAll(sel).forEach((el) =>
+    el.animate(kf, { fill: 'both', easing: 'cubic-bezier(.32,.72,0,1)', ...o }));
+  const ent = 'cubic-bezier(.4,0,.2,1)';
+  a('.vq-mov', [{ transform: `translateX(${fuera.toFixed(0)}px)` }, { transform: 'translateX(-6px)', offset: .85 }, { transform: 'none' }],
+    { duration: 560, easing: 'cubic-bezier(.2,.7,.3,1)' });
+  a('.vq-mov', [{ transform: 'none' }, { transform: `translateX(${(fuera + 160).toFixed(0)}px)` }],
+    { duration: 520, delay: 1680, easing: 'cubic-bezier(.55,0,.9,.4)', fill: 'forwards', composite: 'replace' });
+  a('.vq-vibra', [{ transform: 'none' }, { transform: 'translateY(.7px)' }, { transform: 'none' }],
+    { duration: 110, iterations: 20, easing: 'linear', fill: 'none' });
+  const volcar = [{ transform: 'none' }, { transform: 'scale(.7,1.06)', offset: .3 }, { transform: 'scale(.7,1.06)', offset: .78 }, { transform: 'none' }];
+  a('.vq-volco', volcar, { duration: 1150, delay: 560, easing: ent });
+  a('.vq-piston', [{ opacity: 0 }, { opacity: 1, offset: .2 }, { opacity: 1, offset: .8 }, { opacity: 0 }], { duration: 1150, delay: 560, easing: 'linear' });
+  a('.vq-compuerta', [{ transform: 'none' }, { transform: 'translateX(-9px) scaleX(2.4)', offset: .3 },
+    { transform: 'translateX(-9px) scaleX(2.4)', offset: .78 }, { transform: 'none' }], { duration: 1150, delay: 560, easing: ent });
+  a('.vq-carga', [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-30px) scaleX(.5)' }],
+    { duration: 650, delay: 760, easing: 'cubic-bezier(.5,0,.8,.6)' });
+  capa.querySelectorAll('.vq-terron').forEach((t, i) => {
+    const giro = (i % 2 ? 1 : -1) * 140, fin = `translate(${t.dataset.dx}px, ${t.dataset.dy}px) rotate(${giro}deg)`;
+    t.animate([{ opacity: 1, transform: 'scale(1.5)' }, { opacity: 1, transform: fin, offset: .8 }, { opacity: 0, transform: fin }],
+      { duration: 480, delay: 800 + i * 34, easing: 'cubic-bezier(.5,0,.9,.5)', fill: 'both' });
+  });
+  a('.vq-monton', [{ opacity: 0, transform: 'scale(.1,.3)' }, { opacity: 1, transform: 'scale(.35,.6)', offset: .15 }, { opacity: 1, transform: 'none' }],
+    { duration: 760, delay: 860, easing: 'cubic-bezier(.2,.7,.3,1)' });
+  a('.vq-polvo', [{ opacity: .95, transform: 'scale(.3)' }, { opacity: 0, transform: 'scale(1.5)' }],
+    { duration: 650, delay: 1320, easing: 'cubic-bezier(.2,.8,.3,1)', fill: 'backwards' });
+  a('.vq-humo', [{ opacity: .6, transform: 'scale(.6)' }, { opacity: 0, transform: 'translate(-14px,-10px) scale(1.8)' }],
+    { duration: 420, delay: 1680, iterations: 2 });
 
   return new Promise((listo) => {
     let acabado = false;
@@ -2585,105 +2632,13 @@ function animarLlegada(lote) {
       if (S.naciendo) { S.naciendo = null; refrescarMapa(); }
       listo();
     };
-    // el lote de verdad entra justo cuando el material termina de caer,
-    // debajo del montón dibujado aquí: no hay salto, se relevan
-    const t1 = setTimeout(() => { S.naciendo = null; refrescarMapa(); }, 1080);
+    // el lote de verdad entra justo cuando el montón termina de formarse,
+    // debajo del dibujado aquí: no hay salto, se relevan
+    const t1 = setTimeout(() => { S.naciendo = null; refrescarMapa(); }, LOTE_APARECE);
     const t2 = setTimeout(terminar, DURACION_VOLQUETA);
     capa.onpointerdown = terminar;        // un toque la salta
   });
 }
-
-// Volqueta de perfil, en el lenguaje de los pictogramas de obra: filo
-// negro, sin degradados. El origen (0,0) es el punto donde cae el
-// material, o sea la esquina trasera del volco a ras de suelo.
-//
-// Lleva pistón, compuerta trasera y ruedas que ruedan. No es adorno: el
-// pistón explica por qué sube el volco —sin él la caja bascula sola,
-// como si la empujara el aire— y la compuerta explica por dónde sale el
-// material.
-const volqueta = () => `
-  <g transform="translate(68 -34)"><g class="vq-piston">
-    <line x1="0" y1="0" x2="-22" y2="-28" stroke="#14171a" stroke-width="6" stroke-linecap="round"/>
-    <line x1="0" y1="0" x2="-22" y2="-28" stroke="#e9e5dc" stroke-width="3" stroke-linecap="round"/>
-  </g></g>
-
-  <g transform="translate(0 -34)"><g class="vq-volco">
-    <path d="M2 0 L102 0 L94 -40 L4 -40 Z" fill="var(--amarillo)" stroke="#14171a"
-          stroke-width="3.5" stroke-linejoin="round"/>
-    <path d="M22 -6 L20 -34 M42 -6 L40 -34 M62 -6 L60 -34 M82 -6 L80 -34"
-          stroke="#14171a" stroke-width="2.5" opacity=".85"/>
-    <path d="M12 -8 L90 -8" stroke="#14171a" stroke-width="3" stroke-dasharray="6 4"/>
-    <path d="M12 -8 L90 -8" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="6 4"/>
-    <g class="vq-puerta">
-      <path d="M2 0 L4 -40" stroke="#14171a" stroke-width="4.5" stroke-linecap="round"/>
-      <path d="M2 0 L4 -36" stroke="var(--amarillo)" stroke-width="2.5"/>
-      <circle cx="4" cy="-40" r="3" fill="#14171a"/>
-    </g>
-  </g></g>
-
-  <g transform="translate(108 -68)">
-    <circle class="vq-humo" r="7" fill="#14171a" opacity=".4"/>
-  </g>
-
-  <path d="M-4 -34 L114 -34 L114 -22 L-4 -22 Z" fill="#14171a"/>
-  <path d="M-2 -24 L-8 -12 L-2 -12 Z" fill="#14171a"/>
-
-  <path d="M100 -34 L100 -68 L118 -76 L138 -76 L138 -22 L100 -22 Z"
-        fill="var(--amarillo)" stroke="#14171a" stroke-width="3.5" stroke-linejoin="round"/>
-  <path d="M108 -64 L116 -68 L130 -68 L130 -50 L108 -50 Z"
-        fill="#e9e5dc" stroke="#14171a" stroke-width="2.5"/>
-  <path d="M122 -65 L114 -53" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-  <path d="M104 -70 L122 -78" stroke="#14171a" stroke-width="3" stroke-linecap="round"/>
-  <path d="M132 -34 L142 -34 L142 -22 L132 -22 Z" fill="#14171a"/>
-  <path d="M138 -46 L138 -36" stroke="var(--amarillo)" stroke-width="3"/>
-  <path d="M108 -58 L102 -58 L102 -48" fill="none" stroke="#14171a"
-        stroke-width="2.5" stroke-linejoin="round"/>
-
-  ${[24, 58, 122].map((x) => `<g transform="translate(${x} -15)"><g class="vq-rueda">
-    <circle r="14.5" fill="#14171a"/>
-    <circle r="7" fill="#e9e5dc" stroke="#14171a" stroke-width="2"/>
-    <line x1="-5" y1="0" x2="5" y2="0" stroke="#14171a" stroke-width="2"/>
-    <line x1="0" y1="-5" x2="0" y2="5" stroke="#14171a" stroke-width="2"/>
-  </g></g>`).join('')}`;
-
-// Los terrones que salen por detrás. Cada uno con su retardo, su sitio,
-// su giro y su forma: cinco piedras iguales cayendo a la vez parecen una
-// sola pieza bajando.
-const terrones = (col) => [
-  { dx:   6, dy:  -4, ret:   0, rot:   45, d: 'M-7 -5 L5 -8 L9 3 L-1 8 L-8 2 Z' },
-  { dx: -24, dy:   8, ret:  50, rot:  110, d: 'M-9 -3 L3 -9 L10 2 L2 9 L-7 6 Z' },
-  { dx:  20, dy:  14, ret:  90, rot:  -75, d: 'M-6 -6 L8 -4 L6 7 L-4 8 L-8 -1 Z' },
-  { dx: -10, dy: -18, ret: 140, rot:  160, d: 'M-8 -2 L2 -8 L9 1 L4 9 L-6 5 Z' },
-  { dx: -32, dy:  -2, ret: 180, rot: -120, d: 'M-6 -7 L6 -5 L8 5 L-2 7 L-9 1 Z' },
-  { dx:  12, dy: -22, ret: 210, rot:   85, d: 'M-5 -5 L7 -3 L5 8 L-5 6 Z' }
-].map((t) => `
-  <g class="vq-terron" style="--dx:${t.dx}px; --dy:${t.dy}px; --rot:${t.rot}deg;
-     animation-delay:${620 + t.ret}ms">
-    <path d="${t.d}" fill="${esc(col)}" stroke="#14171a" stroke-width="2.2" stroke-linejoin="round"/>
-  </g>`).join('');
-
-// La polvareda de cuando el material pega contra el suelo.
-const polvo = () => `
-  <g transform="translate(-10 0)">
-    <circle class="vq-polvo" style="--pdx:-35px; --pdy:-18px" cy="-5" r="14"
-            fill="#e4e7e2" stroke="#14171a" stroke-width="2"/>
-    <circle class="vq-polvo" style="--pdx:25px; --pdy:-22px; animation-delay:720ms" cy="-5" r="10"
-            fill="#e4e7e2" stroke="#14171a" stroke-width="2"/>
-  </g>`;
-
-// El montón que queda. Es un CÍRCULO del radio del lote y tiene que
-// seguir siéndolo: el plano se mira desde arriba, el lote es un círculo,
-// y a los 1080 ms este se releva con él. Con forma de loma de perfil se
-// vería el cambio de silueta. El relieve va por dentro, con una cresta
-// que no toca el contorno.
-const monton = (col) => `
-  <g class="vq-monton">
-    <circle r="40" fill="${esc(col)}" stroke="#14171a" stroke-width="2.5"/>
-    <path d="M-26 8 C-16 -12, 2 -20, 14 -14 C24 -9, 30 0, 32 8" fill="none"
-          stroke="#14171a" stroke-width="1.8" opacity=".35"/>
-    <path d="M-14 20 C-6 10, 8 12, 18 20" fill="none"
-          stroke="#14171a" stroke-width="1.6" opacity=".22"/>
-  </g>`;
 
 // ------------------------------------------------ los obreros muestrean
 // Muestrear un lote es el paso que mueve el patio: hasta que no está

@@ -4,6 +4,8 @@
 //  vértices que se mueven uno a uno.
 // =====================================================================
 
+import * as Dib from './dibujo.js';
+
 let svg, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
 let datos = { config: {}, figuras: [], pilas: [], lotes: [] };
 let seleccion = null;
@@ -76,6 +78,8 @@ const fuera = (l) => l.estado === 'despachado' || l.estado === 'alimentado'
 // true, pintar() se va por el atajo y el mapa no se vuelve a dibujar
 // NUNCA MÁS: se guarda todo pero en pantalla no pasa nada.
 function reiniciarInteraccion() {
+  if (espera) clearTimeout(espera);
+  espera = null;
   punteros.clear();
   modo = 'ninguno';
   arrastre = null;
@@ -253,7 +257,7 @@ export function pintar(d) {
     <defs>
       <pattern id="reticula" width="50" height="50" patternUnits="userSpaceOnUse">
         <path d="M50 0H0V50" fill="none" stroke="#14171a" stroke-width="1" opacity=".07"/>
-      </pattern>
+      </pattern>${Dib.DEFS}
     </defs>
     <rect x="${-1e4}" y="${-1e4}" width="${3e4}" height="${3e4}" fill="${esc(c.color_fondo || '#e4e7e2')}"/>
     ${c.imagen_url ? `<image href="${esc(c.imagen_url)}" x="${c.imagen_x}" y="${c.imagen_y}"
@@ -518,48 +522,78 @@ function figuraFondo(f) {
   </g>`;
 }
 
+// Vértices locales de una figura, sea cual sea su forma, para dibujarla
+// como montón. Una pila dibujada como óvalo o rectángulo (las de antes)
+// sale igual de bien que una de polígono.
+function verticesDe(o) {
+  if (o.forma === 'poligono') return listaPuntos(o).map((p) => [p.x, p.y]);
+  if (o.forma === 'rectangulo') return [[-o.rx, -o.ry], [o.rx, -o.ry], [o.rx, o.ry], [-o.rx, o.ry]];
+  return Array.from({ length: 28 }, (_, i) => {
+    const a = (i / 28) * Math.PI * 2;
+    return [+(Math.cos(a) * o.rx).toFixed(1), +(Math.sin(a) * o.ry).toFixed(1)];
+  });
+}
+
+// La pila es UN montón con la forma de sus vértices y no muestra los
+// lotes de adentro (ver dibujo.js, montonPila). Lo que se lee de lejos
+// es el letrero: número, cuántos lotes y cuántos hay de cada estado.
+//
+// El letrero va en unidades del plano y se escala con el ancho de la
+// pila, no con el zoom: así no hay que rearmar el plano al acercar.
+const ORDEN_ESTADOS = ['alimentado', 'facturado', 'muestreado', 'remuestreo', 'por_muestrear', 'devolucion'];
 function figuraPila(p, lotes) {
-  const n = lotes.filter((l) => l.pila_id === p.id).length;
-  const col = paleta()[`pila_${p.tipo}`] || '#14171a';
+  const suyos = lotes.filter((l) => l.pila_id === p.id);
+  const pal = paleta();
+  const col = pal[`pila_${p.tipo}`] || '#14171a';
+  const m = Dib.montonPila(verticesDe(p), suyos.length, col);
+  const conteo = ORDEN_ESTADOS.map((e) => [pal[e] || '#5f6863', suyos.filter((l) => l.estado === e).length]);
+  const s = +Math.min(1.5, Math.max(.45, m.ancho / 320)).toFixed(2);
   return `<g data-tipo="pila" data-id="${esc(p.id)}" ${trazo(p)} class="g-pila${apagado(p.id)}${datos.resaltado === p.id ? ' g-resaltado' : ''}">
     ${datos.resaltado === p.id ? halo(p) : ''}
-    ${cuerpo(p, `class="pila-forma" fill="${esc(col)}" fill-opacity=".14" stroke="${esc(col)}"`)}
-    ${(() => {
-      const rotulo = `Pila ${p.codigo}`, c = anclaTexto(p);
-      const t = tamanoTexto(p, rotulo, { min: 8, max: 24, lineas: 2 });
-      const sub = Math.max(6, +(t * .58).toFixed(1));
-      return `<text x="${c.x}" y="${c.y}" text-anchor="middle" class="txt-pila"
-          font-size="${t}">${esc(rotulo)}</text>
-        <text x="${c.x}" y="${c.y + t * .95}" text-anchor="middle" class="txt-pila-sub"
-          font-size="${sub}">${n} lote${n === 1 ? '' : 's'}</text>`;
-    })()}
+    <g class="cuerpo-lote">${m.svg}</g>
+    <g class="rotulo-mapa" transform="translate(${m.tope[0].toFixed(1)} ${(m.tope[1] - 8 * s).toFixed(1)}) rotate(${-(p.rot || 0)}) scale(${s})">
+      ${Dib.letreroPila(`PILA ${esc(p.codigo)}`, suyos.length, conteo, col)}</g>
   </g>`;
 }
 
-// Un lote sale tres veces, una por capa: contorno, relleno y rótulo.
-// Las tres llevan data-id, así que el dedo da con el lote caiga donde
-// caiga, y arrastrarlo las mueve todas.
-function figuraLote(l, capa) {
+// El aspecto de un lote según su forma: rectángulo es bigbag; óvalo y
+// polígono son material a granel. Lo comparte la volqueta, que deja en
+// el piso exactamente el montón que después queda en el plano.
+function aspectoLote(l, col) {
+  if (l.forma === 'rectangulo') return Dib.bigbag(l, col);
+  return Dib.granel(l.forma === 'poligono' ? { ...l, puntos: listaPuntos(l) } : l, col);
+}
+const colorLote = (l) => {
   // El compromiso de recogida solo existe mientras el lote es devolución:
   // si pasó a otro estado, la fecha que quedó guardada ya no compromete a
   // nadie y no hay nada que avisar.
-  const venc = l.estado === 'devolucion'
-    && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
-  // Una devolución sin recoger se pinta NEGRA, entera. Antes llevaba un
-  // borde rojo a rayas, y un borde hay que buscarlo: en un patio de
+  const venc = l.estado === 'devolucion' && !!l.fecha_recogida && l.fecha_recogida < hoyISO();
+  // Una devolución sin recoger se pinta NEGRA, entera: en un patio de
   // ciento y pico lotes de colores parecidos, el negro salta a la vista
   // desde el otro lado del plano sin tener que mirar figura por figura.
-  const col = venc ? '#14171a' : (paleta()[l.estado] || '#5f6863');
+  return venc ? '#14171a' : (paleta()[l.estado] || '#5f6863');
+};
+export function dibujoLote(l) {
+  const a = aspectoLote(l, colorLote(l));
+  return `<g ${trazo(l)}>${a.base}${a.cuerpo}</g>`;
+}
+
+// Un lote sale tres veces, una por capa: base (sombra y filo), cuerpo y
+// rótulo. Las tres llevan data-id, así que el dedo da con el lote caiga
+// donde caiga, y arrastrarlo las mueve todas. Lo de adentro va en un
+// grupo aparte (.cuerpo-lote) porque el transform del grupo de afuera
+// es la posición: levantar el lote al moverlo se hace en el de adentro.
+function figuraLote(l, capa) {
+  const col = colorLote(l);
   const marca = `data-tipo="lote" data-id="${esc(l.id)}" ${trazo(l)}
     class="g-lote${datos.resaltado === l.id ? ' g-resaltado' : ''}"`;
+  const a = aspectoLote(l, col);
 
-  if (capa === 'trazo')
-    return `<g ${marca}>${cuerpo(l, `fill="${esc(col)}" stroke="#14171a" stroke-width="4"`)}</g>`;
-
+  if (capa === 'trazo') return `<g ${marca}><g class="cuerpo-lote">${a.base}</g></g>`;
   if (capa === 'relleno') {
     return `<g ${marca}>
       ${datos.resaltado === l.id ? halo(l) : ''}
-      ${cuerpo(l, `fill="${esc(col)}"`)}
+      <g class="cuerpo-lote">${a.cuerpo}</g>
     </g>`;
   }
 
@@ -574,21 +608,21 @@ function figuraLote(l, capa) {
   // paréntesis ya no cuentan: por eso el código queda algo más grande
   // que antes.
   const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
-  return `<g ${marca}>
-    <text x="${c.x}" y="${c.y + t * .35}" text-anchor="middle" class="txt-lote"
-      font-size="${t}" fill="${claro(col) ? '#14171a' : '#ffffff'}">${esc(base)}${
+  // El código va en una PLACA blanca con letra negra: se lee igual sobre
+  // cualquier color, también sobre el negro de una devolución vencida y
+  // sobre el relieve del montón. Si la placa es más ancha que el lote,
+  // se cuelga debajo como una etiqueta y el montón sigue viéndose.
+  const ancho = (base.length + volqueta.length * .62) * t * .62 + t * 1.1;
+  const caja = cajaInterior(l, t);
+  const y = ancho > caja.w * 1.15 && l.forma !== 'poligono' ? l.ry + t * 1.05 : c.y + t * .35;
+  return `<g ${marca}><g class="cuerpo-lote rotulo-lote">
+    <rect x="${(c.x - ancho / 2).toFixed(1)}" y="${(y - t * 1.1).toFixed(1)}" width="${ancho.toFixed(1)}" height="${(t * 1.5).toFixed(1)}"
+      rx="3" fill="#fdfbf7" stroke="#14171a" stroke-width="1.4"/>
+    <text x="${c.x}" y="${y.toFixed(1)}" text-anchor="middle" class="txt-lote"
+      font-size="${t}" fill="#14171a">${esc(base)}${
       volqueta ? `<tspan font-size="62%" dy="${(-t * .38).toFixed(1)}"
         >${esc(volqueta)}</tspan>` : ''}</text>
-  </g>`;
-}
-
-// ¿el color de fondo es claro? entonces el texto va oscuro.
-// El corte tiene que ser el mismo que el de contraste() en app.js, o el
-// código de un lote saldría blanco en el plano y negro en su ficha.
-function claro(hex) {
-  const c = hex.replace('#', '');
-  const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+  </g></g>`;
 }
 
 const hoyISO = () => {
@@ -810,6 +844,57 @@ const nodosDe = (id) => [...svg.querySelectorAll(`[data-id="${id}"]`)];
 // dos, el encuadre se vuelve a medir desde donde están los dedos y no
 // desde donde estaban. Antes un tercer dedo cancelaba el zoom y hasta
 // podía arrancar un arrastre.
+// ------------------------------------------------ mantener para mover
+export const MANTENER_MS = 3000;
+let espera = null;
+
+function empezarAMantener(obj, ev) {
+  soltarEspera();
+  const u = unidadesPorPixel();
+  const r = Math.max(obj.rx || 40, obj.ry || 40) + 14 * u;
+  // Va encima de todo y en unidades del plano; el grosor, en píxeles de
+  // pantalla, igual que las manijas: con cualquier zoom se ve igual.
+  svg.insertAdjacentHTML('beforeend', `<g class="aro-mantener" transform="translate(${obj.x} ${obj.y})"
+      style="--mantener:${MANTENER_MS}ms">
+    <circle r="${r.toFixed(1)}" fill="none" stroke="#14171a" stroke-width="${(9 * u).toFixed(1)}" opacity=".35"/>
+    <circle class="aro-lleno" r="${r.toFixed(1)}" fill="none" stroke="#f2c007" stroke-width="${(6 * u).toFixed(1)}"
+      pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1" transform="rotate(-90)"/>
+  </g>`);
+  const ultimo = { clientX: ev.clientX, clientY: ev.clientY };
+  arrastre.espera = setTimeout(() => levantar(obj, ultimo), MANTENER_MS);
+  espera = arrastre.espera;
+}
+
+function soltarEspera() {
+  if (!espera) return;
+  clearTimeout(espera);
+  espera = null;
+  if (arrastre) arrastre.espera = null;
+  svg.querySelectorAll('.aro-mantener').forEach((n) => n.remove());
+}
+
+// Pasó el tiempo con el dedo quieto: el lote se levanta (crece un poco y
+// su sombra se aleja) y desde aquí el dedo lo arrastra, como en modo
+// edición. Al soltarlo, la app pregunta "¿Dejar X aquí?" igual que hoy.
+function levantar(obj, ev) {
+  espera = null;
+  svg.querySelectorAll('.aro-mantener').forEach((n) => n.remove());
+  if (modo !== 'paneando' || !arrastre || movio) return;
+  // si el plano alcanzó a correrse un pelo, vuelve a donde estaba
+  vista = { ...arrastre.vista }; aplicarVista();
+  const nodos = nodosDe(obj.id);
+  nodos.forEach((n) => n.classList.add('levantado'));
+  try { navigator.vibrate?.(30); } catch { /* sin vibración no pasa nada */ }
+  modo = 'arrastrando';
+  arrastre = { tipo: 'lote', obj, nodos, inicio: aPlano(ev), levantado: true,
+               origen: { x: obj.x, y: obj.y }, antes: instantanea(obj) };
+}
+
+function apoyar(nodos) {
+  nodos.forEach((n) => { n.classList.remove('levantado'); n.classList.add('apoyando'); });
+  setTimeout(() => nodos.forEach((n) => n.classList.remove('apoyando')), 360);
+}
+
 function iniciarZoom() {
   const [a, b] = [...punteros.values()];
   const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
@@ -848,7 +933,7 @@ function abajo(ev) {
   if (!punteros.size) caja = svg.getBoundingClientRect();
   punteros.set(ev.pointerId, ev);
 
-  if (punteros.size >= 2) { iniciarZoom(); return; }
+  if (punteros.size >= 2) { soltarEspera(); iniciarZoom(); return; }
 
   movio = false;
   const manija = ev.target.closest('[data-handle]');
@@ -907,6 +992,12 @@ function abajo(ev) {
         vista: { ...vista }, u: unidadesPorPixel(),
         toque: { tipo, id: obj.id }        // para abrir la ficha si no se movió
       };
+      // Mantener el dedo quieto sobre un lote lo LEVANTA para moverlo,
+      // sin entrar a modo edición. Tarda a propósito (MANTENER_MS): un
+      // roce o un toque largo sin querer no pueden mover material en el
+      // plano. Mientras se espera, un aro se va llenando alrededor del
+      // lote para que se vea que algo va a pasar y cuánto falta.
+      if (tipo === 'lote' && cb.puedeMover?.()) empezarAMantener(obj, ev);
       return;
     }
 
@@ -963,7 +1054,8 @@ function movimiento(ev) {
   if (modo === 'paneando') {
     const sx = ev.clientX - arrastre.pantalla.x;
     const sy = ev.clientY - arrastre.pantalla.y;
-    if (Math.hypot(sx, sy) > 6) movio = true;
+    if (Math.hypot(sx, sy) > 6) { movio = true; soltarEspera(); }
+    if (arrastre.espera) return;        // quieto esperando: el plano no se mueve
     vista.x = arrastre.vista.x - sx * arrastre.u;
     vista.y = arrastre.vista.y - sy * arrastre.u;
     aplicarVista();
@@ -1004,8 +1096,7 @@ function resaltarBlanco(lote) {
   const b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
   // Todas sus copias, no la primera: la del lote en la capa de trazos
   // queda tapada por los rellenos y el aro azul no se vería.
-  if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] ellipse,
-    [data-id="${b.obj.id}"] rect, [data-id="${b.obj.id}"] polygon`)
+  if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] .forma`)
     .forEach((n) => n.classList.add('blanco'));
 }
 
@@ -1018,6 +1109,7 @@ function arriba(ev) {
   // plano se quedaba quieto hasta levantarlo también.
   if (!punteros.delete(ev.pointerId)) return;
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
+  soltarEspera();
 
   if (modo === 'zoom') {
     if (punteros.size >= 2) {
@@ -1052,8 +1144,11 @@ function arriba(ev) {
   }
 
   if (modo === 'arrastrando' && arrastre) {
-    const { tipo, obj, origen, antes } = arrastre;
-    if (!movio) {
+    const { tipo, obj, origen, antes, levantado } = arrastre;
+    if (levantado) apoyar(arrastre.nodos);
+    if (levantado && !movio) {
+      // se levantó y se soltó en el mismo sitio: no hay nada que guardar
+    } else if (!movio) {
       seleccion = { tipo, id: obj.id };
       pintarYa();
       cb.alSeleccionar?.(tipo, obj);

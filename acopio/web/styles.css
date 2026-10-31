@@ -1072,6 +1072,33 @@ button:focus:not(:focus-visible) { outline: none; }
    doble con los códigos y acercar cuesta siete veces más. Solo el
    pellizco los apaga, y solo mientras dura. Ver mapa.js, acercando(). */
 #lienzo.acercando .txt-lote { display: none; }
+/* Lo mismo con las placas de los códigos, el letrero de las pilas y la
+   textura de grano: la textura es un patrón, y un patrón se vuelve a
+   rasterizar en cada cuadro de zoom. Solo durante el pellizco. */
+#lienzo.acercando .rotulo-lote, #lienzo.acercando .rotulo-mapa,
+#lienzo.acercando .textura { display: none; }
+.txt-letrero { font-family: var(--mono); pointer-events: none; user-select: none; }
+
+/* Mantener para mover: el aro se llena en lo que dura la espera. */
+.aro-mantener { pointer-events: none; }
+.aro-lleno { animation: llenar-aro var(--mantener, 3s) linear forwards; }
+@keyframes llenar-aro { to { stroke-dashoffset: 0; } }
+/* Levantado: el lote crece un poco y su sombra se aleja, como al
+   alzarlo del piso. Se mueve el grupo de ADENTRO: el de afuera lleva la
+   posición en su transform y no se puede tocar. */
+.g-lote .cuerpo-lote { transform-box: fill-box; transform-origin: center;
+  transition: transform var(--t-medio) var(--curva-firme); }
+.g-lote .sombra-lote { transition: transform var(--t-medio) var(--curva-firme), opacity var(--t-medio); }
+.g-lote.levantado .cuerpo-lote { transform: scale(1.08); }
+.g-lote.levantado .sombra-lote { transform: translate(14px, 18px); opacity: .32; }
+.g-lote.levantado { cursor: grabbing; }
+.g-lote.apoyando .cuerpo-lote { animation: apoyar 340ms var(--curva-mecanica); }
+@keyframes apoyar { 0% { transform: scale(1.08); } 60% { transform: scale(.97, 1.02); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .aro-lleno { animation-timing-function: steps(1, end); }
+  .g-lote .cuerpo-lote, .g-lote .sombra-lote { transition: none; }
+  .g-lote.apoyando .cuerpo-lote { animation: none; }
+}
 .pila-forma { stroke-width: 3.5; stroke-dasharray: 15 8; }
 .txt-pila {
   font-family: var(--mono); font-weight: 700;
@@ -1595,138 +1622,18 @@ main::-webkit-scrollbar-track, .hoja::-webkit-scrollbar-track { background: tran
 /* --- la volqueta descarga el lote nuevo --------------------------
    Vive en su propia capa sobre el plano y no dentro del SVG del mapa:
    el mapa se redibuja entero en cada sincronización y la escena se
-   cortaría a media descarga. Dura 1.7 s, se salta tocando la pantalla
+   cortaría a media descarga. Dura 2,2 s, se salta tocando la pantalla
    y no se reproduce si el sistema pide menos movimiento. */
 .capa-volqueta { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
 .capa-volqueta svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
-/* La volqueta entra por la izquierda, descarga y sigue de largo.
-   Al frenar da un cabeceo sobre la suspensión, y al arrancar se
-   agacha un instante antes de salir: sin eso pesaba lo mismo vacía
-   que cargada.
-
-   OJO CON `both` EN LA SALIDA. Va `forwards`, no `both`, y no es un
-   detalle: con `both`, el relleno HACIA ATRÁS de la salida aplica su
-   fotograma inicial —translateX(0)— desde el milisegundo cero, y como
-   va la última de la lista le gana a la entrada. La volqueta se
-   quedaba quieta en el sitio y no entraba nunca. */
-.vq-camion {
-  animation: vq-entrar 460ms var(--curva-firme) both,
-             vq-cabeceo 240ms ease-out 460ms,
-             vq-salir 420ms var(--curva-mecanica) 1280ms forwards;
-}
-@keyframes vq-entrar {
-  from { transform: translateX(calc(-1 * var(--entra))); }
-  to   { transform: translateX(0); }
-}
-@keyframes vq-cabeceo {
-  0%   { transform: translateX(0) rotate(0deg); }
-  30%  { transform: translateX(2px) translateY(1px) rotate(-1.8deg); }
-  70%  { transform: translateX(-1px) rotate(.8deg); }
-  100% { transform: translateX(0) rotate(0deg); }
-}
-@keyframes vq-salir {
-  from { transform: translateX(0) rotate(0deg); opacity: 1; }
-  15%  { transform: translateX(-4px) rotate(-1deg); }     /* se agacha al arrancar */
-  to   { transform: translateX(var(--sale)) rotate(.5deg); opacity: 0; }
-}
-
-/* Las ruedas ruedan. Mismo cuidado con el relleno que arriba. */
-.vq-rueda {
-  transform-box: fill-box; transform-origin: center;
-  animation: vq-rodar-entrada 460ms var(--curva-firme) both,
-             vq-rodar-salida 420ms var(--curva-mecanica) 1280ms forwards;
-}
-@keyframes vq-rodar-entrada { from { transform: rotate(0deg); } to { transform: rotate(540deg); } }
-@keyframes vq-rodar-salida  { from { transform: rotate(540deg); } to { transform: rotate(1260deg); } }
-
-/* el volco bascula sobre su esquina trasera, que es de donde sale el
-   material: por eso el origen es la esquina inferior izquierda de su
-   propia caja y no el centro */
-.vq-volco {
-  transform-box: fill-box; transform-origin: 0% 100%;
-  animation: vq-volcar 300ms var(--curva-firme) 500ms both,
-             vq-bajar  230ms var(--curva) 1050ms both;
-}
-@keyframes vq-volcar { to { transform: rotate(-46deg); } }
-@keyframes vq-bajar  { from { transform: rotate(-46deg); } to { transform: rotate(0); } }
-
-/* El pistón que levanta el volco. Es lo que explica el movimiento:
-   sin él la caja bascula sola, como si la empujara el aire. */
-.vq-piston {
-  transform-box: fill-box; transform-origin: 0% 100%;
-  animation: vq-piston-extender 300ms var(--curva-firme) 500ms both,
-             vq-piston-retraer  230ms var(--curva) 1050ms both;
-}
-@keyframes vq-piston-extender { from { transform: scaleY(.2) rotate(0deg); } to { transform: scaleY(1) rotate(-18deg); } }
-@keyframes vq-piston-retraer  { from { transform: scaleY(1) rotate(-18deg); } to { transform: scaleY(.2) rotate(0deg); } }
-
-/* La compuerta trasera se abre sola por el peso al bascular */
-.vq-puerta {
-  transform-box: fill-box; transform-origin: 0% 0%;
-  animation: vq-puerta-abrir 250ms var(--curva-mecanica) 520ms both,
-             vq-puerta-cerrar 200ms var(--curva) 1070ms both;
-}
-@keyframes vq-puerta-abrir  { to { transform: rotate(38deg); } }
-@keyframes vq-puerta-cerrar { from { transform: rotate(38deg); } to { transform: rotate(0deg); } }
-
-/* cada terrón cae con su propio retardo, a su propio sitio y girando:
-   bajando todos a la vez parecerían una sola pieza */
-.vq-terron {
-  transform-box: fill-box; transform-origin: center;
-  animation: vq-caer 330ms var(--curva-firme) both,
-             vq-fundir 160ms linear 920ms both;
-}
-@keyframes vq-caer {
-  0%   { transform: translate(0, -32px) scale(.4) rotate(0deg); opacity: 0; }
-  40%  { opacity: 1; }
-  80%  { transform: translate(calc(var(--dx) * .8), calc(var(--dy) * .8)) scale(1.1) rotate(calc(var(--rot) * .7)); }
-  100% { transform: translate(var(--dx), var(--dy)) scale(1) rotate(var(--rot)); opacity: 1; }
-}
-/* los terrones no se quedan sueltos alrededor: el montón se los traga */
-@keyframes vq-fundir { to { opacity: 0; } }
-
-/* La polvareda del impacto contra el suelo */
-.vq-polvo {
-  transform-box: fill-box; transform-origin: center;
-  animation: vq-polvo-estallar 350ms var(--curva) 680ms both;
-}
-@keyframes vq-polvo-estallar {
-  0%   { transform: translate(-10px, 5px) scale(.2); opacity: 0; }
-  50%  { opacity: .75; }
-  100% { transform: translate(var(--pdx), var(--pdy)) scale(1.4); opacity: 0; }
-}
-
-/* El humo del escape al acelerar para irse */
-.vq-humo {
-  transform-box: fill-box; transform-origin: center;
-  animation: vq-humo-salir 400ms ease-out 1280ms both;
-}
-@keyframes vq-humo-salir {
-  0%   { transform: translate(0, 0) scale(.3); opacity: 0; }
-  40%  { opacity: .6; }
-  100% { transform: translate(25px, -35px) scale(1.8); opacity: 0; }
-}
-
-/* El montón crece donde cayó el material, con un rebote corto. A los
-   1080 ms el lote de verdad entra por debajo —ya con su código— y este
-   se desvanece encima: se relevan sin que se vea el cambio.
-
-   Es un CÍRCULO del mismo radio que el lote, y tiene que seguir
-   siéndolo: el plano se mira desde arriba y el lote es un círculo, así
-   que un montón con forma de loma de perfil no se relevaría con nada,
-   se vería el cambio de silueta. El relieve se sugiere con la cresta
-   de dentro, que no rompe el contorno. */
-.vq-monton {
-  transform-box: fill-box; transform-origin: center;
-  animation: vq-brotar 300ms var(--curva-rebote) 820ms both,
-             vq-fundir 180ms linear 1100ms both;
-}
-@keyframes vq-brotar {
-  0%   { transform: scale(0); opacity: 0; }
-  65%  { transform: scale(1.12); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
+/* La volqueta vista desde arriba (dibujo.js, volquetaPlanta) se anima
+   desde app.js, animarLlegada(), con la API de animaciones: las piezas
+   dependen del tamaño del lote y de cuánto falta hasta el borde de la
+   pantalla, y eso no cabe en un fotograma fijo de CSS. Aquí solo va lo
+   que no cambia: la baliza gira mientras la escena exista. */
+.capa-volqueta .vq-baliza { animation: vq-baliza .6s linear infinite; }
+@keyframes vq-baliza { to { transform: rotate(360deg); } }
 
 /* --- los obreros muestrean el lote -------------------------------
    Misma idea que la volqueta: capa aparte sobre el plano, se salta
