@@ -267,16 +267,22 @@ const tamRotulo = (figura, texto) => {
 const corto = tamRotulo({ lotes: [conCodigo('PG1')] }, 'PG1');
 const largo = tamRotulo({ lotes: [conCodigo('SJ1015-B')] }, 'SJ1015-B');
 const larguisimo = tamRotulo({ lotes: [conCodigo('ABG-2026-000117')] }, 'ABG-2026-000117');
-// Todos los códigos van al MISMO tamaño, sea cual sea el lote o el
-// largo del código: con tamaños que seguían a la figura, en un patio con
-// lotes de todos los tamaños unos códigos gritaban y otros no se leían.
-ok(corto > 0 && corto === largo && largo === larguisimo,
-   `un código corto y uno largo van al mismo tamaño (${corto} = ${largo} = ${larguisimo})`);
-const chica = tamRotulo({ lotes: [conCodigo('PG1', 30, 22)] }, 'PG1');
-const grande = tamRotulo({ lotes: [conCodigo('PG1', 120, 90)] }, 'PG1');
-ok(chica === grande && grande === Mapa.TAM_CODIGO,
-   `un lote chico y uno grande llevan el código igual (${chica} = ${grande})`);
-ok(Mapa.TAM_CODIGO >= 11, `y a un tamaño que se lee a un brazo de distancia (${Mapa.TAM_CODIGO})`);
+ok(corto > largo && largo > larguisimo,
+   `a más caracteres, menos tamaño (${corto} > ${largo} > ${larguisimo})`);
+// el `largo > 0` no sobra: sin la corrección no hay `font-size` en el
+// SVG, `largo` vale null y la comparación pasaba sola sin probar nada
+ok(largo > 0 && largo * 0.6 * 'SJ1015-B'.length <= 46 * 2,
+   'un código de ocho caracteres cabe en el ancho de su óvalo');
+ok(larguisimo >= 11,
+   `y uno absurdamente largo se planta en el suelo legible, no se hace invisible (${larguisimo})`);
+
+// La misma figura, más grande, admite el rótulo más grande. Se usa un
+// código largo a propósito: uno corto llega al tope de 20 px en las dos
+// —el tope existe para que un código de tres letras no acabe siendo un
+// titular dentro de su óvalo— y la prueba no compararía nada.
+const chica = tamRotulo({ lotes: [conCodigo('ABG-2026-000117', 30, 22)] }, 'ABG-2026-000117');
+const grande = tamRotulo({ lotes: [conCodigo('ABG-2026-000117', 120, 90)] }, 'ABG-2026-000117');
+ok(grande > chica, `una figura más grande lleva el rótulo más grande (${grande} > ${chica})`);
 
 const caseta = tamRotulo({ figuras: [{ id: 'f1', forma: 'rectangulo', etiqueta: 'CASETA',
   x: 300, y: 300, rx: 180, ry: 110, rot: 0, color: '#ccc' }] }, 'CASETA');

@@ -657,16 +657,9 @@ const derecho = (giro, rot) => {
 // renglón que se sale por los dos lados. A casi igualdad (8 %), menos
 // renglones y más cerca del centro.
 //
-// El tamaño es fijo (TAM_PILA): lo que se elige es cuántos renglones y
-// dónde. PILA_MAX solo acota la medición.
-// El texto del plano va a DOS tamaños fijos, no al que dé cada figura:
-// un lote grande y uno chico llevan el código igual, y todas las pilas el
-// nombre igual. Con tamaños que seguían a la figura, en un patio con
-// lotes de todos los tamaños unos códigos gritaban y otros no se leían.
-// Un código que no cabe en su lote sobresale un poco: el filo negro lo
-// despega de lo que haya debajo.
-export const TAM_CODIGO = 13, TAM_PILA = 18;
-const PILA_MAX = 22;
+// Techo 22: el nombre es un rótulo, no un titular. Suelo 8: en una pila
+// muy angosta, mejor chico y adentro.
+const PILA_MIN = 8, PILA_MAX = 22;
 function rotuloPila(p) {
   const rot = p.rot || 0, texto = `PILA ${p.codigo}`;
   const giro = derecho(-rot, rot);
@@ -688,13 +681,10 @@ function rotuloPila(p) {
     const largo = lineas.reduce((x, y) => (y.length > x.length ? y : x), '');
     for (const centro of sitios) {
       const t = tamanoTexto(p, largo, { ...op, lineas: lineas.length * Dib.INTERLINEA, centro });
-      // con tamaño fijo, gana el que cabe a TAM_PILA con menos renglones;
-      // si ninguno cabe, el que menos sobresale
-      const cabe = t >= TAM_PILA;
-      if (!mejor || (cabe && !mejor.cabe) || (!mejor.cabe && t > mejor.t * 1.08)) mejor = { lineas, t, giro, c: centro, cabe };
+      if (!mejor || t > mejor.t * 1.08) mejor = { lineas, t, giro, c: centro };
     }
   }
-  return { ...mejor, t: TAM_PILA };
+  return { ...mejor, t: Math.max(PILA_MIN, mejor.t) };
 }
 
 function figuraPila(p, lotes) {
@@ -761,7 +751,14 @@ function figuraLote(l, capa) {
 
   let c = anclaTexto(l);
   const { base, volqueta } = partesCodigo(l.codigo);
-  // El código va siempre a TAM_CODIGO (ver arriba, junto a TAM_PILA).
+  // El suelo son 11 px: por debajo de eso un código deja de leerse a un
+  // brazo de distancia. Un código absurdamente largo prefiere sobresalir
+  // dos o tres píxeles de su óvalo a volverse ilegible.
+  //
+  // Para medir se cuentan las dos partes juntas —el exponente ocupa
+  // menos, así que sobra sitio antes que faltar—, pero el punto o los
+  // paréntesis ya no cuentan: por eso el código queda algo más grande
+  // que antes.
   //
   // Un grupo de bigbags lleva el código ADENTRO, centrado y derecho en
   // pantalla aunque el grupo esté girado. Probamos a ponerlo debajo del
@@ -782,13 +779,13 @@ function figuraLote(l, capa) {
     const largo = codigos.reduce((m, x) => (x.length > m.length ? x : m), '');
     const giro = derecho(-(piso.rot || 0), piso.rot || 0);
     const n = montaje.length;
-    const t = TAM_CODIGO;
+    const t = tamanoTexto(piso, largo, { min: 9, max: 18, lineas: n * Dib.INTERLINEA, giro, margen: 2 });
     const i = montaje.findIndex((x) => x.id === l.id);
     const y = (i - (n - 1) / 2) * t * Dib.INTERLINEA;
     return `<g ${marca}><g class="cuerpo-lote rotulo-lote"><g transform="rotate(${+giro.toFixed(1)})">${
       Dib.pintado(esc(base), t, 0, y + t * .35, { volqueta: esc(volqueta), clase: 'txt-lote' })}</g></g></g>`;
   }
-  const t = TAM_CODIGO;
+  const t = tamanoTexto(l, base + volqueta, { min: 11, max: 20 });
   // lleva lotes montados pero ya no es grupo (le cambiaron el material)
   if (ap?.carga) c = { x: 0, y: l.ry + t * .75 };
   // El código va PINTADO sobre el montón: letra blanca con filo negro,
