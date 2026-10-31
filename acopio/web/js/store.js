@@ -1252,7 +1252,39 @@ async function bajar() {
   }
 }
 
-export async function subirImagenFondo(archivo) {
+// La foto del plano llegaba tal cual sale del teléfono: 4000 × 3000 o
+// más. Dentro del mapa eso son 48 MB de memoria solo para tenerla
+// abierta, y el navegador la vuelve a escalar cada vez que el plano se
+// redibuja. En un celular de gama baja era lo que más pesaba al mover el
+// mapa, y a veces el navegador cerraba la app por falta de memoria.
+// Ningún teléfono la muestra con más detalle que LADO_FONDO px, así que
+// se achica antes de subirla. Si algo falla al achicarla, sube la
+// original: mejor un plano pesado que uno sin foto.
+const LADO_FONDO = 2560;
+async function achicarFondo(archivo) {
+  try {
+    if (!/^image\/(jpeg|png|webp)$/.test(archivo.type) || typeof createImageBitmap !== 'function') return archivo;
+    const img = await createImageBitmap(archivo);
+    const f = LADO_FONDO / Math.max(img.width, img.height);
+    if (f >= 1) { img.close?.(); return archivo; }
+    const lienzo = document.createElement('canvas');
+    lienzo.width = Math.round(img.width * f);
+    lienzo.height = Math.round(img.height * f);
+    const ctx = lienzo.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+    img.close?.();
+    // un PNG puede traer transparencia (un plano dibujado): se queda PNG
+    const tipo = archivo.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise((r) => lienzo.toBlob(r, tipo, .85));
+    if (!blob || blob.size >= archivo.size) return archivo;
+    const nombre = archivo.name.replace(/\.[^.]*$/, '') + (tipo === 'image/png' ? '.png' : '.jpg');
+    return new File([blob], nombre, { type: tipo });
+  } catch { return archivo; }
+}
+
+export async function subirImagenFondo(original) {
+  const archivo = await achicarFondo(original);
   const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase();
   const ruta = `fondo-${Date.now()}.${ext}`;
   const { error } = await sb.storage.from('mapa').upload(ruta, archivo, { upsert: true });
