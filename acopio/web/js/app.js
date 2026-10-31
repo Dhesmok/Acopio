@@ -965,30 +965,30 @@ function montarMapa() {
                 ${ICO.filtro}<span>Filtrar</span></button>
               <button class="btn-mapa" id="r-gps" aria-label="Mi ubicación en el plano"
                 ${S.gps.activo ? 'aria-pressed="true"' : ''}>${ICO.gps}<span>Ubicación</span></button>
-              ${soloLectura() ? '' : `<button class="btn-mapa" id="r-editar" aria-label="Mover y editar figuras">
-                ${ICO.editar}<span>${S.edicion ? 'Salir de editar' : 'Mover y editar'}</span></button>`}
               ${esAdmin() ? `<button class="btn-mapa" id="r-fondo" aria-label="Fondo del mapa">
                 ${ICO.fondo}<span>Fondo del mapa</span></button>` : ''}
             </div>
             <div id="caja-buscar"></div>
             <div id="chip-filtro-caja"></div>
           </div>
+          <button class="ctrl ctrl-der" id="encuadrar" aria-label="Centrar el mapa">${ICO.encuadrar}</button>
         </div>
       </div>
     </div>`;
 
   Mapa.montar($('#lienzo-caja'), {
     puedeEditarFondo: esAdmin,
-    // Mantener presionado un lote lo levanta para moverlo sin entrar a
-    // "Mover y editar". Quien solo mira (empresa) no mueve nada.
+    // Mantener presionado un lote o una pila lo levanta para moverlo;
+    // soltarlo sin arrastrar abre el ajuste de su forma. Quien solo mira
+    // (empresa) no mueve nada.
     puedeMover: () => !soloLectura(),
+    alMantenerQuieto: (tipo, obj) => { if (!soloLectura()) abrirEdicion(tipo, obj); },
     alTocar: gesto((tipo, id) => {
       if (tipo === 'lote') return fichaLote(id);
       if (tipo === 'pila') return fichaPila(id);
       if (esAdmin()) return fichaFigura(id);
     }),
     alSeleccionar: (tipo, obj) => barraForma(tipo, obj),
-    alTocarVacio: () => { if (S.edicion) barraEdicion(); },
     alGuardarGeom: gesto(async (tipo, obj, origen, antes) => {
       // `origen` solo viene cuando la figura se ARRASTRÓ. Ya no se
       // pregunta «¿Dejar aquí?»: la protección contra un roce es tener
@@ -1017,6 +1017,7 @@ function montarMapa() {
   refrescarMapa();
   Mapa.fijarVista(vistaPrevia);
 
+  $('#encuadrar').onclick = () => Mapa.encuadrar();
   if ($('#nuevo')) $('#nuevo').onclick = formLote;
   $('#r-plegar').onclick = alternarHerramientas;
   $('#r-buscar').onclick = () => {
@@ -1030,12 +1031,12 @@ function montarMapa() {
   $('#r-filtrar').onclick = panelFiltro;
   $('#r-gps').onclick = gesto(() => (S.gps.activo ? apagarGps() : prenderGps()));
   if ($('#r-fondo')) $('#r-fondo').onclick = panelFondo;
-  if ($('#r-editar')) $('#r-editar').onclick = () => { S.edicion = !S.edicion; montarMapa(); };
-  if (S.edicion) $('#r-editar')?.setAttribute('aria-pressed', 'true');
   actualizarChipFiltro();
 
-  Mapa.editar(S.edicion);
-  if (S.edicion) barraEdicion();
+  if (S.edicion) {
+    Mapa.editarSolo(S.edicion.tipo, S.edicion.id);
+    barraForma(S.edicion.tipo, S.edicion.obj);
+  } else Mapa.editar(false);
   const qr = $('#quitar-recorrido');
   if (qr) qr.onclick = () => { S.recorrido = null; montarMapa(); Mapa.encuadrar(); };
 
@@ -1050,7 +1051,7 @@ function montarMapa() {
 // que la saca lleva entonces una marca, para que no quede nada puesto
 // sin que se sepa.
 const herramientaPuesta = () =>
-  S.buscarMapa || hayFiltroMapa() || S.gps.activo || S.edicion;
+  S.buscarMapa || hayFiltroMapa() || S.gps.activo;
 
 // La marca solo se ve con la barra escondida (styles.css); aquí se dice
 // si hay algo puesto, y se llama también al quitar el filtro desde su
@@ -2056,11 +2057,11 @@ function actualizarChipFiltro() {
   };
 }
 
-// Lleva al mapa, activa el modo edición y selecciona la figura pedida
+// Lleva al mapa y deja ajustar SOLO esa figura; las demás no se tocan.
 function abrirEdicion(tipo, obj) {
-  S.edicion = true;
+  S.edicion = { tipo, id: obj.id, obj };
   irAlMapa();
-  Mapa.seleccionar(tipo, obj.id);
+  Mapa.editarSolo(tipo, obj.id);
   barraForma(tipo, obj);
 }
 
@@ -2803,15 +2804,6 @@ function animarMuestreo(lote) {
   }, DURACION_OBREROS));
 }
 
-function barraEdicion() {
-  $('#barra-forma').innerHTML = `
-    <div class="barra-modo">
-      <span>Modo edición · arrastra para mover; toca una figura para ver sus manijas de tamaño y giro</span>
-      <button class="pastilla" id="salir-edicion">Salir</button>
-    </div>`;
-  $('#salir-edicion').onclick = () => { S.edicion = false; montarMapa(); };
-}
-
 function barraForma(tipo, obj) {
   const nombre = tipo === 'lote' ? obj.codigo
     : tipo === 'pila' ? `Pila ${obj.codigo}` : (obj.etiqueta || 'Figura');
@@ -2826,8 +2818,9 @@ function barraForma(tipo, obj) {
       <button class="pastilla" id="forma-listo">Listo</button>
     </div>`;
   $('#forma-listo').onclick = () => {
-    Mapa.limpiarSeleccion();
-    if (S.edicion) barraEdicion(); else $('#barra-forma').innerHTML = '';
+    S.edicion = false;
+    Mapa.editar(false);
+    $('#barra-forma').innerHTML = '';
   };
 }
 
@@ -3433,24 +3426,52 @@ async function fichaLote(id) {
   const r = textoRecogida(l);
   const lectura = soloLectura();
 
-  // De quién es la ficha, en qué estado está y para cuándo se recoge: eso
-  // se queda arriba, y todo lo demás pasa por debajo.
+  const esBB = l.material === 'bigbag';
+  const nBB = Number(l.bigbags) || 1;
+  const editaBB = esBB && !pila && !lectura;
+  const puedeMoverPlat = !lectura && S.plataformas.length >= 2;
+  const d = dias(l.estado_desde);
+
   const encabezado = `
     <h2>${codigoHTML(l.codigo)}</h2>
-    <div class="sub">${esc(prov?.nombre || '—')} · ${MATERIALES[l.material || 'granel']}${
-      l.material === 'bigbag' && Number(l.bigbags) > 0 ? ` × ${Number(l.bigbags)}` : ''}
-      · ${placasDe(l).length > 1 ? 'volquetas' : 'volqueta'} ${esc(placasTexto(l) || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
+    <div class="sub">${esc(prov?.nombre || '—')} · ${placasDe(l).length > 1 ? 'volquetas' : 'volqueta'} ${
+      esc(placasTexto(l) || '—')} · recibido ${esc(l.fecha_recepcion)}</div>
     <div class="fila-chips">
       <span class="etiqueta" data-e="${l.estado}">${ESTADOS[l.estado]}</span>
-      <span class="dias">${dias(l.estado_desde) === 0 ? 'desde hoy' : `hace ${dias(l.estado_desde)} días`}</span>
+      <span class="pila-tag">${MATERIALES[l.material || 'granel']}</span>
       ${pila ? `<span class="pila-tag">Pila ${esc(pila.codigo)}</span>` : ''}
     </div>
     ${r ? `<div class="dias" data-alerta="${vencido(l) ? 'si' : 'no'}" style="margin:6px 0 0">
              Recogida ${esc(l.fecha_recogida)} · ${esc(r)}</div>` : ''}`;
 
+  const acceso = (id, ico, txt) => `<button class="acceso" id="${id}">${ico}<span>${txt}</span></button>`;
+
   abrirHoja(`
-    <button class="btn btn-ancho btn-ubicar" id="ver-en-mapa" style="width:100%;margin-top:10px">
-      ${ICO.diana}<span>Ver en el mapa</span></button>
+    <div class="datos-lote">
+      ${esBB ? `<${editaBB ? 'button id="bb-abrir"' : 'div'} class="dato dato-clave">
+          <small>Bigbags</small><b>${nBB}</b>${editaBB ? '<span class="dato-edit">cambiar</span>' : ''}
+        </${editaBB ? 'button' : 'div'}>`
+        : `<div class="dato"><small>Material</small><b class="dato-texto">Granel</b></div>`}
+      <div class="dato"><small>Días</small><b>${d}</b></div>
+      <div class="dato"><small>Patio</small><b class="dato-texto">${esc(nombrePlataforma(l.plataforma_id))}</b></div>
+    </div>
+    ${editaBB ? `<div class="bb-editor" id="bb-editor" hidden>
+      <div class="contador">
+        <button type="button" id="bb-menos" aria-label="Uno menos">−</button>
+        <input id="bb-cant" type="number" inputmode="numeric" min="1" max="${MAX_BIGBAGS}" value="${nBB}" aria-label="Cantidad de bigbags">
+        <button type="button" id="bb-mas" aria-label="Uno más">+</button>
+      </div>
+      <button class="btn btn-guardar btn-ancho" id="bb-guardar" style="width:100%">Guardar cantidad</button>
+    </div>` : ''}
+
+    <div class="accesos-lote">
+      ${acceso('ver-en-mapa', ICO.diana, 'Ver en mapa')}
+      ${puedeMoverPlat ? acceso('mover-plat', ICO.mapa, 'Mover') : ''}
+      ${pila
+        ? (lectura ? '' : acceso('sacar', ICO.capas, 'Sacar de pila'))
+        : `${lectura ? '' : acceso('editar-forma', ICO.editar, 'Forma')}
+           ${acceso('ver-recorrido', ICO.gps, 'Recorrido')}`}
+    </div>
 
     ${lectura ? '' : `
     <h3>Cambiar estado</h3>
@@ -3458,81 +3479,65 @@ async function fichaLote(id) {
       ${estadosPosibles(l)
         .map((k) => `<button data-estado="${k}">${ESTADOS[k]}</button>`).join('')}
     </div>
-    ${l.estado === 'por_muestrear' ? `<p class="pista">Hasta que no esté muestreado no se
-       puede hacer nada más con él: sin muestra no se sabe qué material es.</p>` : ''}
 
+    <div class="plegables">
     ${esAdmin() && enDevolucion(l) ? `
-    <h3>${l.fecha_recogida ? 'Cambiar fecha de recogida' : 'Fecha de recogida'}</h3>
-    <div class="acciones">
-      <input type="date" id="f-recogida" value="${l.fecha_recogida || hoyISO(DIAS_RECOGIDA_SUGERIDOS)}">
-      <button id="programar">${l.fecha_recogida ? 'Actualizar' : 'Programar'}</button>
-    </div>
-    <p class="pista">El compromiso de recogida lo fija y lo cambia solo el administrador,
-       aunque cualquiera pueda declarar la devolución.</p>` : ''}
+    <details class="plegable" ${l.fecha_recogida ? '' : 'open'}>
+      <summary>${l.fecha_recogida ? 'Cambiar fecha de recogida' : 'Fecha de recogida'}</summary>
+      <div class="acciones">
+        <input type="date" id="f-recogida" value="${l.fecha_recogida || hoyISO(DIAS_RECOGIDA_SUGERIDOS)}">
+        <button id="programar">${l.fecha_recogida ? 'Actualizar' : 'Programar'}</button>
+      </div>
+    </details>` : ''}
 
-    ${lectura || S.plataformas.length < 2 ? '' : `
-    <h3>Plataforma</h3>
-    <button class="btn btn-ancho" id="mover-plat" style="width:100%"
-      >Está en ${esc(nombrePlataforma(l.plataforma_id))} · mover a otra</button>
-    ${pila ? '<p class="pista">Va dentro de una pila: para moverlo con toda la pila, hazlo desde la ficha de la pila.</p>' : ''}`}
-
-    ${pila ? `<h3>Pila</h3>
-      <button class="btn btn-ancho" id="sacar" style="width:100%">Sacar de la pila ${esc(pila.codigo)}</button>`
-      : `<h3>Tipo de material</h3>
+    ${pila ? '' : `
+    <details class="plegable">
+      <summary>Material</summary>
       <div class="acciones">
         ${Object.entries(MATERIALES).map(([k, v]) =>
           `<button data-material="${k}" ${(l.material || 'granel') === k ? 'class="btn-lleno"' : ''}>${v}</button>`).join('')}
       </div>
-      ${l.material === 'bigbag' ? `
-      <h3>Bigbags</h3>
-      <div class="campo">
-        <label for="bb-cant">Cantidad</label>
-        <input id="bb-cant" type="number" inputmode="numeric" min="1" max="${MAX_BIGBAGS}" value="${Number(l.bigbags) || 1}">
-      </div>
-      <button class="btn btn-guardar btn-ancho" id="bb-guardar" style="width:100%">Guardar cantidad</button>
-      <p class="pista">Se apilan de a ${Mapa.ALTO_BIGBAGS} en el mapa. Para repartir las columnas de otra forma, toca «Ajustar forma» y arrastra la manija del costado: cambia la distribución, no el tamaño de cada bigbag.</p>` : ''}
+      ${Mapa.esGrupoBigbags(l) ? '' : `<div class="acciones">
+        <button id="poligono">${l.forma === 'poligono' ? 'Volver a la forma simple' : 'Dibujar a mano'}</button></div>`}
+    </details>`}
 
-      <h3>Forma en el mapa</h3>
-      <div class="acciones">
-        <button id="editar-forma">Ajustar forma</button>
-        ${Mapa.esGrupoBigbags(l) ? '' : `<button id="poligono">${l.forma === 'poligono' ? 'Volver a la forma simple' : 'Dibujar a mano'}</button>`}
-      </div>
-      <p class="pista">"Dibujar a mano" convierte el lote en un polígono: arrastras cada vértice, agregas puntos con los “+” y los quitas tocándolos.</p>
-
-      <h3>Recorrido</h3>
-      <button class="btn btn-ancho" id="ver-recorrido" style="width:100%">Ver recorrido</button>
-      <p class="pista">Cada traslado real queda registrado solo. Acomodarlo unos metros sobre el mismo sitio no cuenta.</p>`}
+    <details class="plegable">
+      <summary>Observación</summary>
+      <div class="campo"><textarea id="nota" rows="2" placeholder="Qué se observó en el lote"></textarea></div>
+      <button class="btn btn-guardar btn-ancho" id="guardar-nota" style="width:100%">Guardar observación</button>
+    </details>
 
     ${esAdmin() ? `
-    <h3>Corregir datos</h3>
-    <div class="campo">
-      <label for="a-cod">Código</label>
-      <input id="a-cod" data-mono value="${esc(l.codigo)}">
-    </div>
-    ${cajaPlacas('a-placa', l.placa)}
-    <div class="campo">
-      <label for="a-prov">Proveedor</label>
-      <select id="a-prov">
-        ${S.proveedores.map((p) => `<option value="${p.id}" ${p.id === l.proveedor_id ? 'selected' : ''}
-          >${esc(p.abreviatura)} · ${esc(p.nombre)}</option>`).join('')}
-      </select>
-    </div>
-    <button class="btn btn-guardar btn-ancho" id="a-guardar" style="width:100%">Guardar corrección</button>` : ''}
+    <details class="plegable">
+      <summary>Corregir datos</summary>
+      <div class="campo">
+        <label for="a-cod">Código</label>
+        <input id="a-cod" data-mono value="${esc(l.codigo)}">
+      </div>
+      ${cajaPlacas('a-placa', l.placa)}
+      <div class="campo">
+        <label for="a-prov">Proveedor</label>
+        <select id="a-prov">
+          ${S.proveedores.map((p) => `<option value="${p.id}" ${p.id === l.proveedor_id ? 'selected' : ''}
+            >${esc(p.abreviatura)} · ${esc(p.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-guardar btn-ancho" id="a-guardar" style="width:100%">Guardar corrección</button>
+    </details>` : ''}`}
 
-    <h3>Observación</h3>
-    <div class="campo"><textarea id="nota" rows="2" placeholder="Qué se observó en el lote"></textarea></div>
-    <button class="btn btn-guardar btn-ancho" id="guardar-nota" style="width:100%">Guardar observación</button>`}
-
-    <h3>Historial</h3>
-    ${Store.historialCompleto(eventos) ? '' : `<p class="aviso">Falta señal para traer la parte
-       más antigua de este historial. Lo que se ve abajo está completo de ahí en adelante.</p>`}
-    <ul class="linea-tiempo">
-      ${eventos.map((e) => `<li>
-        <div class="cuando">${new Date(e.ocurrido_en).toLocaleString('es-CO')} · ${esc(quien(e.usuario_id))}</div>
-        <div class="que">${esc(textoEvento(e))}</div>
-        ${e.nota ? `<div class="nota">${esc(e.nota)}</div>` : ''}</li>`).join('')}
-    </ul>
-    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:10px">Cerrar</button>`,
+    <details class="plegable" ${lectura ? 'open' : ''}>
+      <summary>Historial · ${eventos.length}</summary>
+      ${Store.historialCompleto(eventos) ? '' : `<p class="aviso">Falta señal para traer la parte
+         más antigua de este historial. Lo que se ve abajo está completo de ahí en adelante.</p>`}
+      <ul class="linea-tiempo">
+        ${eventos.map((e) => `<li>
+          <div class="cuando">${new Date(e.ocurrido_en).toLocaleString('es-CO')} · ${esc(quien(e.usuario_id))}</div>
+          <div class="que">${esc(textoEvento(e))}</div>
+          ${e.nota ? `<div class="nota">${esc(e.nota)}</div>` : ''}</li>`).join('')}
+      </ul>
+    </details>
+    ${lectura ? '' : '</div>'}
+    <button class="btn btn-ancho" id="cerrar" style="width:100%;margin-top:14px">Cerrar</button>`,
     encabezado);
 
   $('#cerrar').onclick = cerrarHoja;
@@ -3640,6 +3645,18 @@ async function fichaLote(id) {
     cerrarHoja(); await recargar(); sincronizar();
     abrirEdicion('lote', { ...l, ...cambios });
   });
+
+  const bbAbrir = $('#bb-abrir');
+  if (bbAbrir) bbAbrir.onclick = () => {
+    const ed = $('#bb-editor');
+    ed.hidden = !ed.hidden;
+    bbAbrir.setAttribute('aria-expanded', String(!ed.hidden));
+  };
+  const paso = (k) => () => {
+    const c = $('#bb-cant');
+    c.value = Math.min(MAX_BIGBAGS, Math.max(1, (Number(c.value) || 0) + k));
+  };
+  if ($('#bb-menos')) { $('#bb-menos').onclick = paso(-1); $('#bb-mas').onclick = paso(1); }
 
   const bb = $('#bb-guardar');
   if (bb) bb.onclick = accion(async () => {

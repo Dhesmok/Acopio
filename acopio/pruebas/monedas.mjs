@@ -100,8 +100,10 @@ ok(!/chip-plat/.test(app) && !/function panelPlataformas/.test(app),
    'ya no hay botón de plataformas en la cabecera');
 ok(/id="trofeo"[^>]*aria-label="Monedas y clasificación"/.test(app),
    'y hay un trofeo que lleva derecho a la clasificación');
-ok(!/id="zoom-mas"|id="zoom-menos"|id="encuadrar"/.test(app),
+ok(!/id="zoom-mas"|id="zoom-menos"/.test(app),
    'el plano no lleva botones de zoom: se acerca con los dedos');
+ok(/id="encuadrar"[^>]*aria-label="Centrar el mapa"/.test(app),
+   'pero sí el botón de centrar el mapa, arriba a la derecha');
 ok(!/id="r-historia"|Otro día/.test(app), '"Otro día" ya no existe en la app');
 
 // ---------------------------------------------------------------------

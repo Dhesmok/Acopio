@@ -233,9 +233,18 @@ export const haySeleccion = () => seleccion;
 
 // Modo edición: un toque basta para seleccionar, sin mantener presionado
 let modoEdicion = false;
+// Editando UNA sola figura: las demás se comportan como fuera de edición.
+let solo = null;
 export function editar(activo) {
   modoEdicion = activo;
+  solo = null;
   if (!activo) seleccion = null;
+  pintarYa();
+}
+export function editarSolo(tipo, id) {
+  modoEdicion = true;
+  solo = { tipo, id };
+  seleccion = { tipo, id };
   pintarYa();
 }
 export const enEdicion = () => modoEdicion;
@@ -1314,7 +1323,15 @@ function cargaDe(o) {
 // esta espera es lo único que separa un roce de un traslado: sigue
 // siendo bastante más que un toque largo sin querer.
 export const MANTENER_MS = 750;
+// Un toque dura menos que esto. Si el dedo se quedó más tiempo con el aro
+// llenándose y se soltó antes de levantar el lote, se quiso mover y se
+// desistió: no se abre la ficha.
+const TOQUE_MAX_MS = 300;
 let espera = null;
+
+function holdAbortado(a) {
+  return a.conAro && performance.now() - a.desde > TOQUE_MAX_MS;
+}
 
 function empezarAMantener(obj, ev) {
   soltarEspera();
@@ -1350,12 +1367,13 @@ function levantar(obj, ev) {
   if (modo !== 'paneando' || !arrastre || movio) return;
   // si el plano alcanzó a correrse un pelo, vuelve a donde estaba
   vista = { ...arrastre.vista }; aplicarVista();
-  const hijos = cargaDe(obj);
+  const tipo = arrastre.toque.tipo;
+  const hijos = tipo === 'lote' ? cargaDe(obj) : [];
   const nodos = nodosDe(obj.id).concat(...hijos.map((h) => h.nodos));
   nodos.forEach((n) => n.classList.add('levantado'));
   try { navigator.vibrate?.(30); } catch { /* sin vibración no pasa nada */ }
   modo = 'arrastrando';
-  arrastre = { tipo: 'lote', obj, nodos, inicio: aPlano(ev), levantado: true, hijos: [],
+  arrastre = { tipo, obj, nodos, inicio: aPlano(ev), levantado: true, hijos: [],
                origen: { x: obj.x, y: obj.y }, antes: instantanea(obj) };
 }
 
@@ -1441,19 +1459,22 @@ function abajo(ev) {
     // haber arrastrado se abre la ficha. Antes cualquier roce mientras
     // se miraba el mapa arrastraba el lote a otro sitio, y el único
     // aviso era que la figura había cambiado de lugar.
-    if (!modoEdicion) {
+    if (!modoEdicion || (solo && obj.id !== solo.id)) {
       modo = 'paneando';
       arrastre = {
         pantalla: { x: ev.clientX, y: ev.clientY },
         vista: { ...vista }, u: unidadesPorPixel(),
-        toque: { tipo, id: obj.id }        // para abrir la ficha si no se movió
+        toque: { tipo, id: obj.id },       // para abrir la ficha si no se movió
+        desde: performance.now()
       };
       // Mantener el dedo quieto sobre un lote lo LEVANTA para moverlo,
       // sin entrar a modo edición. Tarda a propósito (MANTENER_MS): un
       // roce o un toque largo sin querer no pueden mover material en el
       // plano. Mientras se espera, un aro se va llenando alrededor del
       // lote para que se vea que algo va a pasar y cuánto falta.
-      if (tipo === 'lote' && cb.puedeMover?.()) empezarAMantener(obj, ev);
+      if ((tipo === 'lote' || tipo === 'pila') && !solo && cb.puedeMover?.()) {
+        arrastre.conAro = true; empezarAMantener(obj, ev);
+      }
       return;
     }
 
@@ -1475,7 +1496,7 @@ function abajo(ev) {
     return;
   }
 
-  if (modoEdicion && seleccion) {
+  if (modoEdicion && seleccion && !solo) {
     seleccion = null;
     pintarYa();
     cb.alTocarVacio?.();
@@ -1607,7 +1628,7 @@ function arriba(ev) {
     marcador(aPlano(ev));
   // Fuera de modo edición el dedo sobre una figura panea; si no llegó a
   // moverse, era un toque y lo que se quiere es ver la ficha.
-  } else if (modo === 'paneando' && arrastre?.toque && !movio) {
+  } else if (modo === 'paneando' && arrastre?.toque && !movio && !holdAbortado(arrastre)) {
     cb.alTocar?.(arrastre.toque.tipo, arrastre.toque.id);
   }
 
@@ -1615,7 +1636,7 @@ function arriba(ev) {
     const { tipo, obj, origen, antes, levantado } = arrastre;
     if (levantado) apoyar(arrastre.nodos);
     if (levantado && !movio) {
-      // se levantó y se soltó en el mismo sitio: no hay nada que guardar
+      cb.alMantenerQuieto?.(tipo, obj);
     } else if (!movio) {
       seleccion = { tipo, id: obj.id };
       pintarYa();
