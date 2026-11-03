@@ -1193,4 +1193,15 @@ const memoOvalo = memoTam();
 memoPintar({ forma: 'elipse', rx: 70, ry: 34 });
 ok(memoTam() > memoOvalo, 'un óvalo agrandado también se vuelve a medir');
 
+// ---------------------------------------------------------------------
+titulo('Mover una pila deja UN cambio en la cola, no uno por lote.');
+
+// Antes se volvía a guardar cada lote de adentro para correr su posición:
+// una pila de 40 lotes eran 41 cambios esperando señal.
+const guardarGeom = fuenteApp.slice(fuenteApp.indexOf('alGuardarGeom: gesto('),
+                                    fuenteApp.indexOf('alSoltarSobre: gesto('));
+ok(guardarGeom.length > 0, 'se encontró lo que guarda una figura movida');
+ok(!/pila_id === obj\.id/.test(guardarGeom) && (guardarGeom.match(/Store\.guardarFigura\(/g) || []).length === 1,
+   'al soltar una pila solo se guarda la pila, no los lotes que tiene adentro');
+
 cerrar();
