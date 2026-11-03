@@ -1662,14 +1662,41 @@ function arriba(ev) {
 }
 
 // La rueda acerca hacia donde apunta el cursor, no hacia el centro
+// La rueda del ratón y el pellizco del trackpad (que el navegador manda
+// como rueda con Ctrl) hacen lo mismo que el pellizco del celular: mueven
+// y escalan la imagen ya pintada, y el plano se vuelve a dibujar UNA vez,
+// cuando la rueda se queda quieta un momento.
+//
+// Antes cada evento de rueda fijaba el viewBox y el navegador volvía a
+// dibujar el plano entero. Un trackpad manda 60 o más eventos por
+// segundo, así que en el computador el zoom iba mucho más lento que en
+// el celular, donde el pellizco ya usaba este atajo. Además cada evento
+// acercaba un 12 % fijo, por pequeño que fuera el giro: con trackpad el
+// zoom se disparaba. Ahora cuenta cuánto giró de verdad.
+let ruedaFin = null, ruedaCuadro = 0;
 function rueda(ev) {
   ev.preventDefault();
+  if (modo !== 'ninguno') return;            // hay un dedo/ratón arrastrando
+  cancelAnimationFrame(animacion);
+  if (!ruedaFin && !punteros.size) caja = medirCaja();   // una vez por ráfaga
   const ancla = aPlanoPunto(ev.clientX, ev.clientY);
-  const f = ev.deltaY > 0 ? 1.12 : 0.89;
+  let d = ev.deltaY;
+  if (ev.deltaMode === 1) d *= 16;           // por líneas
+  else if (ev.deltaMode === 2) d *= 400;     // por páginas
+  // el pellizco del trackpad trae deltas chicos: necesita más ganancia
+  const f = Math.min(Math.max(Math.exp(d * (ev.ctrlKey ? .01 : .0015)), .5), 2);
   const w = Math.min(Math.max(vista.w * f, 120), 5000);
   vista.h = w * (vista.h / vista.w);
   vista.w = w;
-  anclarEn(ev.clientX, ev.clientY, ancla);
+  anclarEn(ev.clientX, ev.clientY, ancla, () => {});
+  if (!ruedaCuadro) ruedaCuadro = requestAnimationFrame(() => { ruedaCuadro = 0; verVista(); });
+  clearTimeout(ruedaFin);
+  ruedaFin = setTimeout(() => {
+    ruedaFin = null;
+    cancelAnimationFrame(ruedaCuadro); ruedaCuadro = 0;
+    if (modo === 'ninguno') asentarVista();
+    if (!punteros.size) caja = null;
+  }, 160);
 }
 
 export function acercar(f) {
