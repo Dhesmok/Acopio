@@ -6,7 +6,7 @@
 
 import * as Dib from './dibujo.js';
 
-let svg, svgGps, capa, caja0, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
+let svg, svgGps, svgVuelo, capa, caja0, cb = {}, vista = { x: 0, y: 0, w: 1000, h: 700 };
 let datos = { config: {}, figuras: [], pilas: [], lotes: [] };
 let seleccion = null;
 let modo = 'ninguno', arrastre = null;
@@ -86,6 +86,7 @@ function reiniciarInteraccion() {
   pinchInicial = null;
   movio = false;
   caja = null;      // la caja guardada era la del gesto que se cortó
+  vaciarVuelo();
   gpsAlSoltar();
 }
 
@@ -128,9 +129,12 @@ export function montar(contenedor, callbacks) {
     <svg id="lienzo" xmlns="http://www.w3.org/2000/svg"
       preserveAspectRatio="xMidYMid meet" touch-action="none"></svg>
     <svg class="lienzo-gps" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
-      preserveAspectRatio="xMidYMid meet"><g id="capa-gps" class="capa-gps"></g></svg></div>`;
+      preserveAspectRatio="xMidYMid meet"><g id="capa-gps" class="capa-gps"></g></svg>
+    <svg class="lienzo-vuelo" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
+      preserveAspectRatio="xMidYMid meet"></svg></div>`;
   svg = contenedor.querySelector('#lienzo');
   svgGps = contenedor.querySelector('.lienzo-gps');
+  svgVuelo = contenedor.querySelector('.lienzo-vuelo');
   gpsAncho = 0;          // capa nueva y vacía: se llena con el primer encuadre
   capa = contenedor.querySelector('.lienzo-capa');
   caja0 = contenedor;
@@ -1165,6 +1169,7 @@ function aplicarVista() {
   const v = conSobra(vista);
   svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   svgGps?.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  svgVuelo?.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   pintada = { ...vista };
   gpsAlZoom();
 }
@@ -1339,7 +1344,14 @@ function empezarAMantener(obj, ev) {
   const r = Math.max(obj.rx || 40, obj.ry || 40) + 14 * u;
   // Va encima de todo y en unidades del plano; el grosor, en píxeles de
   // pantalla, igual que las manijas: con cualquier zoom se ve igual.
-  svg.insertAdjacentHTML('beforeend', `<g class="aro-mantener" transform="translate(${obj.x} ${obj.y})"
+  //
+  // Y va en la capa de vuelo, NO en el plano. El aro se llena animando
+  // su trazo, y eso no lo hace la tarjeta gráfica: en cada cuadro hay
+  // que volver a pintar lo que toca. Metido en el plano, eso era volver
+  // a pintar el SVG grande —fondo, relieve y códigos— durante los 750 ms
+  // de la espera, y en un gama baja el aro avanzaba a saltos y llegaba
+  // tarde. En su capa, lo que se repinta es solo el aro.
+  (svgVuelo?.insertAdjacentHTML ? svgVuelo : svg).insertAdjacentHTML('beforeend', `<g class="aro-mantener" transform="translate(${obj.x} ${obj.y})"
       style="--mantener:${MANTENER_MS}ms">
     <circle r="${r.toFixed(1)}" fill="none" stroke="#14171a" stroke-width="${(9 * u).toFixed(1)}" opacity=".35"/>
     <circle class="aro-lleno" r="${r.toFixed(1)}" fill="none" stroke="#f2c007" stroke-width="${(6 * u).toFixed(1)}"
@@ -1355,7 +1367,11 @@ function soltarEspera() {
   clearTimeout(espera);
   espera = null;
   if (arrastre) arrastre.espera = null;
-  svg.querySelectorAll('.aro-mantener').forEach((n) => n.remove());
+  quitarAro();
+}
+
+function quitarAro() {
+  for (const s of [svg, svgVuelo]) s?.querySelectorAll?.('.aro-mantener').forEach((n) => n.remove());
 }
 
 // Pasó el tiempo con el dedo quieto: el lote se levanta (crece un poco y
@@ -1363,18 +1379,115 @@ function soltarEspera() {
 // edición. Al soltarlo, la app pregunta "¿Dejar X aquí?" igual que hoy.
 function levantar(obj, ev) {
   espera = null;
-  svg.querySelectorAll('.aro-mantener').forEach((n) => n.remove());
+  quitarAro();
   if (modo !== 'paneando' || !arrastre || movio) return;
-  // si el plano alcanzó a correrse un pelo, vuelve a donde estaba
-  vista = { ...arrastre.vista }; aplicarVista();
+  // Si el plano alcanzó a correrse un pelo, vuelve a donde estaba. Solo
+  // si de verdad se corrió: fijar el viewBox, aunque sea el mismo,
+  // vuelve a pintar el plano entero, y caía justo al levantar el lote.
+  vista = { ...arrastre.vista }; asentarVista();
   const tipo = arrastre.toque.tipo;
   const hijos = tipo === 'lote' ? cargaDe(obj) : [];
   const nodos = nodosDe(obj.id).concat(...hijos.map((h) => h.nodos));
-  nodos.forEach((n) => n.classList.add('levantado'));
   try { navigator.vibrate?.(30); } catch { /* sin vibración no pasa nada */ }
   modo = 'arrastrando';
   arrastre = { tipo, obj, nodos, inicio: aPlano(ev), levantado: true, hijos: [],
                origen: { x: obj.x, y: obj.y }, antes: instantanea(obj) };
+  // en vuelo el lote se levanta en su capa; si no hay capa, en el plano
+  arrastre.sinVuelo = !despegar(arrastre, true);
+  if (arrastre.sinVuelo) nodos.forEach((n) => n.classList.add('levantado'));
+}
+
+// ------------------------------------------------------ la capa de vuelo
+// Lo que el dedo lleva NO se mueve dentro del plano.
+//
+// Antes cada movimiento del dedo le cambiaba el transform a los nodos del
+// lote dentro del SVG grande, y el navegador tenía que volver a pintar
+// —en el procesador, no en la tarjeta gráfica— el pedazo de plano por
+// donde pasaba: la foto aérea, los montones de alrededor con su relieve
+// y sus códigos. En un teléfono de gama baja eso no alcanzaba a hacerse
+// entre un movimiento y el siguiente, y el lote iba detrás del dedo.
+//
+// Ahora, al levantarlo, se COPIA a un SVG aparte que va encima del plano
+// —mismo tamaño y mismo encuadre, así que la copia cae exactamente sobre
+// el original— y el original se esconde. Desde ahí el dedo mueve ese SVG
+// entero con un transform en píxeles, que lo hace la tarjeta gráfica sin
+// volver a pintar nada: ni el plano ni la copia. Al soltar, el original
+// toma su sitio nuevo, se vuelve a ver y la copia se borra. El plano se
+// pinta dos veces en todo el gesto —al levantar y al soltar—, no en cada
+// movimiento.
+function despegar(a, levantado) {
+  if (!svgVuelo?.appendChild || !a.nodos?.length) return false;
+  const nodos = [...new Set([...a.nodos, ...(a.hijos || []).flatMap((h) => h.nodos)])];
+  // en el orden del plano: sombra y filo debajo, cuerpo, código encima
+  nodos.sort((x, y) => (x.compareDocumentPosition?.(y) & 4 ? -1 : 1));
+  // la copia sale de donde va la figura AHORA, y el dedo la corre desde ahí
+  const base = { x: a.obj.x, y: a.obj.y };
+  const t = `translate(${base.x} ${base.y}) rotate(${a.obj.rot || 0})`;
+  for (const n of nodos) {
+    const c = n.cloneNode(true);
+    c.setAttribute('transform', t);
+    // la copia no es el lote: que nadie la encuentre buscando por id
+    c.removeAttribute?.('data-id');
+    // los recortes del relieve llevan id; la copia usa los suyos propios
+    c.querySelectorAll?.('[id]').forEach((x) => {
+      const viejo = x.id, nuevo = `${viejo}-vuelo`;
+      x.id = nuevo;
+      c.querySelectorAll(`[clip-path="url(#${CSS.escape(viejo)})"]`)
+        .forEach((y) => y.setAttribute('clip-path', `url(#${nuevo})`));
+    });
+    if (levantado) c.classList?.add('levantado');
+    svgVuelo.appendChild(c);
+  }
+  nodos.forEach((n) => n.classList.add('en-vuelo'));
+  if (svgVuelo.style) svgVuelo.style.transform = '';
+  a.vuelo = { nodos, base, u: unidadesPorPixel() };
+  return true;
+}
+
+// Lo que el dedo lleva, en el cuadro siguiente: un movimiento del dedo
+// puede llegar varias veces por cuadro y solo cuenta el último.
+let cuadroVuelo = 0;
+function moverArrastrado() {
+  if (cuadroVuelo) return;
+  cuadroVuelo = requestAnimationFrame(() => {
+    cuadroVuelo = 0;
+    if (modo !== 'arrastrando' || !arrastre) return;
+    const a = arrastre;
+    if (a.vuelo) {
+      const { base, u } = a.vuelo;
+      const dx = (a.obj.x - base.x) / u, dy = (a.obj.y - base.y) / u;
+      svgVuelo.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`;
+    } else {
+      const t = `translate(${a.obj.x} ${a.obj.y}) rotate(${a.obj.rot || 0})`;
+      a.nodos.forEach((n) => n.setAttribute('transform', t));
+      // lo que va montado encima se mueve con el de abajo (solo el dibujo:
+      // dónde queda lo guarda la app al confirmar)
+      for (const h of a.hijos || []) h.nodos.forEach((n) => n.setAttribute('transform', t));
+    }
+    if (a.tipo === 'lote') resaltarBlanco(a);
+  });
+}
+
+// Se soltó: el original va a su sitio nuevo y vuelve a verse.
+function aterrizar(a) {
+  cancelAnimationFrame(cuadroVuelo); cuadroVuelo = 0;
+  const t = `translate(${a.obj.x} ${a.obj.y}) rotate(${a.obj.rot || 0})`;
+  if (!a.vuelo) {
+    a.nodos.forEach((n) => n.setAttribute('transform', t));
+    for (const h of a.hijos || []) h.nodos.forEach((n) => n.setAttribute('transform', t));
+    return;
+  }
+  a.vuelo.nodos.forEach((n) => { n.setAttribute('transform', t); n.classList.remove('en-vuelo'); });
+  a.vuelo = null;
+  vaciarVuelo();
+}
+
+function vaciarVuelo() {
+  cancelAnimationFrame(cuadroVuelo); cuadroVuelo = 0;
+  if (!svgVuelo?.replaceChildren) return;
+  svgVuelo.replaceChildren();
+  svgVuelo.style.transform = '';
+  svg?.querySelectorAll?.('.en-vuelo').forEach((n) => n.classList.remove('en-vuelo'));
 }
 
 function apoyar(nodos) {
@@ -1547,12 +1660,10 @@ function movimiento(ev) {
   if (modo === 'arrastrando') {
     arrastre.obj.x = arrastre.origen.x + dx;
     arrastre.obj.y = arrastre.origen.y + dy;
-    const t = `translate(${arrastre.obj.x} ${arrastre.obj.y}) rotate(${arrastre.obj.rot || 0})`;
-    arrastre.nodos.forEach((n) => n.setAttribute('transform', t));
-    // lo que va montado encima se mueve con el de abajo (solo el dibujo:
-    // dónde queda lo guarda la app al confirmar)
-    for (const h of arrastre.hijos || []) h.nodos.forEach((n) => n.setAttribute('transform', t));
-    if (arrastre.tipo === 'lote') resaltarBlanco(arrastre.obj);
+    // En modo edición la figura se despega cuando el dedo de verdad la
+    // arrastra: un toque solo la selecciona y no tiene por qué esconderla.
+    if (movio && !arrastre.vuelo && arrastre.sinVuelo === undefined) arrastre.sinVuelo = !despegar(arrastre, false);
+    moverArrastrado();
   } else if (modo === 'ajustando') {
     const o = arrastre.obj;
     const d = arrastre.desfase || { x: 0, y: 0 };
@@ -1579,10 +1690,17 @@ function movimiento(ev) {
   }
 }
 
-function resaltarBlanco(lote) {
+// El aro azul sobre el lote o la pila donde caería. Se toca el plano
+// solo cuando CAMBIA el blanco, no en cada movimiento: quitar y poner la
+// clase obliga a volver a pintar ese pedazo del plano.
+function resaltarBlanco(a) {
+  const lote = a.obj;
+  let b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
+  if (b?.tipo === 'lote' && apilado.get(b.obj.id)?.abajo?.id === lote.id) b = null;   // su propia carga
+  const id = b?.obj.id ?? null;
+  if (id === (a.blanco ?? null)) return;
+  a.blanco = id;
   svg.querySelectorAll('.blanco').forEach((n) => n.classList.remove('blanco'));
-  const b = blancoEn({ x: lote.x, y: lote.y }, lote.id);
-  if (b?.tipo === 'lote' && apilado.get(b.obj.id)?.abajo?.id === lote.id) return;   // su propia carga
   // Todas sus copias, no la primera: la del lote en la capa de trazos
   // queda tapada por los rellenos y el aro azul no se vería.
   if (b) svg.querySelectorAll(`[data-id="${b.obj.id}"] .forma`)
@@ -1634,6 +1752,7 @@ function arriba(ev) {
 
   if (modo === 'arrastrando' && arrastre) {
     const { tipo, obj, origen, antes, levantado } = arrastre;
+    aterrizar(arrastre);
     if (levantado) apoyar(arrastre.nodos);
     if (levantado && !movio) {
       cb.alMantenerQuieto?.(tipo, obj);
