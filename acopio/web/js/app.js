@@ -1001,14 +1001,13 @@ function montarMapa() {
       if (tipo === 'lote' && origen) await anotarRecorrido(obj, origen);
       // y lo que lleva encima se va con él (también si solo se giró)
       if (tipo === 'lote') await moverCarga(obj);
-      // Mover una pila mueve lo que tiene adentro: sus lotes no se ven,
-      // pero su posición guardada no puede quedarse atrás.
-      if (tipo === 'pila' && origen) {
-        const dx = obj.x - origen.x, dy = obj.y - origen.y;
-        for (const l of S.lotes.filter((q) => q.pila_id === obj.id)) {
-          await Store.guardarFigura('lotes', { ...l, x: l.x + dx, y: l.y + dy });
-        }
-      }
+      // Mover una pila guarda SOLO la pila. Antes también volvía a guardar
+      // cada lote de adentro, uno por uno, para correr su posición: una
+      // pila de 40 lotes dejaba 41 cambios en la cola, y cada uno sube en
+      // su propia petición. Con poca señal el contador se quedaba alto y
+      // bajaba de a poco. Y esa posición no la usa nadie: un lote en pila
+      // se dibuja, se busca y se ubica en el mapa por su pila, y al
+      // sacarlo se pone junto a ella (ver sacarDePila).
       await recargar();
       sincronizar();
     }),
@@ -3679,7 +3678,10 @@ async function fichaLote(id) {
       .filter((e) => e.tipo === 'movimiento' && e.x != null)
       .sort((a, b) => a.ocurrido_en.localeCompare(b.ocurrido_en))
       .map((e) => ({ x: Number(e.x), y: Number(e.y) }));
-    puntos.push({ x: l.x, y: l.y });
+    // un lote en pila está donde está su pila: la suya propia ya no se
+    // corre cuando se mueve la pila
+    const pila = l.pila_id && S.pilas.find((p) => p.id === l.pila_id);
+    puntos.push(pila ? { x: pila.x, y: pila.y } : { x: l.x, y: l.y });
     if (puntos.length < 2) {
       avisar('Este lote no se ha trasladado todavía, así que no hay recorrido que mostrar.');
       return;
