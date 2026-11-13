@@ -1132,9 +1132,15 @@ ok(dibMontaje.indexOf('data-id="m2"') > dibMontaje.indexOf('data-id="m1"'),
 ok(!Mapa.cabeEncima({ ...seis }, abajoM), 'con 2 ya montados, a la columna no le cabe nada más');
 
 const fuenteAppM = await readFile(new URL('../web/js/app.js', import.meta.url), 'utf8');
-ok(/Mapa\.esGrupoBigbags\(lote\) && Mapa\.esGrupoBigbags\(blanco\.obj\)[\s\S]{0,80}montarBigbags/.test(fuenteAppM),
-   'soltar bigbags sobre bigbags monta o deja al lado; no arma pila');
-ok(/no cabe encima[\s\S]{0,300}alLado\(/.test(fuenteAppM), 'si no cabe, queda pegado al lado');
+const ramaBb = fuenteAppM.slice(fuenteAppM.indexOf('Mapa.esGrupoBigbags(lote) && Mapa.esGrupoBigbags(blanco.obj)'));
+ok(/^[\s\S]{0,2500}await elegir\(\{[\s\S]{0,1200}valor: 'juntar'[\s\S]{0,200}valor: 'apilar'/.test(ramaBb),
+   'soltar bigbags sobre bigbags pregunta: juntar o apilar');
+ok(/que === 'juntar'\) return montarBigbags\(/.test(ramaBb) && /que === 'apilar'\) return armarPila\(/.test(ramaBb),
+   'juntar los monta; apilar arma una pila normal');
+ok(/que === 'apilar'\)[^\n]*\n\s*return volver\(\);/.test(ramaBb), 'cancelar devuelve el lote a su sitio');
+ok(/if \(cabe\) \{[\s\S]{0,200}\} else \{[\s\S]{0,80}alLado\(/.test(fuenteAppM), 'si no cabe, queda pegado al lado');
+ok(/async function armarPila[\s\S]{0,800}Mapa\.encimaDe\(otro\.id\)[\s\S]{0,100}Mapa\.encimaDe\(lote\.id\)[\s\S]{0,400}sobre_lote: null/.test(fuenteAppM),
+   'apilar mete el montaje entero y lo desmonta');
 ok(/sobre_lote = null/.test(fuenteAppM), 'bajarlo al piso lo desmonta');
 ok(/await moverCarga\(obj\)/.test(fuenteAppM), 'mover el de abajo se lleva lo montado');
 const fuenteMigM = await readFile(new URL('../sql/migracion.sql', import.meta.url), 'utf8');

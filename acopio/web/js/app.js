@@ -764,6 +764,27 @@ function confirmar({ titulo, detalle, aceptar = 'Aceptar', peligro = false }) {
   });
 }
 
+// Como confirmar(), pero con varias salidas: devuelve el `valor` de la
+// opción tocada, o null si se cancela (o se toca fuera de la hoja).
+function elegir({ titulo, detalle, opciones }) {
+  return new Promise((resolver) => {
+    abrirHoja(`
+      <h2 class="pregunta">${esc(titulo)}</h2>
+      <div class="sub">${esc(detalle)}</div>
+      <div class="acciones" style="margin-top:20px">
+        ${opciones.map((o, i) => `<button data-op="${i}" class="${o.lleno ? 'btn-lleno' : ''}">${esc(o.texto)}</button>`).join('')}
+        <button id="c-no" style="grid-column:1 / -1">Cancelar</button>
+      </div>`);
+    const responder = (v) => { cerrarHoja(); resolver(v); };
+    document.querySelectorAll('.hoja [data-op]').forEach((b) => {
+      b.onclick = () => responder(opciones[Number(b.dataset.op)].valor);
+    });
+    $('#c-no').onclick = () => responder(null);
+    $('#x-hoja').onclick = () => responder(null);
+    $('.velo').onclick = (e) => { if (e.target === $('.velo')) responder(null); };
+  });
+}
+
 // --------------------------------------------------------------- ingreso
 function pantallaIngreso() {
   $('#app').innerHTML = `
@@ -2826,31 +2847,14 @@ function barraForma(tipo, obj) {
 // Soltar un lote sobre otro arma una pila; sobre una pila, lo mete.
 // Las dos cosas escriben un evento que NO se puede borrar, así que las
 // dos preguntan. Si se cancela, el lote vuelve a donde estaba.
-// El lote de bigbags que se soltó encima de otro. `sobre` puede ser
-// cualquiera de un montaje (el del piso o uno ya montado): el reparto se
-// hace siempre desde el del piso.
-async function montarBigbags(lote, sobre, antes, volver) {
-  // lo que se soltó sobre su propio montaje solo vuelve a su sitio
-  const piso = Mapa.montadoSobre(sobre.id) || sobre.id;
-  if (Mapa.montadoSobre(lote.id) === piso) return volver();
-  const base = S.lotes.find((l) => l.id === piso) || sobre;
-  // Un lote que ya tiene bigbags encima no se monta sobre otro: quedaría
-  // más alto de lo que se apila en el patio. Ese queda al lado.
-  if (!Mapa.tieneCarga(lote.id) && Mapa.cabeEncima(lote, sobre)) {
-    const ok = await confirmar({
-      titulo: `¿Montar ${lote.codigo} encima de ${base.codigo}?`,
-      detalle: `Sus bigbags quedan sobre los de ${base.codigo}, sin pasar de ${Mapa.ALTO_BIGBAGS} de alto. Los dos lotes siguen siendo sueltos, cada uno con su código.`,
-      aceptar: 'Montarlo'
-    });
-    if (!ok) return volver();
+// El lote de bigbags que se soltó encima de otro y se eligió JUNTAR.
+// `sobre` puede ser cualquiera de un montaje (el del piso o uno ya
+// montado); `base` es el del piso, desde donde se hace el reparto. Si
+// `cabe`, se monta; si no, queda pegado al lado.
+async function montarBigbags(lote, sobre, base, cabe, antes) {
+  if (cabe) {
     Object.assign(lote, { sobre_lote: sobre.id, x: base.x, y: base.y, rot: base.rot || 0 });
   } else {
-    const ok = await confirmar({
-      titulo: `${lote.codigo} no cabe encima de ${base.codigo}`,
-      detalle: `Ya está a ${Mapa.ALTO_BIGBAGS} de alto donde haría falta. ¿Lo dejo pegado al lado?`,
-      aceptar: 'Dejarlo al lado'
-    });
-    if (!ok) return volver();
     Object.assign(lote, alLado(lote, base, antes));
     if (lote.sobre_lote) lote.sobre_lote = null;
   }
@@ -2886,10 +2890,32 @@ async function manejarSoltar(lote, blanco, antes) {
   if (soloLectura()) return refrescarMapa();
   const volver = () => Mapa.deshacerGeom('lote', lote.id, antes);
 
-  // Bigbags sobre bigbags no arman pila: se MONTAN, si caben (nunca más
-  // de 3 de alto), y si no, quedan pegados al lado.
+  // Bigbags sobre bigbags: se pregunta. JUNTAR los monta (nunca más de
+  // 3 de alto; si no caben, quedan pegados al lado) y cada lote sigue
+  // suelto. APILAR arma una pila normal: en el patio los sacos se rompen
+  // y el material queda como cualquier pila.
   if (blanco.tipo === 'lote' && Mapa.esGrupoBigbags(lote) && Mapa.esGrupoBigbags(blanco.obj)) {
-    return montarBigbags(lote, blanco.obj, antes, volver);
+    // lo que se soltó sobre su propio montaje solo vuelve a su sitio
+    const piso = Mapa.montadoSobre(blanco.obj.id) || blanco.obj.id;
+    if (Mapa.montadoSobre(lote.id) === piso) return volver();
+    const base = S.lotes.find((l) => l.id === piso) || blanco.obj;
+    // Un lote que ya tiene bigbags encima no se monta sobre otro: quedaría
+    // más alto de lo que se apila en el patio. Ese queda al lado.
+    const cabe = !Mapa.tieneCarga(lote.id) && Mapa.cabeEncima(lote, blanco.obj);
+    const que = await elegir({
+      titulo: `¿Juntar o apilar ${lote.codigo} con ${base.codigo}?`,
+      detalle: (cabe
+        ? `Juntar: sus bigbags quedan sobre los de ${base.codigo}, sin pasar de ${Mapa.ALTO_BIGBAGS} de alto, y cada lote sigue suelto con su código.`
+        : `Juntar: ya está a ${Mapa.ALTO_BIGBAGS} de alto donde haría falta, así que queda pegado al lado, cada lote suelto con su código.`)
+        + ' Apilar: se rompen los sacos y se arma una pila nueva con los dos lotes dentro; queda en el historial de ambos.',
+      opciones: [
+        { valor: 'juntar', texto: cabe ? 'Juntar' : 'Dejarlo al lado' },
+        { valor: 'apilar', texto: 'Apilar', lleno: true }
+      ]
+    });
+    if (que === 'juntar') return montarBigbags(lote, blanco.obj, base, cabe, antes);
+    if (que === 'apilar') return armarPila(lote, base, antes);
+    return volver();
   }
 
   if (blanco.tipo === 'pila') {
@@ -2922,8 +2948,13 @@ async function manejarSoltar(lote, blanco, antes) {
     aceptar: 'Armar la pila'
   });
   if (!okPila) return volver();
+  await armarPila(lote, blanco.obj, antes);
+}
 
-  const otro = blanco.obj;
+// Pila nueva con `lote` y `otro` dentro. Si eran bigbags montados, entra
+// el montaje entero (lo de encima de cada uno), y todos se desmontan:
+// dentro de una pila ya no hay columnas.
+async function armarPila(lote, otro, antes) {
   const cx = (lote.x + otro.x) / 2, cy = (lote.y + otro.y) / 2;
   const codigo = siguienteCodigoPila();
   const pila = await Store.crearPila({
@@ -2931,7 +2962,12 @@ async function manejarSoltar(lote, blanco, antes) {
     rx: Math.max(lote.rx, otro.rx) + 46, ry: Math.max(lote.ry, otro.ry) + 34,
     plataforma_id: S.plataforma, usuario_id: S.perfil.id
   });
-  for (const l of [otro, lote]) {
+  const ids = [...new Set([otro.id, ...Mapa.encimaDe(otro.id), lote.id, ...Mapa.encimaDe(lote.id)])];
+  for (const id of ids) {
+    const l = id === lote.id ? lote : S.lotes.find((q) => q.id === id);
+    if (!l) continue;
+    // el que se arrastró se guarda donde estaba: soltarlo no fue un traslado
+    if (l.sobre_lote) await Store.guardarFigura('lotes', { ...l, ...(l === lote ? antes : {}), sobre_lote: null });
     await Store.registrarEvento({
       lote_id: l.id, tipo: 'ingreso_pila', pila_id: pila.id, usuario_id: S.perfil.id
     });
