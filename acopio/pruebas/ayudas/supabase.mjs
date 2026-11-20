@@ -65,6 +65,8 @@ export const createClient = () => ({
       update: (fila) => ({
         async eq(campo, valor) {
           servidor.intentos.push(`${tabla}:${valor}`);
+          const e = servidor.reglas[`${tabla}:update`]?.(fila);
+          if (e) return { error: e };
           const actual = [...servidor.tablas[tabla].values()]
             .find((f) => String(f[campo]) === String(valor));
           if (!actual) return { error: null };

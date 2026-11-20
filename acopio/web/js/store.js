@@ -409,7 +409,34 @@ export async function historial(loteId) {
       evs = evs.concat(data.filter((e) => !ya.has(e.id)));
     }
   }
-  return evs.sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
+  // La recepción que se apuntó aquí al crear el lote es provisional: el
+  // servidor escribe la suya, con otro id, y cuando llega había DOS
+  // "Recibido en acopio" en el historial. Si ya está la de verdad, la
+  // provisional sobra (y se borra, para los celulares que ya la tenían).
+  if (evs.some((e) => e.tipo === 'recepcion' && !e.local)) {
+    const sobra = evs.filter((e) => e.tipo === 'recepcion' && e.local);
+    for (const e of sobra) await idb.borrar('eventos', e.id);
+    if (sobra.length) evs = evs.filter((e) => !sobra.includes(e));
+  }
+  return evs.sort((a, b) => String(b.ocurrido_en || '').localeCompare(String(a.ocurrido_en || '')));
+}
+
+// Lo mismo, en la bajada: por cada recepción que manda el servidor se tira
+// la provisional de ese lote.
+async function quitarRecepcionesProvisionales(bajados) {
+  const lotesIds = new Set((bajados || []).filter((e) => e.tipo === 'recepcion').map((e) => e.lote_id));
+  for (const id of lotesIds)
+    for (const e of await idb.por('eventos', 'lote_id', id))
+      if (e.tipo === 'recepcion' && e.local) await idb.borrar('eventos', e.id);
+}
+
+// Una corrección de movimiento en la cola es SOLO {id, x, y}. Volverla a
+// aplicar con un `guardar` a secas pisaba el evento entero: se quedaba sin
+// lote, sin tipo y sin fecha, y desaparecía del historial. Se mezcla con
+// el que ya está.
+async function aplicarCorreccion(fila, extra = {}) {
+  const actual = await idb.uno('eventos', fila.id);
+  if (actual) await idb.guardar('eventos', { ...actual, x: fila.x, y: fila.y, ...extra });
 }
 
 // ¿Alcanzamos a traer la historia entera de este lote?
@@ -1177,6 +1204,7 @@ async function bajar() {
   await idb.varios('pilas', pil.data);
   await idb.varios('lotes', lot.data);
   await idb.varios('eventos', eve.data);
+  await quitarRecepcionesProvisionales(eve.data);
   await idb.varios('tareas', tar.data);
 
   // Se cuadra con el servidor comparando ids. Va DESPUÉS de guardar lo
@@ -1223,6 +1251,12 @@ async function bajar() {
     if (op.modo === 'borrar') continue;
     const destino = destinoDe(op.tabla);
     if (!TIENDAS.includes(destino)) continue;
+    if (op.tabla === 'eventos' && op.modo === 'actualizar') {
+      // Una corrección rechazada es solo {id, x, y}: guardarla tal cual
+      // dejaría el movimiento sin lote, sin tipo y sin fecha. El evento
+      // local ya lleva esa x/y desde que se corrigió.
+      continue;
+    }
     await idb.guardar(destino, { ...op.fila, _rechazado: true });
     marcados.push({ t: destino, id: op.fila.id });
     if (op.tabla === 'eventos') await aplicarLocal(op.fila);
@@ -1233,6 +1267,8 @@ async function bajar() {
   for (const op of cola) {
     if (op.modo === 'borrar') {
       await idb.borrar(op.tabla === 'mapa_figuras' ? 'figuras' : op.tabla, op.fila.id);
+    } else if (op.tabla === 'eventos' && op.modo === 'actualizar') {
+      await aplicarCorreccion(op.fila);
     } else if (op.tabla === 'eventos') {
       await idb.guardar('eventos', op.fila);
       await aplicarLocal(op.fila);

@@ -3907,6 +3907,12 @@ function textoEvento(e) {
     case 'observacion': return 'Observación';
     case 'movimiento': return 'Se marcó su posición en el patio';
     case 'renombrado': return 'Se corrigieron los datos del lote';
+    // Estos dos existen desde las plataformas y el laboratorio, pero aquí
+    // no tenían frase y el historial enseñaba la palabra interna tal cual.
+    case 'traslado': return `Se pasó a ${
+      S.plataformas.find((x) => x.id === e.plataforma_id)?.nombre || 'otra plataforma'}`;
+    case 'entrega_laboratorio': return 'La muestra salió para el laboratorio';
+    case 'anulacion': return 'Anulado';
     default: return e.tipo;
   }
 }
