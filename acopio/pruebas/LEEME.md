@@ -8,7 +8,7 @@ cd acopio
 node pruebas/correr.mjs
 ```
 
-Sale una lista de comprobaciones y, al final, `✓ las 12 tandas pasaron`.
+Sale una lista de comprobaciones y, al final, `✓ las 13 tandas pasaron`.
 Si alguna falla, el renglón dice `FALLA` y el proceso termina en error.
 
 **Esta carpeta no se publica.** Solo se sube `web/` al hosting; `pruebas/`
@@ -24,6 +24,7 @@ y `sql/` se quedan en el repositorio.
 | `sincronizacion.mjs` | Que solo se baje lo que cambió, que el historial viejo se recupere en vez de faltar en silencio, que la pasada completa note lo borrado, y que desactivar un perfil no vacíe la pantalla. |
 | `gps.mjs` | Que la calibración ponga a cada uno en su sitio del plano —y no reflejado como en un espejo—, que con cuatro puntos o más se corrija un plano estirado, que un punto mal marcado salga señalado (y que no se acuse a uno bueno cuando no se puede saber), que una calibración mala se rechace, que calibrar desde la oficina sea solo del admin y en ventana aparte, que un nombre raro no rompa la capa del GPS, que moverse no rearme el plano, y que en la base cada uno escriba solo su propia ubicación. |
 | `historial.mjs` | Que el historial no repita «Recibido en acopio», que una corrección de movimiento rechazada no deje el evento sin lote ni fecha, que cada tipo de evento tenga su frase, y que supabase-js no se pierda de la caché al actualizar la app. |
+| `sesion.mjs` | Que pedir sincronizar mientras ya hay una vuelta en marcha espere a esa en vez de decir «sin conexión», que una sesión vencida no se confunda con un perfil sin habilitar, y que editar un lote que ya no está no encole media fila. |
 | `movimientos.mjs` | Que en la base solo se pueda corregir x/y del ÚLTIMO movimiento de un lote: ni uno anterior, ni otro tipo de evento, ni el autor o la hora, ni borrar. Corre contra PostgreSQL de verdad si lo hay. |
 
 Cada tanda corre en su propio proceso: comparten globales (la base local,

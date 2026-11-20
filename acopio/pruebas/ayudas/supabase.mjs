@@ -24,7 +24,8 @@ export const createClient = () => ({
   },
   from(tabla) {
     const filtros = [];
-    let tope = null, orden = null, pedidas = '*';
+    let tope = null, pedidas = '*';
+    const orden = [];       // varios order() se encadenan, como en PostgREST
     const api = {
       async upsert(fila) {
         servidor.intentos.push(`${tabla}:${fila.id}`);
@@ -81,7 +82,7 @@ export const createClient = () => ({
       // Ordenar de verdad importa: la app baja los eventos MÁS RECIENTES
       // y luego va bajando hacia atrás de página en página. Con un order
       // que no ordenaba, esa paginación no se estaba probando.
-      order(campo, op) { orden = { campo, asc: op?.ascending !== false }; return api; },
+      order(campo, op) { orden.push({ campo, asc: op?.ascending !== false }); return api; },
       limit(n) { tope = n; return api; },
       eq(campo, valor) { filtros.push((f) => String(f[campo]) === String(valor)); return api; },
       gt(campo, valor) { filtros.push((f) => (f[campo] || '') > valor); return api; },
@@ -90,9 +91,12 @@ export const createClient = () => ({
                          filtros.push((f) => s.has(String(f[campo]))); return api; },
       resolver() {
         let filas = [...servidor.tablas[tabla].values()].filter((f) => filtros.every((p) => p(f)));
-        if (orden) filas.sort((a, b) => {
-          const x = String(a[orden.campo] ?? ''), y = String(b[orden.campo] ?? '');
-          return (x < y ? -1 : x > y ? 1 : 0) * (orden.asc ? 1 : -1);
+        if (orden.length) filas.sort((a, b) => {
+          for (const o of orden) {
+            const x = String(a[o.campo] ?? ''), y = String(b[o.campo] ?? '');
+            if (x !== y) return (x < y ? -1 : 1) * (o.asc ? 1 : -1);
+          }
+          return 0;
         });
         if (tope != null) filas = filas.slice(0, tope);
         // Se devuelven SOLO las columnas pedidas, como hace el servidor

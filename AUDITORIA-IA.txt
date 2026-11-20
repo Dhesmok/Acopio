@@ -1,4 +1,20 @@
 # =====================================================================
+#  ESTADO AL 2026-11-20 (revisión posterior; el informe de abajo es de
+#  agosto y se deja tal cual como referencia)
+#   [1] Service worker: HECHO (tope de 5 s con AbortController).
+#   [2] CI: HECHO (.github/workflows/comprobaciones.yml, con PostgreSQL).
+#   [3] app.js monolítico: PENDIENTE (~5000 líneas).
+#   [4] salir(): CUBIERTO en la pantalla (sincroniza y pide confirmar
+#       antes de borrar); store.salir() en sí sigue sin comprobar.
+#   [5] hoyLocal con reloj del celular: PENDIENTE (decisión abierta).
+#   [6] Eventos sin límite local: PENDIENTE.
+#   [7] config.js versionado: PENDIENTE (la clave es publicable).
+#   [8] Versión del SW a mano: PENDIENTE.
+#   [9] Linter: PENDIENTE.
+#   [10] IndexedDB: ya va por la versión 7.
+# =====================================================================
+
+# =====================================================================
 #  INFORME DE AUDITORÍA DE CÓDIGO · REPOSITORIO "Acopio"
 #
 #  Generado por: ox-alpha (asistente de código)
