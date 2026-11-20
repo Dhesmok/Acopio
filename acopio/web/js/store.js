@@ -409,7 +409,34 @@ export async function historial(loteId) {
       evs = evs.concat(data.filter((e) => !ya.has(e.id)));
     }
   }
-  return evs.sort((a, b) => b.ocurrido_en.localeCompare(a.ocurrido_en));
+  // La recepción que se apuntó aquí al crear el lote es provisional: el
+  // servidor escribe la suya, con otro id, y cuando llega había DOS
+  // "Recibido en acopio" en el historial. Si ya está la de verdad, la
+  // provisional sobra (y se borra, para los celulares que ya la tenían).
+  if (evs.some((e) => e.tipo === 'recepcion' && !e.local)) {
+    const sobra = evs.filter((e) => e.tipo === 'recepcion' && e.local);
+    for (const e of sobra) await idb.borrar('eventos', e.id);
+    if (sobra.length) evs = evs.filter((e) => !sobra.includes(e));
+  }
+  return evs.sort((a, b) => String(b.ocurrido_en || '').localeCompare(String(a.ocurrido_en || '')));
+}
+
+// Lo mismo, en la bajada: por cada recepción que manda el servidor se tira
+// la provisional de ese lote.
+async function quitarRecepcionesProvisionales(bajados) {
+  const lotesIds = new Set((bajados || []).filter((e) => e.tipo === 'recepcion').map((e) => e.lote_id));
+  for (const id of lotesIds)
+    for (const e of await idb.por('eventos', 'lote_id', id))
+      if (e.tipo === 'recepcion' && e.local) await idb.borrar('eventos', e.id);
+}
+
+// Una corrección de movimiento en la cola es SOLO {id, x, y}. Volverla a
+// aplicar con un `guardar` a secas pisaba el evento entero: se quedaba sin
+// lote, sin tipo y sin fecha, y desaparecía del historial. Se mezcla con
+// el que ya está.
+async function aplicarCorreccion(fila, extra = {}) {
+  const actual = await idb.uno('eventos', fila.id);
+  if (actual) await idb.guardar('eventos', { ...actual, x: fila.x, y: fila.y, ...extra });
 }
 
 // ¿Alcanzamos a traer la historia entera de este lote?
@@ -440,7 +467,10 @@ export async function observaciones() {
       const { data, error } = await sb.from('eventos')
         .select('lote_id,nota,ocurrido_en')
         .eq('tipo', 'observacion')
-        .order('ocurrido_en', { ascending: false })
+        // con el id de desempate: dos observaciones del mismo instante
+        // podían caer en páginas distintas en una consulta y en la misma
+        // en la siguiente, y una se perdía o salía dos veces
+        .order('ocurrido_en', { ascending: false }).order('id')
         .range(traidas.length, traidas.length + trozo - 1);
       if (error || !data) break;
       traidas.push(...data);
@@ -736,6 +766,10 @@ export async function guardarPlataforma(fila) {
 
 export async function actualizarLote(id, cambios) {
   const l = await idb.uno('lotes', id);
+  // Un lote que ya no está en el celular (lo borró una conciliación
+  // mientras la ficha seguía abierta) no se reinventa con media fila: el
+  // servidor lo rechazaría por los campos que faltan.
+  if (!l) return null;
   const fila = { ...l, ...cambios };
   await idb.guardar('lotes', fila);
   await encolar(`fig:lotes:${id}`, 'lotes', 'guardar', fila);
@@ -810,22 +844,30 @@ async function aplicarLocal(e) {
 }
 
 // -------------------------------------------------------- sincronización
-let ocupado = false;
+// Si ya hay una vuelta en marcha, quien llama espera ESA y recibe su
+// resultado. Antes se le contestaba en el acto "sin conexión": cerrar
+// sesión justo mientras sincronizaba la de cada minuto creía que no se
+// había podido subir nada y ofrecía perder los cambios, y la franja de
+// "sin acceso" parpadeaba porque el resultado falso la pisaba.
+let enCurso = null;
 
-export async function sincronizar() {
-  if (ocupado || !navigator.onLine) return { ok: false, motivo: 'sin_conexion' };
-  ocupado = true;
-  try {
-    // Antes que nada: si el perfil no está activo, ni subir ni bajar tiene
-    // sentido. Intentarlo solo gasta los reintentos de la cola.
-    if (!(await perfilVivo())) throw new Error('perfil_inactivo');
-    await subir();
-    await bajar();
-    await meta('ultima_sync', ahora());
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, motivo: e.message };
-  } finally { ocupado = false; }
+export function sincronizar() {
+  if (enCurso) return enCurso;
+  if (!navigator.onLine) return Promise.resolve({ ok: false, motivo: 'sin_conexion' });
+  enCurso = (async () => {
+    try {
+      // Antes que nada: si el perfil no está activo, ni subir ni bajar
+      // tiene sentido. Intentarlo solo gasta los reintentos de la cola.
+      if (!(await perfilVivo())) throw new Error('perfil_inactivo');
+      await subir();
+      await bajar();
+      await meta('ultima_sync', ahora());
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, motivo: e.message };
+    } finally { enCurso = null; }
+  })();
+  return enCurso;
 }
 
 async function aFallidos(op, error, detalle) {
@@ -969,7 +1011,10 @@ async function perfilVivo() {
   if (Date.now() - perfilConfirmado < CONFIRMAR_PERFIL_CADA) return true;
   const { data: s } = await sb.auth.getSession();
   const uid = s?.session?.user?.id;
-  if (!uid) return false;
+  // Sin sesión no es lo mismo que sin habilitar: la sesión se venció (o
+  // se cerró en otro lado) y basta con volver a entrar. Decirle "avisa al
+  // administrador" mandaba a la persona a buscar a quien no hacía falta.
+  if (!uid) throw new Error('sin_sesion');
   const { data, error } = await sb.from('perfiles').select('id').eq('id', uid).maybeSingle();
   if (error) throw new Error(error.message);
   if (data) perfilConfirmado = Date.now();
@@ -1177,6 +1222,7 @@ async function bajar() {
   await idb.varios('pilas', pil.data);
   await idb.varios('lotes', lot.data);
   await idb.varios('eventos', eve.data);
+  await quitarRecepcionesProvisionales(eve.data);
   await idb.varios('tareas', tar.data);
 
   // Se cuadra con el servidor comparando ids. Va DESPUÉS de guardar lo
@@ -1223,6 +1269,12 @@ async function bajar() {
     if (op.modo === 'borrar') continue;
     const destino = destinoDe(op.tabla);
     if (!TIENDAS.includes(destino)) continue;
+    if (op.tabla === 'eventos' && op.modo === 'actualizar') {
+      // Una corrección rechazada es solo {id, x, y}: guardarla tal cual
+      // dejaría el movimiento sin lote, sin tipo y sin fecha. El evento
+      // local ya lleva esa x/y desde que se corrigió.
+      continue;
+    }
     await idb.guardar(destino, { ...op.fila, _rechazado: true });
     marcados.push({ t: destino, id: op.fila.id });
     if (op.tabla === 'eventos') await aplicarLocal(op.fila);
@@ -1233,6 +1285,8 @@ async function bajar() {
   for (const op of cola) {
     if (op.modo === 'borrar') {
       await idb.borrar(op.tabla === 'mapa_figuras' ? 'figuras' : op.tabla, op.fila.id);
+    } else if (op.tabla === 'eventos' && op.modo === 'actualizar') {
+      await aplicarCorreccion(op.fila);
     } else if (op.tabla === 'eventos') {
       await idb.guardar('eventos', op.fila);
       await aplicarLocal(op.fila);

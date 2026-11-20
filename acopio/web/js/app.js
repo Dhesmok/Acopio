@@ -660,7 +660,10 @@ async function recargar() {
 }
 
 async function sincronizar() {
-  S.sync = await Store.sincronizar();
+  const r = await Store.sincronizar();
+  // Sin señal no se sabe nada nuevo del perfil ni de la sesión: se deja
+  // el último diagnóstico en vez de borrar un "sin acceso" de verdad.
+  if (r.ok || r.motivo !== 'sin_conexion' || !S.sync) S.sync = r;
   await recargar();
   await mostrarAvisos();
 }
@@ -908,24 +911,33 @@ function pintar() {
 // servidor no devuelve ni un registro NI acepta ninguno, y todo eso pasa
 // sin error visible: hay que decirlo, o la app parece rota sin motivo.
 const sinPermiso = () => S.sync?.motivo === 'perfil_inactivo';
+const sinSesion = () => S.sync?.motivo === 'sin_sesion';
 
 function pintarSync() {
   const chip = $('#chip'); if (!chip) return;
   let estado = 'ok', texto = 'Al día';
   if (sinPermiso()) { estado = 'error'; texto = 'Sin acceso'; }
+  else if (sinSesion()) { estado = 'error'; texto = 'Sesión vencida'; }
   else if (S.pendientes > 0) { estado = 'pendiente'; texto = `${S.pendientes} sin subir`; }
   else if (!navigator.onLine) { estado = 'offline'; texto = 'Sin señal'; }
   chip.dataset.estado = estado;
   $('#chip-txt').textContent = texto;
   const f = $('#franja');
-  f.hidden = S.pendientes === 0 && S.rechazados === 0 && !sinPermiso() && !S.actualizacion;
-  f.dataset.tono = (S.rechazados || sinPermiso()) ? 'error' : 'aviso';
+  f.hidden = S.pendientes === 0 && S.rechazados === 0 && !sinPermiso() && !sinSesion()
+    && !S.actualizacion;
+  f.dataset.tono = (S.rechazados || sinPermiso() || sinSesion()) ? 'error' : 'aviso';
   if (sinPermiso()) {
     f.firstElementChild.textContent =
       'Usuario sin habilitar en el servidor · lo que se registre se guarda en el celular pero no sube. Avisar al administrador.';
     f.onclick = () => avisar(
       'El administrador debe activar el perfil en la base de datos (perfiles → activo). '
       + 'Hasta entonces todo se guarda en el celular y sube en cuanto quede habilitado.');
+  } else if (sinSesion()) {
+    // Recargar lleva a la pantalla de entrada SIN borrar el celular: lo
+    // pendiente sigue en la cola y sube en cuanto se vuelva a entrar.
+    f.firstElementChild.textContent =
+      'La sesión se venció · toca para volver a entrar. Lo guardado en el celular no se pierde.';
+    f.onclick = () => location.reload();
   } else if (S.actualizacion) {
     // recargar no pierde nada: lo pendiente vive en el celular, no en la pantalla
     f.firstElementChild.textContent = 'Hay una versión nueva de la app · toca para actualizar';
@@ -3907,6 +3919,12 @@ function textoEvento(e) {
     case 'observacion': return 'Observación';
     case 'movimiento': return 'Se marcó su posición en el patio';
     case 'renombrado': return 'Se corrigieron los datos del lote';
+    // Estos dos existen desde las plataformas y el laboratorio, pero aquí
+    // no tenían frase y el historial enseñaba la palabra interna tal cual.
+    case 'traslado': return `Se pasó a ${
+      S.plataformas.find((x) => x.id === e.plataforma_id)?.nombre || 'otra plataforma'}`;
+    case 'entrega_laboratorio': return 'La muestra salió para el laboratorio';
+    case 'anulacion': return 'Anulado';
     default: return e.tipo;
   }
 }

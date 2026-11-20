@@ -2,7 +2,10 @@
 //  sw.js  ·  hace que la app abra aunque no haya señal.
 //  Sube la versión al publicar cambios: los celulares se actualizan solos.
 // =====================================================================
-const VERSION = 'acopio-v102';
+const VERSION = 'acopio-v103';
+// Las librerías del CDN (supabase-js) van aparte y sobreviven a las
+// versiones: ver el bloque de esm.sh más abajo.
+const CDN = 'acopio-cdn';
 const SHELL = [
   './',
   './index.html',
@@ -30,6 +33,24 @@ const SHELL = [
   './icons/icon-512-maskable.png'
 ];
 
+// Los celulares que vienen de una versión anterior tienen supabase-js
+// guardado en la caché vieja, que `activate` va a borrar. Se pasa a la del
+// CDN antes, para que esta primera actualización tampoco lo pierda.
+async function rescatarCdn() {
+  try {
+    const cdn = await caches.open(CDN);
+    for (const k of await caches.keys()) {
+      if (k === CDN) continue;
+      const c = await caches.open(k);
+      for (const req of await c.keys()) {
+        if (new URL(req.url).hostname !== 'esm.sh') continue;
+        const res = await c.match(req);
+        if (res && res.ok) await cdn.put(req, res);
+      }
+    }
+  } catch { /* si no se puede, se vuelve a bajar con la próxima señal */ }
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(VERSION)
@@ -37,6 +58,7 @@ self.addEventListener('install', (e) => {
       // navegador. Sin esto, subir la versión aquí no garantizaba nada: se
       // podían guardar bajo el nombre nuevo exactamente los archivos viejos.
       .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(rescatarCdn)
       .then(() => self.skipWaiting())
   );
 });
@@ -44,7 +66,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((ks) => Promise.all(ks.filter((k) => k !== VERSION && k !== CDN).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -80,11 +102,18 @@ self.addEventListener('fetch', (e) => {
 
   // Librerías de CDN: se guardan la primera vez que hay señal.
   if (url.hostname === 'esm.sh') {
+    // En su PROPIA caché, que no se borra al subir de versión. Antes iba
+    // en la de la versión, y al publicar cada cambio se borraba con ella:
+    // si la siguiente vez que se abría la app era ya sin señal, supabase-js
+    // no estaba y la app no arrancaba. Y solo se guarda una respuesta
+    // buena: un error del CDN guardado se servía para siempre.
     e.respondWith(
       caches.match(e.request).then((hit) =>
         hit || fetchConTope(e.request).then((res) => {
-          const copia = res.clone();
-          caches.open(VERSION).then((c) => c.put(e.request, copia));
+          if (res.ok) {
+            const copia = res.clone();
+            caches.open(CDN).then((c) => c.put(e.request, copia));
+          }
           return res;
         })
       )
